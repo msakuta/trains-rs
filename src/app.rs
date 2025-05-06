@@ -16,6 +16,8 @@ pub(crate) struct TrainsApp {
     transform: Transform,
     heightmap: Vec<f32>,
     bg: BgImage,
+    show_contours: bool,
+    show_grid: bool,
 }
 
 impl TrainsApp {
@@ -24,6 +26,8 @@ impl TrainsApp {
             transform: Transform::new(1.),
             heightmap: init_heightmap(),
             bg: BgImage::new(),
+            show_contours: true,
+            show_grid: false,
         }
     }
 
@@ -80,10 +84,19 @@ impl TrainsApp {
                 + painter.clip_rect().left_top().to_vec2()
         });
     }
+
+    fn ui_panel(&mut self, ui: &mut Ui) {
+        ui.checkbox(&mut self.show_contours, "Show contour lines");
+        ui.checkbox(&mut self.show_grid, "Show grid");
+    }
 }
 
 impl eframe::App for TrainsApp {
     fn update(&mut self, ctx: &eframe::egui::Context, _frame: &mut eframe::Frame) {
+        eframe::egui::SidePanel::right("side_panel")
+            .min_width(200.)
+            .show(ctx, |ui| self.ui_panel(ui));
+
         eframe::egui::CentralPanel::default().show(ctx, |ui| {
             Frame::canvas(ui.style()).show(ui, |ui| {
                 self.render(ui);

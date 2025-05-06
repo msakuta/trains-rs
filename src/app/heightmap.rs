@@ -25,7 +25,13 @@ impl TrainsApp {
             })
             .collect();
 
-        render_grid(painter, to_pos2);
+        if self.show_grid {
+            render_grid(painter, to_pos2);
+        }
+
+        if !self.show_contours {
+            return;
+        }
 
         let resol = DOWNSAMPLE as f32; //self.resolution;
         for i in 0..4 {
