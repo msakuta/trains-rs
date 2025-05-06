@@ -1,4 +1,4 @@
-use eframe::egui::{Color32, Painter, Pos2, Rect, pos2};
+use eframe::egui::{Color32, Painter, Pos2, pos2};
 
 use crate::{
     marching_squares::{Shape, border_pixel, cell_border_interpolated, pick_bits, pick_values},
@@ -7,7 +7,7 @@ use crate::{
 
 use super::{AREA_HEIGHT, AREA_WIDTH, TrainsApp};
 
-const NOISE_SCALE: f64 = 0.1;
+const NOISE_SCALE: f64 = 0.03;
 
 const DOWNSAMPLE: usize = 10;
 const DOWNSAMPLED_SHAPE: Shape = (
@@ -16,7 +16,7 @@ const DOWNSAMPLED_SHAPE: Shape = (
 );
 
 impl TrainsApp {
-    pub fn render_contours(&self, painter: &Painter, rect: &Rect, to_pos2: &impl Fn(Pos2) -> Pos2) {
+    pub fn render_contours(&self, painter: &Painter, to_pos2: &impl Fn(Pos2) -> Pos2) {
         let downsampled: Vec<_> = (0..AREA_WIDTH * AREA_HEIGHT / DOWNSAMPLE / DOWNSAMPLE)
             .map(|i| {
                 let x = (i % (AREA_WIDTH / DOWNSAMPLE)) * DOWNSAMPLE;
@@ -25,16 +25,16 @@ impl TrainsApp {
             })
             .collect();
 
-        render_grid(painter, rect);
+        render_grid(painter, to_pos2);
 
         let resol = DOWNSAMPLE as f32; //self.resolution;
         for i in 0..4 {
             let level = i as f32 - 2.;
             // let offset = vec2(offset_x, offset_y);
             for cy in 0..DOWNSAMPLED_SHAPE.1 - 1 {
-                let offset_y = (cy as f32 + 0.5) * resol + rect.min.y;
+                let offset_y = (cy as f32 + 0.5) * resol;
                 for cx in 0..DOWNSAMPLED_SHAPE.0 - 1 {
-                    let offset_x = (cx as f32 + 0.5) * resol + rect.min.x;
+                    let offset_x = (cx as f32 + 0.5) * resol;
                     let bits = pick_bits(&downsampled, DOWNSAMPLED_SHAPE, (cx, cy), level);
                     if !border_pixel(bits) {
                         continue;
@@ -62,17 +62,23 @@ impl TrainsApp {
     }
 }
 
-fn render_grid(painter: &Painter, rect: &Rect) {
-    let right = rect.left() + AREA_WIDTH as f32;
+fn render_grid(painter: &Painter, to_pos2: &impl Fn(Pos2) -> Pos2) {
+    let right = AREA_WIDTH as f32;
     for iy in 0..AREA_HEIGHT / DOWNSAMPLE {
-        let y = (iy * DOWNSAMPLE) as f32 + rect.top();
-        painter.line_segment([pos2(rect.left(), y), pos2(right, y)], (1., Color32::GRAY));
+        let y = (iy * DOWNSAMPLE) as f32;
+        painter.line_segment(
+            [to_pos2(pos2(0., y)), to_pos2(pos2(right, y))],
+            (1., Color32::GRAY),
+        );
     }
 
-    let bottom = rect.top() + AREA_HEIGHT as f32;
+    let bottom = AREA_HEIGHT as f32;
     for ix in 0..AREA_WIDTH / DOWNSAMPLE {
-        let x = (ix * DOWNSAMPLE) as f32 + rect.top();
-        painter.line_segment([pos2(x, rect.top()), pos2(x, bottom)], (1., Color32::GRAY));
+        let x = (ix * DOWNSAMPLE) as f32;
+        painter.line_segment(
+            [to_pos2(pos2(x, 0.)), to_pos2(pos2(x, bottom))],
+            (1., Color32::GRAY),
+        );
     }
 }
 

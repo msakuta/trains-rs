@@ -2,6 +2,7 @@ mod app;
 mod bg_image;
 mod marching_squares;
 mod perlin_noise;
+mod transform;
 
 use app::TrainsApp;
 

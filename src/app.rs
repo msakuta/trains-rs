@@ -1,15 +1,19 @@
 mod heightmap;
 
-use eframe::egui::{Frame, Ui};
-use heightmap::init_heightmap;
+use self::heightmap::init_heightmap;
+use eframe::egui::{Frame, Ui, pos2};
 
-use crate::bg_image::BgImage;
+use crate::{
+    bg_image::BgImage,
+    transform::{Transform, half_rect},
+};
 
 pub(crate) const AREA_WIDTH: usize = 500;
 pub(crate) const AREA_HEIGHT: usize = 500;
 // const AREA_SHAPE: Shape = (AREA_WIDTH as isize, AREA_HEIGHT as isize);
 
 pub(crate) struct TrainsApp {
+    transform: Transform,
     heightmap: Vec<f32>,
     bg: BgImage,
 }
@@ -17,6 +21,7 @@ pub(crate) struct TrainsApp {
 impl TrainsApp {
     pub fn new() -> Self {
         Self {
+            transform: Transform::new(1.),
             heightmap: init_heightmap(),
             bg: BgImage::new(),
         }
@@ -25,6 +30,10 @@ impl TrainsApp {
     fn render(&mut self, ui: &mut Ui) {
         let (response, painter) =
             ui.allocate_painter(ui.available_size(), eframe::egui::Sense::hover());
+
+        if ui.ui_contains_pointer() {
+            ui.input(|i| self.transform.handle_mouse(i, half_rect(&response.rect)));
+        }
 
         let _ = self.bg.paint(
             &response,
@@ -61,11 +70,15 @@ impl TrainsApp {
                 let img = eframe::egui::ColorImage::from_gray([AREA_WIDTH, AREA_HEIGHT], &bitmap);
                 Ok(img)
             },
-            [0., 0.],
-            1.,
+            self.transform.offset_scr(),
+            self.transform.scale(),
         );
 
-        self.render_contours(&painter, &painter.clip_rect(), &|p| p);
+        self.render_contours(&painter, &|p| {
+            let p = self.transform.transform_point(p);
+            pos2(p.x, AREA_HEIGHT as f32 * self.transform.scale() - p.y)
+                + painter.clip_rect().left_top().to_vec2()
+        });
     }
 }
 

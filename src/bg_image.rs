@@ -1,6 +1,6 @@
 //! A widget for background image.
 
-use eframe::egui::{self, Color32, Painter, Pos2, Rect, Response, TextureOptions, Vec2};
+use eframe::egui::{self, Color32, Painter, Pos2, Rect, Response, TextureOptions, Vec2, pos2};
 
 pub(crate) struct BgImage {
     texture: Option<egui::TextureHandle>,
@@ -49,13 +49,13 @@ impl BgImage {
         );
 
         let size = texture.size_vec2() * scale;
-        let min = Vec2::new(origin[0] as f32, origin[1] as f32);
+        let min = Vec2::new(origin[0] as f32, origin[1] as f32) * scale;
         let max = min + size;
         let rect = Rect {
             min: min.to_pos2(),
             max: max.to_pos2(),
         };
-        const UV: Rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+        const UV: Rect = Rect::from_min_max(pos2(0., 1.), Pos2::new(1.0, 0.0));
         painter.image(
             texture.id(),
             to_screen.transform_rect(rect),
