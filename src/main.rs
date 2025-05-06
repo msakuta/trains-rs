@@ -1,5 +1,6 @@
 mod app;
 mod bg_image;
+mod marching_squares;
 mod perlin_noise;
 
 use app::TrainsApp;

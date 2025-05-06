@@ -1,13 +1,13 @@
-use eframe::egui::{Frame, Ui};
+mod heightmap;
 
-use crate::{
-    bg_image::BgImage,
-    perlin_noise::{Xor128, gen_terms, perlin_noise_pixel},
-};
+use eframe::egui::{Frame, Ui};
+use heightmap::init_heightmap;
+
+use crate::bg_image::BgImage;
 
 pub(crate) const AREA_WIDTH: usize = 500;
 pub(crate) const AREA_HEIGHT: usize = 500;
-const NOISE_SCALE: f64 = 0.1;
+// const AREA_SHAPE: Shape = (AREA_WIDTH as isize, AREA_HEIGHT as isize);
 
 pub(crate) struct TrainsApp {
     heightmap: Vec<f32>,
@@ -16,16 +16,8 @@ pub(crate) struct TrainsApp {
 
 impl TrainsApp {
     pub fn new() -> Self {
-        let mut rng = Xor128::new(8357);
-        let terms = gen_terms(&mut rng, 3);
         Self {
-            heightmap: (0..AREA_WIDTH * AREA_HEIGHT)
-                .map(|i| {
-                    let x = (i % AREA_WIDTH) as f64 * NOISE_SCALE;
-                    let y = (i / AREA_WIDTH) as f64 * NOISE_SCALE;
-                    perlin_noise_pixel(x, y, 3, &terms) as f32
-                })
-                .collect(),
+            heightmap: init_heightmap(),
             bg: BgImage::new(),
         }
     }
@@ -39,7 +31,6 @@ impl TrainsApp {
             &painter,
             (),
             |_| -> Result<_, ()> {
-                println!("heightmap: {:?}", &self.heightmap[..100]);
                 let min_p = self
                     .heightmap
                     .iter()
@@ -62,29 +53,19 @@ impl TrainsApp {
                         }
                     })
                     .ok_or(())?;
-                dbg!(min_p, max_p);
                 let bitmap: Vec<_> = self
                     .heightmap
                     .iter()
-                    .map(|p| ((p - min_p) / (max_p - min_p) * 127.) as u8)
+                    .map(|p| ((p - min_p) / (max_p - min_p) * 127. + 127.) as u8)
                     .collect();
-                println!("bitmap: {:?}", &bitmap[..100]);
                 let img = eframe::egui::ColorImage::from_gray([AREA_WIDTH, AREA_HEIGHT], &bitmap);
                 Ok(img)
             },
             [0., 0.],
             1.,
         );
-        //     to_screen.transform_rect(Rect::from_min_size(
-        //         egui::pos2(
-        //             (x as f32 + xofs) * CELL_SIZE_F,
-        //             (y as f32 + yofs) * CELL_SIZE_F,
-        //         ),
-        //         Vec2::splat(CELL_SIZE_F * 0.5),
-        //     )),
-        //     tex_rect,
-        //     Color32::WHITE,
-        // );
+
+        self.render_contours(&painter, &painter.clip_rect(), &|p| p);
     }
 }
 
