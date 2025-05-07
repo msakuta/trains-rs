@@ -1,8 +1,11 @@
 mod app;
 mod bg_image;
 mod marching_squares;
+mod path_utils;
 mod perlin_noise;
+mod train;
 mod transform;
+mod vec2;
 
 use app::TrainsApp;
 

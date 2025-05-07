@@ -118,7 +118,7 @@ impl Transform {
         self.offset = new_view_offset.into();
     }
 
-    pub(crate) fn _into_paint(&self, response: &Response) -> PaintTransform {
+    pub(crate) fn into_paint(&self, response: &Response) -> PaintTransform {
         let to_screen = egui::emath::RectTransform::from_to(
             Rect::from_min_size(Pos2::ZERO, response.rect.size()),
             response.rect,
@@ -150,13 +150,21 @@ impl PaintTransform {
         self.canvas_offset
     }
 
-    // pub(crate) fn to_pos2(&self, pos: crate::vec2::Vec2<f64>) -> Pos2 {
-    //     let pos = self.transform.transform_point([pos.x as f32, pos.y as f32]);
-    //     self.to_screen.transform_pos(pos2(
-    //         self.canvas_offset[0] + pos.x,
-    //         self.canvas_offset[1] - pos.y,
-    //     ))
-    // }
+    pub(crate) fn to_pos2(&self, pos: crate::vec2::Vec2<f64>) -> Pos2 {
+        let pos = self.transform.transform_point([pos.x as f32, pos.y as f32]);
+        self.to_screen.transform_pos(pos2(
+            self.canvas_offset[0] + pos.x,
+            self.canvas_offset[1] - pos.y,
+        ))
+    }
+
+    pub(crate) fn transform_pos2(&self, pos: Pos2) -> Pos2 {
+        let pos = self.transform.transform_point(pos);
+        self.to_screen.transform_pos(pos2(
+            self.canvas_offset[0] + pos.x,
+            self.canvas_offset[1] - pos.y,
+        ))
+    }
 
     // pub(crate) fn to_vec2(&self, pos: crate::vec2::Vec2<f64>) -> Vec2 {
     //     let pos = self
