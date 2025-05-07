@@ -2,7 +2,7 @@ mod heightmap;
 
 use self::heightmap::init_heightmap;
 use eframe::{
-    egui::{Align2, Color32, FontId, Frame, Painter, Pos2, Ui, pos2},
+    egui::{Align2, Color32, FontId, Frame, Painter, Pos2, Ui},
     epaint::PathShape,
 };
 
@@ -49,7 +49,6 @@ impl TrainsApp {
         let paint_transform = self.transform.into_paint(&response);
 
         let _ = self.bg.paint(
-            &response,
             &painter,
             (),
             |_| -> Result<_, ()> {
@@ -83,10 +82,7 @@ impl TrainsApp {
                 let img = eframe::egui::ColorImage::from_gray([AREA_WIDTH, AREA_HEIGHT], &bitmap);
                 Ok(img)
             },
-            paint_transform
-                .transform_pos2(pos2(0., AREA_HEIGHT as f32))
-                .into(),
-            self.transform.scale(),
+            &paint_transform,
         );
 
         self.render_contours(&painter, &|p| paint_transform.transform_pos2(p));
@@ -116,7 +112,7 @@ impl TrainsApp {
         }
 
         for (_i, station) in self.train.stations.iter().enumerate() {
-            let i_ptr = &*station.borrow() as *const _;
+            // let i_ptr = &*station.borrow() as *const _;
             // let is_target = if let TrainTask::Goto(target) = &self.train.train_task {
             //     if let Some(rc) = target.upgrade() {
             //         let target_ref = rc.borrow();
@@ -204,9 +200,9 @@ impl TrainsApp {
         };
 
         const RAIL_HALFWIDTH: f64 = 1.25;
-        const TIE_HALFLENGTH: f64 = 1.5;
-        const TIE_HALFWIDTH: f64 = 0.3;
-        const TIE_INTERPOLATES: usize = 3;
+        // const TIE_HALFLENGTH: f64 = 1.5;
+        // const TIE_HALFWIDTH: f64 = 0.3;
+        // const TIE_INTERPOLATES: usize = 3;
 
         for ofs in [RAIL_HALFWIDTH, -RAIL_HALFWIDTH] {
             let left_rail_points = track

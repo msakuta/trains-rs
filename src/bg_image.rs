@@ -1,7 +1,11 @@
 //! A widget for background image.
 
-use eframe::egui::{self, Color32, Painter, Pos2, Rect, Response, TextureOptions, Vec2, pos2};
+use eframe::egui::{self, Color32, Painter, Pos2, Rect, TextureOptions, Vec2, pos2};
 
+use crate::transform::PaintTransform;
+
+/// An abstraction over a cached texture handle.
+/// It constructs the image resource in egui on the first call.
 pub(crate) struct BgImage {
     texture: Option<egui::TextureHandle>,
 }
@@ -17,12 +21,10 @@ impl BgImage {
 
     pub fn paint<T, E>(
         &mut self,
-        response: &Response,
         painter: &Painter,
         app_data: T,
         img_getter: impl Fn(T) -> Result<egui::ColorImage, E>,
-        origin: [f32; 2],
-        scale: f32,
+        paint_transform: &PaintTransform,
     ) -> Result<(), E> {
         let texture: &egui::TextureHandle = if let Some(texture) = &self.texture {
             texture
@@ -43,13 +45,10 @@ impl BgImage {
             })
         };
 
-        let to_screen = egui::emath::RectTransform::from_to(
-            Rect::from_min_size(Pos2::ZERO, response.rect.size()),
-            response.rect,
-        );
-
+        let origin = paint_transform.transform_pos2(pos2(0., texture.size()[1] as f32));
+        let scale = paint_transform.scale();
         let size = texture.size_vec2() * scale;
-        let min = Vec2::new(origin[0] as f32, origin[1] as f32);
+        let min = Vec2::new(origin.x as f32, origin.y as f32);
         let max = min + size;
         let rect = Rect {
             min: min.to_pos2(),

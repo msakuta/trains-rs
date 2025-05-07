@@ -146,7 +146,11 @@ pub(crate) struct PaintTransform {
 }
 
 impl PaintTransform {
-    pub(crate) fn canvas_offset(&self) -> [f32; 2] {
+    pub(crate) fn scale(&self) -> f32 {
+        self.transform.scale
+    }
+
+    pub(crate) fn _canvas_offset(&self) -> [f32; 2] {
         self.canvas_offset
     }
 
