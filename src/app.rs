@@ -2,7 +2,7 @@ mod heightmap;
 
 use self::heightmap::init_heightmap;
 use eframe::{
-    egui::{Align2, Color32, FontId, Frame, Painter, Pos2, Ui},
+    egui::{self, Align2, Color32, FontId, Frame, Painter, Pos2, Ui},
     epaint::PathShape,
 };
 
@@ -111,6 +111,22 @@ impl TrainsApp {
             }
         }
 
+        let rotation_matrix = |angle: f32| {
+            [
+                angle.cos() as f32,
+                angle.sin() as f32,
+                -angle.sin() as f32,
+                angle.cos() as f32,
+            ]
+        };
+        let rotate_vec = |rotation: &[f32; 4], ofs: &[f32; 2]| {
+            [
+                rotation[0] * ofs[0] + rotation[1] * ofs[1],
+                rotation[2] * ofs[0] + rotation[3] * ofs[1],
+            ]
+        };
+        let scale_vec = |scale: f32, vec: &[f32; 2]| [vec[0] * scale, vec[1] * scale];
+
         for (_i, station) in self.train.stations.iter().enumerate() {
             // let i_ptr = &*station.borrow() as *const _;
             // let is_target = if let TrainTask::Goto(target) = &self.train.train_task {
@@ -132,6 +148,47 @@ impl TrainsApp {
                 is_target,
                 false,
             );
+        }
+
+        let paint_train = |pos: &Vec2<f64>, heading: f64| {
+            let base_pos = paint_transform.to_pos2(*pos).to_vec2();
+            let rotation = rotation_matrix(heading as f32);
+            let transform_delta =
+                |ofs: &[f32; 2]| scale_vec(self.transform.scale(), &rotate_vec(&rotation, ofs));
+            let transform_vec = |ofs: &[f32; 2]| Pos2::from(transform_delta(ofs)) + base_pos;
+            let convert_to_poly = |vertices: &[[f32; 2]]| {
+                PathShape::closed_line(
+                    vertices.into_iter().map(|ofs| transform_vec(ofs)).collect(),
+                    (1., Color32::RED),
+                )
+            };
+
+            painter.add(convert_to_poly(&[
+                [-2., -2.],
+                [6., -2.],
+                [6., 2.],
+                [-2., 2.],
+            ]));
+
+            let paint_wheel = |ofs: &[f32; 2], rotation: &[f32; 4]| {
+                use eframe::emath::Vec2;
+                let middle = transform_vec(ofs);
+                let front =
+                    middle + Vec2::from(rotate_vec(rotation, &[self.transform.scale(), 0.]));
+                let back = middle - Vec2::from(rotate_vec(rotation, &[self.transform.scale(), 0.]));
+
+                painter.line_segment([front, back], (2., Color32::BLACK));
+            };
+
+            paint_wheel(&[0., 0.], &rotation);
+        };
+
+        for i in 0..3 {
+            if let Some((train_pos, train_heading)) =
+                self.train.train_pos(i).zip(self.train.heading(i))
+            {
+                paint_train(&train_pos, train_heading);
+            }
         }
     }
 
@@ -271,6 +328,7 @@ impl TrainsApp {
 
 impl eframe::App for TrainsApp {
     fn update(&mut self, ctx: &eframe::egui::Context, _frame: &mut eframe::Frame) {
+        ctx.request_repaint();
         eframe::egui::SidePanel::right("side_panel")
             .min_width(200.)
             .show(ctx, |ui| self.ui_panel(ui));
@@ -280,5 +338,17 @@ impl eframe::App for TrainsApp {
                 self.render(ui);
             });
         });
+
+        let mut thrust = 0.;
+        ctx.input(|input| {
+            for key in input.keys_down.iter() {
+                match key {
+                    egui::Key::W => thrust += 1.,
+                    egui::Key::S => thrust -= 1.,
+                    _ => {}
+                }
+            }
+        });
+        self.train.update(thrust);
     }
 }
