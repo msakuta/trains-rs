@@ -1,7 +1,9 @@
-use eframe::egui::{Color32, Painter, Pos2, pos2};
+use eframe::egui::{Color32, Painter, Pos2, Vec2, pos2, vec2};
 
 use crate::{
-    marching_squares::{Shape, border_pixel, cell_border_interpolated, pick_bits, pick_values},
+    marching_squares::{
+        Idx, Shape, border_pixel, cell_border_interpolated, pick_bits, pick_values,
+    },
     perlin_noise::{Xor128, gen_terms, perlin_noise_pixel},
 };
 
@@ -98,4 +100,22 @@ pub(super) fn init_heightmap() -> Vec<f32> {
             perlin_noise_pixel(x, y, 3, &terms) as f32 * 10.
         })
         .collect()
+}
+
+pub(crate) fn gradient(heightmap: &[f32], shape: &Shape, pos: &crate::vec2::Vec2<f64>) -> f64 {
+    let [x, y] = [pos.x as isize, pos.y as isize];
+    if x < 0 || shape.0 <= x || y < 0 || shape.1 < y {
+        return 0.;
+    }
+
+    let dx = heightmap[shape.idx(x + 1, y)] - heightmap[shape.idx(x, y)];
+    let dy = heightmap[shape.idx(x, y + 1)] - heightmap[shape.idx(x, y)];
+
+    pos.dot(crate::vec2::Vec2::new(dx as f64, dy as f64))
+
+    // let [fx, fy] = [pos.x % 1., pos.y % 1.];
+
+    // let lerp = |a, b, f| (1. - f) * a + f * b;
+    // lerp(lerp(heightmap[shape.idx(x, y)], heightmap[shape.idx(x + 1, y)], fx),
+    // lerp(heightmap[shape.idx(x, y + 1)], heightmap[shape.idx(x + 1, y + 1)], fx), fy)
 }

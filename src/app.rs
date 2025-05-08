@@ -1,10 +1,12 @@
 mod heightmap;
 
-use self::heightmap::init_heightmap;
 use eframe::{
     egui::{self, Align2, Color32, FontId, Frame, Painter, Pos2, Ui},
     epaint::PathShape,
 };
+
+pub(crate) use self::heightmap::gradient;
+use self::heightmap::init_heightmap;
 
 use crate::{
     bg_image::BgImage,
@@ -349,6 +351,6 @@ impl eframe::App for TrainsApp {
                 }
             }
         });
-        self.train.update(thrust);
+        self.train.update(thrust, &self.heightmap);
     }
 }

@@ -7,6 +7,7 @@ use std::{
 };
 
 use crate::{
+    app::{AREA_HEIGHT, AREA_WIDTH},
     path_utils::{
         CircleArc, PathSegment, interpolate_path, interpolate_path_heading, wrap_angle,
         wrap_angle_offset,
@@ -20,6 +21,7 @@ const CAR_LENGTH: f64 = 1.;
 const TRAIN_ACCEL: f64 = 0.001;
 const MAX_SPEED: f64 = 1.;
 const THRUST_ACCEL: f64 = 0.001;
+const GRAD_ACCEL: f64 = 0.0002;
 const MIN_RADIUS: f64 = 50.;
 const SEGMENT_LENGTH: f64 = 10.;
 pub(crate) const _C_POINTS: [Vec2<f64>; 11] = [
@@ -37,8 +39,8 @@ pub(crate) const _C_POINTS: [Vec2<f64>; 11] = [
 ];
 
 pub(crate) const PATH_SEGMENTS: [PathSegment; 4] = [
-    PathSegment::Line([Vec2::new(0., 0.), Vec2::new(50., 0.)]),
-    PathSegment::Line([Vec2::new(50., 0.), Vec2::new(500., 200.)]),
+    PathSegment::Line([Vec2::new(10., 10.), Vec2::new(50., 10.)]),
+    PathSegment::Line([Vec2::new(50., 10.), Vec2::new(500., 200.)]),
     PathSegment::Line([Vec2::new(500., 200.), Vec2::new(550., 200.)]),
     PathSegment::Arc(CircleArc::new(
         Vec2::new(550., 300.),
@@ -138,7 +140,7 @@ impl Train {
         )
     }
 
-    pub fn update(&mut self, thrust: f64) {
+    pub fn update(&mut self, thrust: f64, heightmap: &[f32]) {
         if let TrainTask::Wait(timer) = &mut self.train_task {
             *timer -= 1;
             if *timer <= 1 {
@@ -184,6 +186,14 @@ impl Train {
             }
         }
         self.speed = (self.speed + thrust * THRUST_ACCEL).clamp(-MAX_SPEED, MAX_SPEED);
+        let grad = self.train_pos(0).map_or(0., |pos| {
+            crate::app::gradient(
+                heightmap,
+                &(AREA_WIDTH as isize, AREA_HEIGHT as isize),
+                &pos,
+            )
+        });
+        self.speed -= grad * GRAD_ACCEL;
         if self.s == 0. && self.speed < 0. {
             self.speed = 0.;
         }
