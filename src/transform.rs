@@ -177,17 +177,17 @@ impl PaintTransform {
     //     vec2(pos.x, -pos.y)
     // }
 
-    // pub(crate) fn from_pos2(&self, pos: Pos2) -> crate::vec2::Vec2<f64> {
-    //     let pos = self.from_screen.transform_pos(pos);
-    //     let pos = self.transform.inverse_transform_point([
-    //         pos.x - self.canvas_offset[0],
-    //         self.canvas_offset[1] - pos.y,
-    //     ]);
-    //     crate::vec2::Vec2 {
-    //         x: pos.x as f64,
-    //         y: pos.y as f64,
-    //     }
-    // }
+    pub(crate) fn from_pos2(&self, pos: Pos2) -> crate::vec2::Vec2<f64> {
+        let pos = self.from_screen.transform_pos(pos);
+        let pos = self.transform.inverse_transform_point([
+            pos.x - self.canvas_offset[0],
+            self.canvas_offset[1] - pos.y,
+        ]);
+        crate::vec2::Vec2 {
+            x: pos.x as f64,
+            y: pos.y as f64,
+        }
+    }
 }
 
 pub(crate) fn half_rect(rect: &Rect) -> [f32; 2] {

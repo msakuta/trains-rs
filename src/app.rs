@@ -1,5 +1,7 @@
 mod heightmap;
 
+use std::rc::Rc;
+
 use eframe::{
     egui::{self, Align2, Color32, FontId, Frame, Painter, Pos2, Ui},
     epaint::PathShape,
@@ -18,6 +20,17 @@ use crate::{
 pub(crate) const AREA_WIDTH: usize = 500;
 pub(crate) const AREA_HEIGHT: usize = 500;
 // const AREA_SHAPE: Shape = (AREA_WIDTH as isize, AREA_HEIGHT as isize);
+const SELECT_PIXEL_RADIUS: f64 = 20.;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ClickMode {
+    None,
+    GentleCurve,
+    TightCurve,
+    StraightLine,
+    DeleteSegment,
+    AddStation,
+}
 
 pub(crate) struct TrainsApp {
     transform: Transform,
@@ -25,7 +38,11 @@ pub(crate) struct TrainsApp {
     bg: BgImage,
     show_contours: bool,
     show_grid: bool,
+    click_mode: ClickMode,
     train: Train,
+    selected_station: Option<usize>,
+    new_station: String,
+    error_msg: Option<(String, f64)>,
 }
 
 impl TrainsApp {
@@ -36,19 +53,81 @@ impl TrainsApp {
             bg: BgImage::new(),
             show_contours: true,
             show_grid: false,
+            click_mode: ClickMode::None,
             train: Train::new(),
+            selected_station: None,
+            new_station: "New Station".to_string(),
+            error_msg: None,
+        }
+    }
+
+    fn process_result(&mut self, pos: Vec2<f64>, res: Result<(), String>) {
+        if let Err(e) = res {
+            self.error_msg = Some((e, 10.));
+        } else {
+            println!("Added point {pos:?}");
         }
     }
 
     fn render(&mut self, ui: &mut Ui) {
-        let (response, painter) =
-            ui.allocate_painter(ui.available_size(), eframe::egui::Sense::hover());
+        let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::click());
 
         if ui.ui_contains_pointer() {
             ui.input(|i| self.transform.handle_mouse(i, half_rect(&response.rect)));
         }
 
         let paint_transform = self.transform.into_paint(&response);
+
+        if response.clicked() {
+            if let Some(pointer) = response.interact_pointer_pos() {
+                match self.click_mode {
+                    ClickMode::None => {}
+                    ClickMode::GentleCurve => {
+                        let pos = paint_transform.from_pos2(pointer);
+                        // self.train.control_points.push(pos);
+                        let res = self.train.add_gentle(pos);
+                        self.process_result(pos, res);
+                    }
+                    ClickMode::TightCurve => {
+                        let pos = paint_transform.from_pos2(pointer);
+                        let res = self.train.add_tight(pos);
+                        self.process_result(pos, res);
+                    }
+                    ClickMode::StraightLine => {
+                        let pos = paint_transform.from_pos2(pointer);
+                        let res = self.train.add_straight(pos);
+                        self.process_result(pos, res);
+                    }
+                    ClickMode::DeleteSegment => {
+                        let pos = paint_transform.from_pos2(pointer);
+                        let thresh = SELECT_PIXEL_RADIUS / self.transform.scale() as f64;
+                        let res = self.train.delete_segment(pos, thresh);
+                        self.process_result(pos, res);
+                    }
+                    ClickMode::AddStation => {
+                        let pos = paint_transform.from_pos2(pointer);
+                        let thresh = SELECT_PIXEL_RADIUS / self.transform.scale() as f64;
+                        let next_name = (0..).find_map(|i| {
+                            let cand = format!("New Station {i}");
+                            if !self.train.stations.iter().any(|s| s.borrow().name == cand)
+                                && self.new_station != cand
+                            {
+                                Some(cand)
+                            } else {
+                                None
+                            }
+                        });
+                        if let Some(name) = next_name {
+                            self.train.add_station(
+                                std::mem::replace(&mut self.new_station, name),
+                                pos,
+                                thresh,
+                            );
+                        }
+                    }
+                }
+            }
+        }
 
         let _ = self.bg.paint(
             &painter,
@@ -98,6 +177,56 @@ impl TrainsApp {
             ]
         };
         let scale_vec = |scale: f32, vec: &[f32; 2]| [vec[0] * scale, vec[1] * scale];
+
+        match self.click_mode {
+            ClickMode::None => self.train.ghost_path = None,
+            ClickMode::GentleCurve => {
+                if let Some(pos) = response.hover_pos() {
+                    self.train.ghost_gentle(paint_transform.from_pos2(pos));
+                } else {
+                    self.train.ghost_path = None;
+                }
+            }
+            ClickMode::StraightLine => {
+                if let Some(pos) = response.hover_pos() {
+                    self.train.ghost_straight(paint_transform.from_pos2(pos));
+                } else {
+                    self.train.ghost_path = None;
+                }
+            }
+            ClickMode::TightCurve => {
+                if let Some(pos) = response.hover_pos() {
+                    self.train.ghost_tight(paint_transform.from_pos2(pos));
+                } else {
+                    self.train.ghost_path = None;
+                }
+            }
+            ClickMode::DeleteSegment => {
+                let found_node = response.hover_pos().and_then(|pointer| {
+                    let thresh = SELECT_PIXEL_RADIUS / self.transform.scale() as f64;
+                    self.train
+                        .find_path_node(paint_transform.from_pos2(pointer), thresh)
+                });
+                if let Some((path_id, seg_id, _)) = found_node {
+                    let color = Color32::from_rgba_premultiplied(127, 0, 127, 63);
+                    if let Some(path) = self.train.paths.get(&path_id) {
+                        let seg_track = path.seg_track(seg_id);
+                        self.render_track_detail(seg_track, &painter, &paint_transform, 5., color);
+                    }
+                }
+            }
+            ClickMode::AddStation => {
+                if let Some(pointer) = response.hover_pos() {
+                    let pos = paint_transform.from_pos2(pointer);
+                    let thresh = SELECT_PIXEL_RADIUS / self.transform.scale() as f64;
+                    if let Some((path_id, _, node_id)) = self.train.find_path_node(pos, thresh) {
+                        let station =
+                            Station::new(self.new_station.clone(), path_id, node_id as f64);
+                        self.render_station(&painter, &paint_transform, &station, false, true);
+                    }
+                }
+            }
+        }
 
         for (_i, station) in self.train.stations.iter().enumerate() {
             // let i_ptr = &*station.borrow() as *const _;
@@ -161,6 +290,16 @@ impl TrainsApp {
             {
                 paint_train(&train_pos, train_heading);
             }
+        }
+
+        if let Some((ref err, _)) = self.error_msg {
+            painter.text(
+                response.rect.center(),
+                Align2::CENTER_CENTER,
+                err,
+                FontId::default(),
+                Color32::RED,
+            );
         }
     }
 
@@ -295,12 +434,59 @@ impl TrainsApp {
     fn ui_panel(&mut self, ui: &mut Ui) {
         ui.checkbox(&mut self.show_contours, "Show contour lines");
         ui.checkbox(&mut self.show_grid, "Show grid");
+        ui.group(|ui| {
+            ui.label("Click mode:");
+            ui.radio_value(&mut self.click_mode, ClickMode::None, "None");
+            ui.radio_value(&mut self.click_mode, ClickMode::GentleCurve, "Gentle Curve");
+            ui.radio_value(&mut self.click_mode, ClickMode::TightCurve, "Tight Curve");
+            ui.radio_value(
+                &mut self.click_mode,
+                ClickMode::StraightLine,
+                "Straight Line",
+            );
+            ui.radio_value(&mut self.click_mode, ClickMode::DeleteSegment, "Delete");
+            ui.radio_value(&mut self.click_mode, ClickMode::AddStation, "Add Station");
+        });
+        ui.group(|ui| {
+            ui.label("Stations:");
+            for (i, rc_station) in self.train.stations.iter().enumerate() {
+                let station = rc_station.borrow();
+                ui.radio_value(
+                    &mut self.selected_station,
+                    Some(i),
+                    &format!("{} ({}, {})", station.name, station.path_id, station.s),
+                );
+            }
+            if ui.button("Schedule station").clicked() {
+                if let Some(target) = self.selected_station {
+                    self.train
+                        .schedule
+                        .push(Rc::downgrade(&self.train.stations[target]));
+                }
+            }
+            if ui.button("Delete station").clicked() {
+                if let Some(target) = self.selected_station {
+                    self.train.stations.remove(target);
+                }
+            }
+            ui.text_edit_singleline(&mut self.new_station);
+        });
     }
 }
 
 impl eframe::App for TrainsApp {
     fn update(&mut self, ctx: &eframe::egui::Context, _frame: &mut eframe::Frame) {
         ctx.request_repaint();
+
+        // Decay error message even if paused
+        if let Some((_, ref mut time)) = self.error_msg {
+            let dt = ctx.input(|i| i.raw.predicted_dt);
+            *time = *time - dt as f64;
+            if *time < 0. {
+                self.error_msg = None;
+            }
+        }
+
         eframe::egui::SidePanel::right("side_panel")
             .min_width(200.)
             .show(ctx, |ui| self.ui_panel(ui));
