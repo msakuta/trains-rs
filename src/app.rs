@@ -5,7 +5,7 @@ use eframe::{
     epaint::PathShape,
 };
 
-pub(crate) use self::heightmap::gradient;
+pub(crate) use self::heightmap::HeightMap;
 use self::heightmap::init_heightmap;
 
 use crate::{
@@ -21,7 +21,7 @@ pub(crate) const AREA_HEIGHT: usize = 500;
 
 pub(crate) struct TrainsApp {
     transform: Transform,
-    heightmap: Vec<f32>,
+    heightmap: HeightMap,
     bg: BgImage,
     show_contours: bool,
     show_grid: bool,
@@ -53,37 +53,7 @@ impl TrainsApp {
         let _ = self.bg.paint(
             &painter,
             (),
-            |_| -> Result<_, ()> {
-                let min_p = self
-                    .heightmap
-                    .iter()
-                    .fold(None, |acc, cur| {
-                        if let Some(acc) = acc {
-                            if acc < *cur { Some(acc) } else { Some(*cur) }
-                        } else {
-                            Some(*cur)
-                        }
-                    })
-                    .ok_or(())?;
-                let max_p = self
-                    .heightmap
-                    .iter()
-                    .fold(None, |acc, cur| {
-                        if let Some(acc) = acc {
-                            if acc < *cur { Some(*cur) } else { Some(acc) }
-                        } else {
-                            Some(*cur)
-                        }
-                    })
-                    .ok_or(())?;
-                let bitmap: Vec<_> = self
-                    .heightmap
-                    .iter()
-                    .map(|p| ((p - min_p) / (max_p - min_p) * 127. + 127.) as u8)
-                    .collect();
-                let img = eframe::egui::ColorImage::from_gray([AREA_WIDTH, AREA_HEIGHT], &bitmap);
-                Ok(img)
-            },
+            |_| self.heightmap.get_image(),
             &paint_transform,
         );
 

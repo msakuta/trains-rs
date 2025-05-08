@@ -7,7 +7,7 @@ use std::{
 };
 
 use crate::{
-    app::{AREA_HEIGHT, AREA_WIDTH},
+    app::{AREA_HEIGHT, AREA_WIDTH, HeightMap},
     path_utils::{
         CircleArc, PathSegment, interpolate_path, interpolate_path_heading, wrap_angle,
         wrap_angle_offset,
@@ -140,7 +140,7 @@ impl Train {
         )
     }
 
-    pub fn update(&mut self, thrust: f64, heightmap: &[f32]) {
+    pub fn update(&mut self, thrust: f64, heightmap: &HeightMap) {
         if let TrainTask::Wait(timer) = &mut self.train_task {
             *timer -= 1;
             if *timer <= 1 {
@@ -186,13 +186,7 @@ impl Train {
             }
         }
         self.speed = (self.speed + thrust * THRUST_ACCEL).clamp(-MAX_SPEED, MAX_SPEED);
-        let grad = self.train_pos(0).map_or(0., |pos| {
-            crate::app::gradient(
-                heightmap,
-                &(AREA_WIDTH as isize, AREA_HEIGHT as isize),
-                &pos,
-            )
-        });
+        let grad = self.train_pos(0).map_or(0., |pos| heightmap.gradient(&pos));
         self.speed -= grad * GRAD_ACCEL;
         if self.s == 0. && self.speed < 0. {
             self.speed = 0.;
