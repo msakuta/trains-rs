@@ -7,10 +7,10 @@ use std::{
 };
 
 use crate::{
-    app::{AREA_HEIGHT, AREA_WIDTH, HeightMap},
+    app::HeightMap,
     path_utils::{
-        CircleArc, PathSegment, interpolate_path, interpolate_path_heading, wrap_angle,
-        wrap_angle_offset,
+        CircleArc, PathSegment, interpolate_path, interpolate_path_heading,
+        interpolate_path_tangent, wrap_angle, wrap_angle_offset,
     },
     vec2::Vec2,
 };
@@ -38,16 +38,22 @@ pub(crate) const _C_POINTS: [Vec2<f64>; 11] = [
     Vec2::new(700., 100.),
 ];
 
-pub(crate) const PATH_SEGMENTS: [PathSegment; 4] = [
-    PathSegment::Line([Vec2::new(10., 10.), Vec2::new(50., 10.)]),
-    PathSegment::Line([Vec2::new(50., 10.), Vec2::new(500., 200.)]),
-    PathSegment::Line([Vec2::new(500., 200.), Vec2::new(550., 200.)]),
+pub(crate) const PATH_SEGMENTS: [PathSegment; 5] = [
+    PathSegment::Line([Vec2::new(50., 50.), Vec2::new(150., 50.)]),
     PathSegment::Arc(CircleArc::new(
-        Vec2::new(550., 300.),
+        Vec2::new(150., 150.),
         100.,
         std::f64::consts::PI * 1.5,
         std::f64::consts::PI * 2.,
     )),
+    PathSegment::Line([Vec2::new(250., 150.), Vec2::new(250., 250.)]),
+    PathSegment::Arc(CircleArc::new(
+        Vec2::new(150., 250.),
+        100.,
+        std::f64::consts::PI * 0.,
+        std::f64::consts::PI * 0.5,
+    )),
+    PathSegment::Line([Vec2::new(150., 350.), Vec2::new(50., 350.)]),
 ];
 
 pub(crate) struct Station {
@@ -140,6 +146,13 @@ impl Train {
         )
     }
 
+    pub fn tangent(&self, car_idx: usize) -> Option<Vec2<f64>> {
+        interpolate_path_tangent(
+            &self.paths[&self.path_id].track,
+            self.s - car_idx as f64 * CAR_LENGTH,
+        )
+    }
+
     pub fn update(&mut self, thrust: f64, heightmap: &HeightMap) {
         if let TrainTask::Wait(timer) = &mut self.train_task {
             *timer -= 1;
@@ -186,8 +199,13 @@ impl Train {
             }
         }
         self.speed = (self.speed + thrust * THRUST_ACCEL).clamp(-MAX_SPEED, MAX_SPEED);
-        let grad = self.train_pos(0).map_or(0., |pos| heightmap.gradient(&pos));
-        self.speed -= grad * GRAD_ACCEL;
+
+        // Acceleration from terrain slope
+        if let Some((tangent, pos)) = self.tangent(0).zip(self.train_pos(0)) {
+            let grad = heightmap.gradient(&pos);
+            self.speed -= grad.dot(tangent) * GRAD_ACCEL;
+        }
+
         if self.s == 0. && self.speed < 0. {
             self.speed = 0.;
         }

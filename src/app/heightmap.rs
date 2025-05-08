@@ -59,16 +59,16 @@ impl HeightMap {
         Ok(img)
     }
 
-    pub(crate) fn gradient(&self, pos: &crate::vec2::Vec2<f64>) -> f64 {
+    pub(crate) fn gradient(&self, pos: &crate::vec2::Vec2<f64>) -> crate::vec2::Vec2<f64> {
         let [x, y] = [pos.x as isize, pos.y as isize];
         if x < 0 || self.shape.0 <= x || y < 0 || self.shape.1 < y {
-            return 0.;
+            return crate::vec2::Vec2::zero();
         }
 
         let dx = self.map[self.shape.idx(x + 1, y)] - self.map[self.shape.idx(x, y)];
         let dy = self.map[self.shape.idx(x, y + 1)] - self.map[self.shape.idx(x, y)];
 
-        pos.dot(crate::vec2::Vec2::new(dx as f64, dy as f64))
+        crate::vec2::Vec2::new(dx as f64, dy as f64)
 
         // let [fx, fy] = [pos.x % 1., pos.y % 1.];
 

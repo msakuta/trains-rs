@@ -91,21 +91,25 @@ pub(crate) fn interpolate_path(path: &[Vec2<f64>], s: f64) -> Option<Vec2<f64>> 
 }
 
 pub(crate) fn interpolate_path_heading(path: &[Vec2<f64>], s: f64) -> Option<f64> {
+    interpolate_path_tangent(path, s).map(|tangent| tangent.y.atan2(tangent.x))
+}
+
+pub(crate) fn interpolate_path_tangent(path: &[Vec2<f64>], s: f64) -> Option<Vec2<f64>> {
     if path.len() < 2 {
         return None;
     }
     if s <= 0. {
         let delta = path[1] - path[0];
-        return Some(delta.y.atan2(delta.x));
+        return Some(delta);
     }
     if (path.len() - 1) as f64 <= s {
         let delta = path[path.len() - 1] - path[path.len() - 2];
-        return Some(delta.y.atan2(delta.x));
+        return Some(delta);
     }
     let i = s as usize;
     let (prev, next) = (path[i], path[i + 1]);
     let delta = next - prev;
-    Some(delta.y.atan2(delta.x))
+    Some(delta)
 }
 
 /// Quadratic Bezier curve, uses control points
