@@ -9,6 +9,7 @@ use crate::{
 
 use super::{AREA_HEIGHT, AREA_WIDTH, TrainsApp};
 
+const NOISE_BITS: u32 = 4;
 const NOISE_SCALE: f64 = 0.03;
 
 const DOWNSAMPLE: usize = 10;
@@ -166,13 +167,13 @@ fn render_grid(painter: &Painter, to_pos2: &impl Fn(Pos2) -> Pos2) {
 
 pub(super) fn init_heightmap() -> HeightMap {
     let mut rng = Xor128::new(8357);
-    let terms = gen_terms(&mut rng, 3);
+    let terms = gen_terms(&mut rng, NOISE_BITS);
     HeightMap::new(
         (0..AREA_WIDTH * AREA_HEIGHT)
             .map(|i| {
                 let x = (i % AREA_WIDTH) as f64 * NOISE_SCALE;
                 let y = (i / AREA_WIDTH) as f64 * NOISE_SCALE;
-                perlin_noise_pixel(x, y, 3, &terms) as f32 * 10.
+                perlin_noise_pixel(x, y, NOISE_BITS, &terms) as f32 * 10.
             })
             .collect(),
         (AREA_WIDTH as isize, AREA_HEIGHT as isize),
