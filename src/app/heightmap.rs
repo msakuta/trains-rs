@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use eframe::egui::{self, Color32, ColorImage, Painter, Pos2, Ui, pos2};
 
 use crate::{
@@ -163,16 +165,10 @@ impl std::ops::IndexMut<(isize, isize)> for HeightMap {
     }
 }
 
+pub type ContoursCache = HashMap<i32, Vec<[Pos2; 2]>>;
+
 impl TrainsApp {
     pub fn render_contours(&self, painter: &Painter, to_pos2: &impl Fn(Pos2) -> Pos2) {
-        let downsampled: Vec<_> = (0..AREA_WIDTH * AREA_HEIGHT / DOWNSAMPLE / DOWNSAMPLE)
-            .map(|i| {
-                let x = (i % (AREA_WIDTH / DOWNSAMPLE)) * DOWNSAMPLE;
-                let y = (i / (AREA_WIDTH / DOWNSAMPLE)) * DOWNSAMPLE;
-                self.heightmap[(x as isize, y as isize)]
-            })
-            .collect();
-
         if self.show_grid {
             render_grid(painter, to_pos2);
         }
@@ -180,6 +176,51 @@ impl TrainsApp {
         if !self.show_contours {
             return;
         }
+
+        self.heightmap.process_contours(|level, points| {
+            let points = [to_pos2(points[0]), to_pos2(points[1])];
+            painter.line_segment(
+                points,
+                (1., Color32::from_rgb((127 + level * 32) as u8, 0, 0)),
+            );
+        });
+    }
+}
+
+impl HeightMap {
+    pub fn cache_contours(&self) -> ContoursCache {
+        let mut ret = ContoursCache::new();
+        self.process_contours(|level, points| {
+            ret.entry(level).or_default().push(*points);
+        });
+
+        ret
+    }
+
+    pub fn render_with_cache(
+        painter: &Painter,
+        cache: &ContoursCache,
+        to_pos2: &impl Fn(Pos2) -> Pos2,
+    ) {
+        for (level, contours) in cache {
+            for points in contours {
+                let points = [to_pos2(points[0]), to_pos2(points[1])];
+                painter.line_segment(
+                    points,
+                    (1., Color32::from_rgb((127 + *level * 32) as u8, 0, 0)),
+                );
+            }
+        }
+    }
+
+    fn process_contours(&self, mut f: impl FnMut(i32, &[Pos2; 2])) {
+        let downsampled: Vec<_> = (0..AREA_WIDTH * AREA_HEIGHT / DOWNSAMPLE / DOWNSAMPLE)
+            .map(|i| {
+                let x = (i % (AREA_WIDTH / DOWNSAMPLE)) * DOWNSAMPLE;
+                let y = (i / (AREA_WIDTH / DOWNSAMPLE)) * DOWNSAMPLE;
+                self[(x as isize, y as isize)]
+            })
+            .collect();
 
         let resol = DOWNSAMPLE as f32; //self.resolution;
         for i in 0..4 {
@@ -197,17 +238,16 @@ impl TrainsApp {
                     if let Some((lines, len)) = cell_border_interpolated(bits, values) {
                         for line in lines.chunks(4).take(len / 4) {
                             let points = [
-                                to_pos2(pos2(
+                                pos2(
                                     line[0] * resol * 0.5 + offset_x,
                                     line[1] * resol * 0.5 + offset_y,
-                                )),
-                                to_pos2(pos2(
+                                ),
+                                pos2(
                                     line[2] * resol * 0.5 + offset_x,
                                     line[3] * resol * 0.5 + offset_y,
-                                )),
+                                ),
                             ];
-                            painter
-                                .line_segment(points, (1., Color32::from_rgb(127 + i * 32, 0, 0)));
+                            f(i, &points);
                         }
                     }
                 }

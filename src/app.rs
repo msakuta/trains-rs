@@ -6,10 +6,9 @@ use eframe::{
     egui::{self, Align2, Color32, FontId, Frame, Painter, Pos2, Ui},
     epaint::PathShape,
 };
-use heightmap::HeightMapParams;
 
 pub(crate) use self::heightmap::HeightMap;
-use self::heightmap::init_heightmap;
+use self::heightmap::{ContoursCache, HeightMapParams, init_heightmap};
 
 use crate::{
     bg_image::BgImage,
@@ -37,9 +36,11 @@ pub(crate) struct TrainsApp {
     transform: Transform,
     heightmap: HeightMap,
     heightmap_params: HeightMapParams,
+    contours_cache: Option<ContoursCache>,
     bg: BgImage,
     show_contours: bool,
     show_grid: bool,
+    use_cached_contours: bool,
     click_mode: ClickMode,
     train: Train,
     selected_station: Option<usize>,
@@ -50,13 +51,18 @@ pub(crate) struct TrainsApp {
 impl TrainsApp {
     pub fn new() -> Self {
         let heightmap_params = HeightMapParams::new();
+        let heightmap = init_heightmap(&heightmap_params);
+
+        let contours_cache = heightmap.cache_contours();
         Self {
             transform: Transform::new(1.),
-            heightmap: init_heightmap(&heightmap_params),
+            heightmap,
             heightmap_params,
+            contours_cache: Some(contours_cache),
             bg: BgImage::new(),
             show_contours: true,
             show_grid: false,
+            use_cached_contours: true,
             click_mode: ClickMode::None,
             train: Train::new(),
             selected_station: None,
@@ -140,7 +146,15 @@ impl TrainsApp {
             &paint_transform,
         );
 
-        self.render_contours(&painter, &|p| paint_transform.transform_pos2(p));
+        if self.use_cached_contours {
+            if let Some(cache) = &self.contours_cache {
+                HeightMap::render_with_cache(&painter, cache, &|p| {
+                    paint_transform.transform_pos2(p)
+                });
+            }
+        } else {
+            self.render_contours(&painter, &|p| paint_transform.transform_pos2(p));
+        }
 
         if 1. < self.transform.scale() {
             if let Some(ghost_segments) = &self.train.ghost_path {
@@ -438,11 +452,13 @@ impl TrainsApp {
     fn ui_panel(&mut self, ui: &mut Ui) {
         ui.checkbox(&mut self.show_contours, "Show contour lines");
         ui.checkbox(&mut self.show_grid, "Show grid");
+        ui.checkbox(&mut self.use_cached_contours, "Use cached contours");
         ui.group(|ui| {
             ui.label("Terrain generation params");
             self.heightmap_params.params_ui(ui);
             if ui.button("Regenerate").clicked() {
                 self.heightmap = init_heightmap(&self.heightmap_params);
+                self.contours_cache = Some(self.heightmap.cache_contours());
                 self.bg.clear();
             }
         });
