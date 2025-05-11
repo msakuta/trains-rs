@@ -9,15 +9,21 @@ use crate::{
 
 use super::{AREA_HEIGHT, AREA_WIDTH, TrainsApp};
 
-const MAX_PERSISTENCE: f64 = 1.;
-const DEFAULT_PERSISTENCE: f64 = 1.;
+const MAX_PERSISTENCE_SCALE: f64 = 2.;
+/// Meaning the default value for the minimum of persistence value.
+const DEFAULT_MIN_PERSISTENCE: f64 = 0.1;
+const DEFAULT_PERSISTENCE_SCALE: f64 = 1.;
 const PERSISTENCE_NOISE_BITS: u32 = 3;
-const NOISE_BITS: u32 = 4;
+const MAX_MIN_PERSISTENCE: f64 = 1.;
 
-const MAX_PERSISTENCE_SCALE: f64 = 1.;
+const MAX_PERSISTENCE_NOISE_SCALE: f64 = 0.5;
 const DEFAULT_PERSISTENCE_NOISE_SCALE: f64 = 0.01;
-const MAX_NOISE_SCALE: f64 = 1.;
+const MAX_NOISE_SCALE: f64 = 0.5;
 const DEFAULT_NOISE_SCALE: f64 = 0.05;
+
+const NOISE_BITS: u32 = 4;
+const DEFAULT_HEIGHT_SCALE: f64 = 10.;
+const MAX_HEIGHT_SCALE: f64 = 50.;
 
 const DOWNSAMPLE: usize = 10;
 const DOWNSAMPLED_SHAPE: Shape = (
@@ -26,21 +32,32 @@ const DOWNSAMPLED_SHAPE: Shape = (
 );
 
 pub(crate) struct HeightMapParams {
+    pub persistence_noise_scale: f64,
     pub persistence_scale: f64,
-    pub persistence: f64,
-    pub scale: f64,
+    pub min_persistence: f64,
+    pub noise_scale: f64,
+    pub height_scale: f64,
 }
 
 impl HeightMapParams {
     pub(super) fn new() -> Self {
         Self {
-            persistence_scale: DEFAULT_PERSISTENCE_NOISE_SCALE,
-            persistence: DEFAULT_PERSISTENCE,
-            scale: DEFAULT_NOISE_SCALE,
+            persistence_noise_scale: DEFAULT_PERSISTENCE_NOISE_SCALE,
+            persistence_scale: DEFAULT_PERSISTENCE_SCALE,
+            min_persistence: DEFAULT_MIN_PERSISTENCE,
+            noise_scale: DEFAULT_NOISE_SCALE,
+            height_scale: DEFAULT_HEIGHT_SCALE,
         }
     }
 
     pub(super) fn params_ui(&mut self, ui: &mut Ui) {
+        ui.horizontal(|ui| {
+            ui.label("Persistence noise scale:");
+            ui.add(egui::Slider::new(
+                &mut self.persistence_noise_scale,
+                (0.)..=MAX_PERSISTENCE_NOISE_SCALE,
+            ));
+        });
         ui.horizontal(|ui| {
             ui.label("Persistence scale:");
             ui.add(egui::Slider::new(
@@ -49,15 +66,25 @@ impl HeightMapParams {
             ));
         });
         ui.horizontal(|ui| {
-            ui.label("Persistence:");
+            ui.label("Min persistence:");
             ui.add(egui::Slider::new(
-                &mut self.persistence,
-                (0.)..=MAX_PERSISTENCE,
+                &mut self.min_persistence,
+                (0.)..=MAX_MIN_PERSISTENCE,
             ));
         });
         ui.horizontal(|ui| {
-            ui.label("Scale:");
-            ui.add(egui::Slider::new(&mut self.scale, (0.)..=MAX_NOISE_SCALE));
+            ui.label("Noise scale:");
+            ui.add(egui::Slider::new(
+                &mut self.noise_scale,
+                (0.)..=MAX_NOISE_SCALE,
+            ));
+        });
+        ui.horizontal(|ui| {
+            ui.label("Height scale:");
+            ui.add(egui::Slider::new(
+                &mut self.height_scale,
+                (0.)..=MAX_HEIGHT_SCALE,
+            ));
         });
     }
 }
@@ -219,7 +246,8 @@ pub(super) fn init_heightmap(params: &HeightMapParams) -> HeightMap {
             .map(|i| {
                 let ix = (i % AREA_WIDTH) as f64;
                 let iy = (i / AREA_WIDTH) as f64;
-                let p_pos = crate::vec2::Vec2::new(ix as f64, iy as f64) * params.persistence_scale;
+                let p_pos =
+                    crate::vec2::Vec2::new(ix as f64, iy as f64) * params.persistence_noise_scale;
                 let persistence_sample = perlin_noise_pixel(
                     p_pos.x,
                     p_pos.y,
@@ -228,11 +256,11 @@ pub(super) fn init_heightmap(params: &HeightMapParams) -> HeightMap {
                     0.5,
                 )
                 .abs()
-                    * params.persistence
-                    + 0.1;
-                let pos = crate::vec2::Vec2::new(ix as f64, iy as f64) * params.scale;
+                    * params.persistence_scale
+                    + params.min_persistence;
+                let pos = crate::vec2::Vec2::new(ix as f64, iy as f64) * params.noise_scale;
                 perlin_noise_pixel(pos.x, pos.y, NOISE_BITS, &terms, persistence_sample) as f32
-                    * 10.
+                    * params.height_scale as f32
             })
             .collect(),
         (AREA_WIDTH as isize, AREA_HEIGHT as isize),
