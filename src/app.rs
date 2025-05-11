@@ -41,6 +41,7 @@ pub(crate) struct TrainsApp {
     show_contours: bool,
     show_grid: bool,
     use_cached_contours: bool,
+    show_debug_slope: bool,
     click_mode: ClickMode,
     train: Train,
     selected_station: Option<usize>,
@@ -63,6 +64,7 @@ impl TrainsApp {
             show_contours: true,
             show_grid: false,
             use_cached_contours: true,
+            show_debug_slope: false,
             click_mode: ClickMode::None,
             train: Train::new(),
             selected_station: None,
@@ -269,7 +271,7 @@ impl TrainsApp {
             );
         }
 
-        let paint_train = |pos: &Vec2<f64>, heading: f64| {
+        let paint_train = |pos: &Vec2<f64>, heading: f64, tangent: &Vec2<f64>| {
             let base_pos = paint_transform.to_pos2(*pos).to_vec2();
             let rotation = rotation_matrix(heading as f32);
             let transform_delta =
@@ -289,24 +291,38 @@ impl TrainsApp {
                 [-2., 2.],
             ]));
 
-            let paint_wheel = |ofs: &[f32; 2], rotation: &[f32; 4]| {
-                use eframe::emath::Vec2;
-                let middle = transform_vec(ofs);
-                let front =
-                    middle + Vec2::from(rotate_vec(rotation, &[self.transform.scale(), 0.]));
-                let back = middle - Vec2::from(rotate_vec(rotation, &[self.transform.scale(), 0.]));
+            // let paint_wheel = |ofs: &[f32; 2], rotation: &[f32; 4]| {
+            //     use eframe::emath::Vec2;
+            //     let middle = transform_vec(ofs);
+            //     let front =
+            //         middle + Vec2::from(rotate_vec(rotation, &[self.transform.scale(), 0.]));
+            //     let back = middle - Vec2::from(rotate_vec(rotation, &[self.transform.scale(), 0.]));
 
-                painter.line_segment([front, back], (2., Color32::BLACK));
-            };
+            //     painter.line_segment([front, back], (2., Color32::BLACK));
+            // };
 
-            paint_wheel(&[0., 0.], &rotation);
+            // paint_wheel(&[0., 0.], &rotation);
+
+            if self.show_debug_slope {
+                let grad = self.heightmap.gradient(pos);
+                let tangent = tangent.normalized();
+                let accel = -grad.dot(tangent);
+                let start = paint_transform.to_pos2(*pos);
+                let end = paint_transform.to_pos2(*pos - grad * 100.);
+                let tangent_end = paint_transform.to_pos2(*pos + tangent * accel * 100.);
+                painter.line_segment([start, end], (2., Color32::RED));
+                painter.line_segment([start, tangent_end], (2., Color32::BLUE));
+            }
         };
 
         for i in 0..3 {
-            if let Some((train_pos, train_heading)) =
-                self.train.train_pos(i).zip(self.train.heading(i))
+            if let Some(((train_pos, train_heading), tangent)) = self
+                .train
+                .train_pos(i)
+                .zip(self.train.heading(i))
+                .zip(self.train.tangent(i))
             {
-                paint_train(&train_pos, train_heading);
+                paint_train(&train_pos, train_heading, &tangent);
             }
         }
 
@@ -453,6 +469,7 @@ impl TrainsApp {
         ui.checkbox(&mut self.show_contours, "Show contour lines");
         ui.checkbox(&mut self.show_grid, "Show grid");
         ui.checkbox(&mut self.use_cached_contours, "Use cached contours");
+        ui.checkbox(&mut self.show_debug_slope, "Show debug slope");
         ui.group(|ui| {
             ui.label("Terrain generation params");
             self.heightmap_params.params_ui(ui);
