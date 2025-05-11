@@ -15,7 +15,7 @@ impl BgImage {
         Self { texture: None }
     }
 
-    pub fn _clear(&mut self) {
+    pub fn clear(&mut self) {
         self.texture.take();
     }
 

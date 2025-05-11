@@ -1,4 +1,4 @@
-use eframe::egui::{Color32, ColorImage, Painter, Pos2, pos2};
+use eframe::egui::{self, Color32, ColorImage, Painter, Pos2, Ui, pos2};
 
 use crate::{
     marching_squares::{
@@ -9,16 +9,58 @@ use crate::{
 
 use super::{AREA_HEIGHT, AREA_WIDTH, TrainsApp};
 
+const MAX_PERSISTENCE: f64 = 1.;
+const DEFAULT_PERSISTENCE: f64 = 1.;
 const PERSISTENCE_NOISE_BITS: u32 = 3;
 const NOISE_BITS: u32 = 4;
-const PERSISTENCE_NOISE_SCALE: f64 = 0.01;
-const NOISE_SCALE: f64 = 0.05;
+
+const MAX_PERSISTENCE_SCALE: f64 = 1.;
+const DEFAULT_PERSISTENCE_NOISE_SCALE: f64 = 0.01;
+const MAX_NOISE_SCALE: f64 = 1.;
+const DEFAULT_NOISE_SCALE: f64 = 0.05;
 
 const DOWNSAMPLE: usize = 10;
 const DOWNSAMPLED_SHAPE: Shape = (
     (AREA_WIDTH / DOWNSAMPLE) as isize,
     (AREA_HEIGHT / DOWNSAMPLE) as isize,
 );
+
+pub(crate) struct HeightMapParams {
+    pub persistence_scale: f64,
+    pub persistence: f64,
+    pub scale: f64,
+}
+
+impl HeightMapParams {
+    pub(super) fn new() -> Self {
+        Self {
+            persistence_scale: DEFAULT_PERSISTENCE_NOISE_SCALE,
+            persistence: DEFAULT_PERSISTENCE,
+            scale: DEFAULT_NOISE_SCALE,
+        }
+    }
+
+    pub(super) fn params_ui(&mut self, ui: &mut Ui) {
+        ui.horizontal(|ui| {
+            ui.label("Persistence scale:");
+            ui.add(egui::Slider::new(
+                &mut self.persistence_scale,
+                (0.)..=MAX_PERSISTENCE_SCALE,
+            ));
+        });
+        ui.horizontal(|ui| {
+            ui.label("Persistence:");
+            ui.add(egui::Slider::new(
+                &mut self.persistence,
+                (0.)..=MAX_PERSISTENCE,
+            ));
+        });
+        ui.horizontal(|ui| {
+            ui.label("Scale:");
+            ui.add(egui::Slider::new(&mut self.scale, (0.)..=MAX_NOISE_SCALE));
+        });
+    }
+}
 
 pub(crate) struct HeightMap {
     pub(super) map: Vec<f32>,
@@ -167,7 +209,7 @@ fn render_grid(painter: &Painter, to_pos2: &impl Fn(Pos2) -> Pos2) {
     }
 }
 
-pub(super) fn init_heightmap(persistence: f64) -> HeightMap {
+pub(super) fn init_heightmap(params: &HeightMapParams) -> HeightMap {
     let mut rng = Xor128::new(8357);
 
     let persistence_terms = gen_terms(&mut rng, PERSISTENCE_NOISE_BITS);
@@ -177,7 +219,7 @@ pub(super) fn init_heightmap(persistence: f64) -> HeightMap {
             .map(|i| {
                 let ix = (i % AREA_WIDTH) as f64;
                 let iy = (i / AREA_WIDTH) as f64;
-                let p_pos = crate::vec2::Vec2::new(ix as f64, iy as f64) * PERSISTENCE_NOISE_SCALE;
+                let p_pos = crate::vec2::Vec2::new(ix as f64, iy as f64) * params.persistence_scale;
                 let persistence_sample = perlin_noise_pixel(
                     p_pos.x,
                     p_pos.y,
@@ -186,9 +228,9 @@ pub(super) fn init_heightmap(persistence: f64) -> HeightMap {
                     0.5,
                 )
                 .abs()
-                    * persistence
+                    * params.persistence
                     + 0.1;
-                let pos = crate::vec2::Vec2::new(ix as f64, iy as f64) * NOISE_SCALE;
+                let pos = crate::vec2::Vec2::new(ix as f64, iy as f64) * params.scale;
                 perlin_noise_pixel(pos.x, pos.y, NOISE_BITS, &terms, persistence_sample) as f32
                     * 10.
             })

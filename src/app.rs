@@ -6,6 +6,7 @@ use eframe::{
     egui::{self, Align2, Color32, FontId, Frame, Painter, Pos2, Ui},
     epaint::PathShape,
 };
+use heightmap::HeightMapParams;
 
 pub(crate) use self::heightmap::HeightMap;
 use self::heightmap::init_heightmap;
@@ -21,8 +22,6 @@ pub(crate) const AREA_WIDTH: usize = 1000;
 pub(crate) const AREA_HEIGHT: usize = 1000;
 // const AREA_SHAPE: Shape = (AREA_WIDTH as isize, AREA_HEIGHT as isize);
 const SELECT_PIXEL_RADIUS: f64 = 20.;
-const DEFAULT_PERSISTENCE: f64 = 1.;
-const MAX_PERSISTENCE: f64 = 1.;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ClickMode {
@@ -37,11 +36,11 @@ enum ClickMode {
 pub(crate) struct TrainsApp {
     transform: Transform,
     heightmap: HeightMap,
+    heightmap_params: HeightMapParams,
     bg: BgImage,
     show_contours: bool,
     show_grid: bool,
     click_mode: ClickMode,
-    persistence: f64,
     train: Train,
     selected_station: Option<usize>,
     new_station: String,
@@ -50,14 +49,15 @@ pub(crate) struct TrainsApp {
 
 impl TrainsApp {
     pub fn new() -> Self {
+        let heightmap_params = HeightMapParams::new();
         Self {
             transform: Transform::new(1.),
-            heightmap: init_heightmap(DEFAULT_PERSISTENCE),
+            heightmap: init_heightmap(&heightmap_params),
+            heightmap_params,
             bg: BgImage::new(),
             show_contours: true,
             show_grid: false,
             click_mode: ClickMode::None,
-            persistence: 1.,
             train: Train::new(),
             selected_station: None,
             new_station: "New Station".to_string(),
@@ -440,16 +440,10 @@ impl TrainsApp {
         ui.checkbox(&mut self.show_grid, "Show grid");
         ui.group(|ui| {
             ui.label("Terrain generation params");
-            ui.radio_value(&mut self.click_mode, ClickMode::None, "None");
-            ui.horizontal(|ui| {
-                ui.label("Persistence:");
-                ui.add(egui::Slider::new(
-                    &mut self.persistence,
-                    (0.)..=MAX_PERSISTENCE,
-                ));
-            });
+            self.heightmap_params.params_ui(ui);
             if ui.button("Regenerate").clicked() {
-                self.heightmap = init_heightmap(self.persistence);
+                self.heightmap = init_heightmap(&self.heightmap_params);
+                self.bg.clear();
             }
         });
         ui.group(|ui| {
