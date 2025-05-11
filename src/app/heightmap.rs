@@ -186,6 +186,20 @@ impl TrainsApp {
             painter.line_segment(points, (line_width, Color32::from_rgb(r as u8, 0, 0)));
         });
     }
+
+    pub fn render_contours_with_cache(&self, painter: &Painter, to_pos2: &impl Fn(Pos2) -> Pos2) {
+        if self.show_grid {
+            render_grid(painter, to_pos2);
+        }
+
+        if !self.show_contours {
+            return;
+        }
+
+        if let Some(cache) = &self.contours_cache {
+            HeightMap::render_with_cache(painter, cache, to_pos2);
+        }
+    }
 }
 
 impl HeightMap {

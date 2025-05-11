@@ -150,11 +150,7 @@ impl TrainsApp {
         );
 
         if self.use_cached_contours {
-            if let Some(cache) = &self.contours_cache {
-                HeightMap::render_with_cache(&painter, cache, &|p| {
-                    paint_transform.transform_pos2(p)
-                });
-            }
+            self.render_contours_with_cache(&painter, &|p| paint_transform.transform_pos2(p));
         } else {
             self.render_contours(&painter, &|p| paint_transform.transform_pos2(p));
         }
