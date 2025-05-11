@@ -1,9 +1,14 @@
 //! Perlin noise implementation from Wikipedia https://en.wikipedia.org/wiki/Perlin_noise
 
-pub(crate) fn perlin_noise_pixel(x: f64, y: f64, bit: u32, terms: &[[f64; 6]]) -> f64 {
+pub(crate) fn perlin_noise_pixel(
+    x: f64,
+    y: f64,
+    bit: u32,
+    terms: &[[f64; 6]],
+    persistence: f64,
+) -> f64 {
     let mut sum = 0.;
     let [mut maxv, mut f] = [0., 1.];
-    let persistence = 0.75;
     for i in (0..bit).rev() {
         let cell = 1 << i;
         let fcell = cell as f64;

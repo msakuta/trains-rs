@@ -9,8 +9,10 @@ use crate::{
 
 use super::{AREA_HEIGHT, AREA_WIDTH, TrainsApp};
 
+const PERSISTENCE_NOISE_BITS: u32 = 3;
 const NOISE_BITS: u32 = 4;
-const NOISE_SCALE: f64 = 0.03;
+const PERSISTENCE_NOISE_SCALE: f64 = 0.01;
+const NOISE_SCALE: f64 = 0.05;
 
 const DOWNSAMPLE: usize = 10;
 const DOWNSAMPLED_SHAPE: Shape = (
@@ -165,15 +167,30 @@ fn render_grid(painter: &Painter, to_pos2: &impl Fn(Pos2) -> Pos2) {
     }
 }
 
-pub(super) fn init_heightmap() -> HeightMap {
+pub(super) fn init_heightmap(persistence: f64) -> HeightMap {
     let mut rng = Xor128::new(8357);
+
+    let persistence_terms = gen_terms(&mut rng, PERSISTENCE_NOISE_BITS);
     let terms = gen_terms(&mut rng, NOISE_BITS);
     HeightMap::new(
         (0..AREA_WIDTH * AREA_HEIGHT)
             .map(|i| {
-                let x = (i % AREA_WIDTH) as f64 * NOISE_SCALE;
-                let y = (i / AREA_WIDTH) as f64 * NOISE_SCALE;
-                perlin_noise_pixel(x, y, NOISE_BITS, &terms) as f32 * 10.
+                let ix = (i % AREA_WIDTH) as f64;
+                let iy = (i / AREA_WIDTH) as f64;
+                let p_pos = crate::vec2::Vec2::new(ix as f64, iy as f64) * PERSISTENCE_NOISE_SCALE;
+                let persistence_sample = perlin_noise_pixel(
+                    p_pos.x,
+                    p_pos.y,
+                    PERSISTENCE_NOISE_BITS,
+                    &persistence_terms,
+                    0.5,
+                )
+                .abs()
+                    * persistence
+                    + 0.1;
+                let pos = crate::vec2::Vec2::new(ix as f64, iy as f64) * NOISE_SCALE;
+                perlin_noise_pixel(pos.x, pos.y, NOISE_BITS, &terms, persistence_sample) as f32
+                    * 10.
             })
             .collect(),
         (AREA_WIDTH as isize, AREA_HEIGHT as isize),

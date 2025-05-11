@@ -17,10 +17,12 @@ use crate::{
     vec2::Vec2,
 };
 
-pub(crate) const AREA_WIDTH: usize = 500;
-pub(crate) const AREA_HEIGHT: usize = 500;
+pub(crate) const AREA_WIDTH: usize = 1000;
+pub(crate) const AREA_HEIGHT: usize = 1000;
 // const AREA_SHAPE: Shape = (AREA_WIDTH as isize, AREA_HEIGHT as isize);
 const SELECT_PIXEL_RADIUS: f64 = 20.;
+const DEFAULT_PERSISTENCE: f64 = 1.;
+const MAX_PERSISTENCE: f64 = 1.;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ClickMode {
@@ -39,6 +41,7 @@ pub(crate) struct TrainsApp {
     show_contours: bool,
     show_grid: bool,
     click_mode: ClickMode,
+    persistence: f64,
     train: Train,
     selected_station: Option<usize>,
     new_station: String,
@@ -49,11 +52,12 @@ impl TrainsApp {
     pub fn new() -> Self {
         Self {
             transform: Transform::new(1.),
-            heightmap: init_heightmap(),
+            heightmap: init_heightmap(DEFAULT_PERSISTENCE),
             bg: BgImage::new(),
             show_contours: true,
             show_grid: false,
             click_mode: ClickMode::None,
+            persistence: 1.,
             train: Train::new(),
             selected_station: None,
             new_station: "New Station".to_string(),
@@ -434,6 +438,20 @@ impl TrainsApp {
     fn ui_panel(&mut self, ui: &mut Ui) {
         ui.checkbox(&mut self.show_contours, "Show contour lines");
         ui.checkbox(&mut self.show_grid, "Show grid");
+        ui.group(|ui| {
+            ui.label("Terrain generation params");
+            ui.radio_value(&mut self.click_mode, ClickMode::None, "None");
+            ui.horizontal(|ui| {
+                ui.label("Persistence:");
+                ui.add(egui::Slider::new(
+                    &mut self.persistence,
+                    (0.)..=MAX_PERSISTENCE,
+                ));
+            });
+            if ui.button("Regenerate").clicked() {
+                self.heightmap = init_heightmap(self.persistence);
+            }
+        });
         ui.group(|ui| {
             ui.label("Click mode:");
             ui.radio_value(&mut self.click_mode, ClickMode::None, "None");
