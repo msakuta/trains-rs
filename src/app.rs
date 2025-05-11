@@ -21,6 +21,7 @@ pub(crate) const AREA_WIDTH: usize = 1000;
 pub(crate) const AREA_HEIGHT: usize = 1000;
 // const AREA_SHAPE: Shape = (AREA_WIDTH as isize, AREA_HEIGHT as isize);
 const SELECT_PIXEL_RADIUS: f64 = 20.;
+const MAX_NUM_CARS: usize = 10;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ClickMode {
@@ -315,7 +316,7 @@ impl TrainsApp {
             }
         };
 
-        for i in 0..3 {
+        for i in 0..self.train.num_cars {
             if let Some(((train_pos, train_heading), tangent)) = self
                 .train
                 .train_pos(i)
@@ -470,6 +471,13 @@ impl TrainsApp {
         ui.checkbox(&mut self.show_grid, "Show grid");
         ui.checkbox(&mut self.use_cached_contours, "Use cached contours");
         ui.checkbox(&mut self.show_debug_slope, "Show debug slope");
+        ui.horizontal(|ui| {
+            ui.label("Num cars:");
+            ui.add(egui::Slider::new(
+                &mut self.train.num_cars,
+                1..=MAX_NUM_CARS,
+            ));
+        });
         ui.group(|ui| {
             ui.label("Terrain generation params");
             self.heightmap_params.params_ui(ui);

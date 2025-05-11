@@ -93,6 +93,7 @@ pub(crate) struct Train {
     pub s: f64,
     /// Speed along s
     pub speed: f64,
+    pub num_cars: usize,
     pub stations: Vec<Rc<RefCell<Station>>>,
     pub train_task: TrainTask,
     pub schedule: Vec<Weak<RefCell<Station>>>,
@@ -107,8 +108,9 @@ impl Train {
             paths,
             path_id_gen: 1,
             ghost_path: None,
-            speed: 0.,
             s: 0.,
+            speed: 0.,
+            num_cars: 3,
             path_id: 0,
             stations: [Station::new("Start", 0, 10.), Station::new("Goal", 0, 70.)]
                 .into_iter()
@@ -201,9 +203,11 @@ impl Train {
         self.speed = (self.speed + thrust * THRUST_ACCEL).clamp(-MAX_SPEED, MAX_SPEED);
 
         // Acceleration from terrain slope
-        if let Some((tangent, pos)) = self.tangent(0).zip(self.train_pos(0)) {
-            let grad = heightmap.gradient(&pos);
-            self.speed -= grad.dot(tangent) * GRAD_ACCEL;
+        for i in 0..self.num_cars {
+            if let Some((tangent, pos)) = self.tangent(i).zip(self.train_pos(i)) {
+                let grad = heightmap.gradient(&pos);
+                self.speed -= grad.dot(tangent) * GRAD_ACCEL / self.num_cars as f64;
+            }
         }
 
         if self.s == 0. && self.speed < 0. {
