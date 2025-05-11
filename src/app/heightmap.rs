@@ -179,10 +179,11 @@ impl TrainsApp {
 
         self.heightmap.process_contours(|level, points| {
             let points = [to_pos2(points[0]), to_pos2(points[1])];
-            painter.line_segment(
-                points,
-                (1., Color32::from_rgb((127 + level * 32) as u8, 0, 0)),
-            );
+
+            let line_width = if level % 4 == 0 { 1.5 } else { 1. };
+            let r = 127 + (level * 32).wrapping_rem_euclid(128);
+
+            painter.line_segment(points, (line_width, Color32::from_rgb(r as u8, 0, 0)));
         });
     }
 }
@@ -205,10 +206,11 @@ impl HeightMap {
         for (level, contours) in cache {
             for points in contours {
                 let points = [to_pos2(points[0]), to_pos2(points[1])];
-                painter.line_segment(
-                    points,
-                    (1., Color32::from_rgb((127 + *level * 32) as u8, 0, 0)),
-                );
+
+                let line_width = if level % 4 == 0 { 1.5 } else { 1. };
+                let r = 127 + (level * 32).wrapping_rem_euclid(128);
+
+                painter.line_segment(points, (line_width, Color32::from_rgb(r as u8, 0, 0)));
             }
         }
     }
@@ -223,8 +225,29 @@ impl HeightMap {
             .collect();
 
         let resol = DOWNSAMPLE as f32; //self.resolution;
-        for i in 0..4 {
-            let level = i as f32 - 2.;
+
+        let minmax_contour = downsampled
+            .iter()
+            .fold(None, |acc: Option<(f32, f32)>, cur| {
+                if let Some(acc) = acc {
+                    Some((acc.0.min(*cur), acc.1.max(*cur)))
+                } else {
+                    Some((*cur, *cur))
+                }
+            });
+
+        let Some(minmax_contour) = minmax_contour else {
+            return;
+        };
+
+        let min_i = minmax_contour.0.ceil() as i32;
+        let max_i = minmax_contour.1.ceil() as i32;
+
+        let num_levels = max_i - min_i;
+        let incr = num_levels / 10 + 1;
+
+        for i in min_i / incr..max_i / incr {
+            let level = (i * incr) as f32;
             // let offset = vec2(offset_x, offset_y);
             for cy in 0..DOWNSAMPLED_SHAPE.1 - 1 {
                 let offset_y = (cy as f32 + 0.5) * resol;
