@@ -4,7 +4,7 @@ pub(crate) fn perlin_noise_pixel(
     x: f64,
     y: f64,
     octaves: u32,
-    terms: &[[f64; 6]],
+    terms: &[Terms],
     persistence: f64,
 ) -> f64 {
     let mut sum = 0.;
@@ -22,8 +22,8 @@ pub(crate) fn perlin_noise_pixel(
         let a01 = noise_pixel(x0, y1, dx, dy, &terms[i as usize]);
         let a10 = noise_pixel(x1, y0, dx, dy, &terms[i as usize]);
         let a11 = noise_pixel(x1, y1, dx, dy, &terms[i as usize]);
-        let fx = dx - x0;
-        let fy = dy - y0;
+        let fx = smooth_step(dx - x0);
+        let fy = smooth_step(dy - y0);
         sum += ((a00 * (1. - fx) + a10 * fx) * (1. - fy) + (a01 * (1. - fx) + a11 * fx) * fy) * f;
         maxv += f;
         f *= persistence;
@@ -31,29 +31,40 @@ pub(crate) fn perlin_noise_pixel(
     sum / maxv
 }
 
-pub(crate) fn gen_terms(rng: &mut Xor128, bit: u32) -> Vec<[f64; 6]> {
+pub(crate) struct Terms {
+    sin_x: f64,
+    sin_y: f64,
+    sin_c: f64,
+    cos_x: f64,
+    cos_y: f64,
+    cos_c: f64,
+}
+
+pub(crate) fn gen_terms(rng: &mut Xor128, bit: u32) -> Vec<Terms> {
     (0..bit)
-        .map(|_| {
-            [
-                10000. * rng.next(),
-                10000. * rng.next(),
-                std::f64::consts::PI * rng.next(),
-                10000. * rng.next(),
-                10000. * rng.next(),
-                std::f64::consts::PI * rng.next(),
-            ]
+        .map(|_| Terms {
+            sin_x: 10000. * rng.next(),
+            sin_y: 10000. * rng.next(),
+            sin_c: std::f64::consts::PI * rng.next(),
+            cos_x: 10000. * rng.next(),
+            cos_y: 10000. * rng.next(),
+            cos_c: std::f64::consts::PI * rng.next(),
         })
         .collect()
 }
 
-fn random_gradient(x: f64, y: f64, terms: &[f64; 6]) -> [f64; 2] {
+fn random_gradient(x: f64, y: f64, terms: &Terms) -> [f64; 2] {
     let random = 2920.
-        * (x * terms[0] + y * terms[1] + terms[2]).sin()
-        * (x * terms[3] + y * terms[4] + terms[5]).cos();
+        * (x * terms.sin_x + y * terms.sin_y + terms.sin_c).sin()
+        * (x * terms.cos_x + y * terms.cos_y + terms.cos_c).cos();
     [random.cos(), random.sin()]
 }
 
-fn noise_pixel(ix: f64, iy: f64, x: f64, y: f64, terms: &[f64; 6]) -> f64 {
+fn smooth_step(x: f64) -> f64 {
+    3. * x.powi(2) - 2. * x.powi(3)
+}
+
+fn noise_pixel(ix: f64, iy: f64, x: f64, y: f64, terms: &Terms) -> f64 {
     // Get gradient from integer coordinates
     let gradient = random_gradient(ix, iy, terms);
 
