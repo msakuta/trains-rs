@@ -6,7 +6,7 @@ use crate::{
     marching_squares::{
         Idx, Shape, border_pixel, cell_border_interpolated, pick_bits, pick_values,
     },
-    perlin_noise::{Xor128, gen_terms, perlin_noise_pixel},
+    perlin_noise::{Xor128, Xorshift64Star, gen_seeds, perlin_noise_pixel},
 };
 
 use super::{AREA_HEIGHT, AREA_WIDTH, TrainsApp};
@@ -339,10 +339,10 @@ fn render_grid(painter: &Painter, to_pos2: &impl Fn(Pos2) -> Pos2) {
 }
 
 pub(super) fn init_heightmap(params: &HeightMapParams) -> HeightMap {
-    let mut rng = Xor128::new(8357);
+    let mut rng = Xorshift64Star::new(8357);
 
-    let persistence_terms = gen_terms(&mut rng, params.persistence_octaves);
-    let terms = gen_terms(&mut rng, params.noise_octaves);
+    let persistence_seeds = gen_seeds(&mut rng, params.persistence_octaves);
+    let seeds = gen_seeds(&mut rng, params.noise_octaves);
     HeightMap::new(
         (0..AREA_WIDTH * AREA_HEIGHT)
             .map(|i| {
@@ -354,7 +354,7 @@ pub(super) fn init_heightmap(params: &HeightMapParams) -> HeightMap {
                     p_pos.x,
                     p_pos.y,
                     params.persistence_octaves,
-                    &persistence_terms,
+                    &persistence_seeds,
                     0.5,
                 )
                 .abs()
@@ -365,7 +365,7 @@ pub(super) fn init_heightmap(params: &HeightMapParams) -> HeightMap {
                     pos.x,
                     pos.y,
                     params.noise_octaves,
-                    &terms,
+                    &seeds,
                     persistence_sample,
                 ) as f32
                     * params.height_scale as f32

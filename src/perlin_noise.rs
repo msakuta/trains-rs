@@ -1,10 +1,13 @@
 //! Perlin noise implementation from Wikipedia https://en.wikipedia.org/wiki/Perlin_noise
+//! with Xorshift64Star RNG to allow fast and uniform randomness https://en.wikipedia.org/wiki/Xorshift
+
+pub type Seed = u64;
 
 pub(crate) fn perlin_noise_pixel(
     x: f64,
     y: f64,
     octaves: u32,
-    terms: &[Terms],
+    seeds: &[Seed],
     persistence: f64,
 ) -> f64 {
     let mut sum = 0.;
@@ -18,10 +21,10 @@ pub(crate) fn perlin_noise_pixel(
         let x1 = x0 + 1.;
         let y0 = dy.floor();
         let y1 = y0 + 1.;
-        let a00 = noise_pixel(x0, y0, dx, dy, &terms[i as usize]);
-        let a01 = noise_pixel(x0, y1, dx, dy, &terms[i as usize]);
-        let a10 = noise_pixel(x1, y0, dx, dy, &terms[i as usize]);
-        let a11 = noise_pixel(x1, y1, dx, dy, &terms[i as usize]);
+        let a00 = noise_pixel(x0, y0, dx, dy, seeds[i as usize]);
+        let a01 = noise_pixel(x0, y1, dx, dy, seeds[i as usize]);
+        let a10 = noise_pixel(x1, y0, dx, dy, seeds[i as usize]);
+        let a11 = noise_pixel(x1, y1, dx, dy, seeds[i as usize]);
         let fx = smooth_step(dx - x0);
         let fy = smooth_step(dy - y0);
         sum += ((a00 * (1. - fx) + a10 * fx) * (1. - fy) + (a01 * (1. - fx) + a11 * fx) * fy) * f;
@@ -31,42 +34,38 @@ pub(crate) fn perlin_noise_pixel(
     sum / maxv
 }
 
-pub(crate) struct Terms {
-    sin_x: f64,
-    sin_y: f64,
-    sin_c: f64,
-    cos_x: f64,
-    cos_y: f64,
-    cos_c: f64,
+pub(crate) fn gen_seeds(rng: &mut Xorshift64Star, bit: u32) -> Vec<Seed> {
+    (0..bit).map(|_| rng.nexti()).collect()
 }
 
-pub(crate) fn gen_terms(rng: &mut Xor128, bit: u32) -> Vec<Terms> {
-    (0..bit)
-        .map(|_| Terms {
-            sin_x: 10000. * rng.next(),
-            sin_y: 10000. * rng.next(),
-            sin_c: std::f64::consts::PI * rng.next(),
-            cos_x: 10000. * rng.next(),
-            cos_y: 10000. * rng.next(),
-            cos_c: std::f64::consts::PI * rng.next(),
-        })
-        .collect()
+fn i64_to_u64(i: i64) -> u64 {
+    if i < 0 {
+        i.wrapping_sub(i64::MIN) as u64 + i64::MAX as u64
+    } else {
+        i as u64
+    }
 }
 
-fn random_gradient(x: f64, y: f64, terms: &Terms) -> [f64; 2] {
-    let random = 2920.
-        * (x * terms.sin_x + y * terms.sin_y + terms.sin_c).sin()
-        * (x * terms.cos_x + y * terms.cos_y + terms.cos_c).cos();
-    [random.cos(), random.sin()]
+fn random_gradient(x: f64, y: f64, seed: Seed) -> [f64; 2] {
+    // Mind the overflow!
+    let mut rng = Xorshift64Star::new(
+        i64_to_u64(x as i64)
+            .wrapping_mul(3125)
+            .wrapping_add(i64_to_u64(y as i64).wrapping_mul(5021904))
+            .wrapping_add(seed.wrapping_mul(9650143)),
+    );
+    // rng.nexti();
+    let angle = rng.next() * std::f64::consts::PI * 2.;
+    [angle.cos(), angle.sin()]
 }
 
 fn smooth_step(x: f64) -> f64 {
     3. * x.powi(2) - 2. * x.powi(3)
 }
 
-fn noise_pixel(ix: f64, iy: f64, x: f64, y: f64, terms: &Terms) -> f64 {
+fn noise_pixel(ix: f64, iy: f64, x: f64, y: f64, seed: Seed) -> f64 {
     // Get gradient from integer coordinates
-    let gradient = random_gradient(ix, iy, terms);
+    let gradient = random_gradient(ix, iy, seed);
 
     // Compute the distance vector
     let dx = x - ix;
@@ -76,44 +75,27 @@ fn noise_pixel(ix: f64, iy: f64, x: f64, y: f64, terms: &Terms) -> f64 {
     dx * gradient[0] + dy * gradient[1]
 }
 
-pub(crate) struct Xor128 {
-    x: u32,
-    y: u32,
-    z: u32,
-    w: u32,
+pub(crate) struct Xorshift64Star {
+    a: u64,
 }
 
-impl Xor128 {
-    pub fn new(seed: u32) -> Self {
-        let mut ret = Xor128 {
-            x: 294742812,
-            y: 3863451937,
-            z: 2255883528,
-            w: 824091511,
-        };
-        if 0 < seed {
-            ret.x ^= seed;
-            ret.y ^= ret.x;
-            ret.z ^= ret.y;
-            ret.w ^= ret.z;
-            ret.nexti();
+impl Xorshift64Star {
+    pub fn new(seed: u64) -> Self {
+        Self {
+            a: if seed == 0 { 349001341 } else { seed },
         }
-        ret.nexti();
-        ret
     }
 
-    pub fn nexti(&mut self) -> u32 {
-        // T = (I + L^a)(I + R^b)(I + L^c)
-        // a = 13, b = 17, c = 5
-        let t = self.x ^ (self.x << 15);
-        self.x = self.y;
-        self.y = self.z;
-        self.z = self.w;
-        self.w ^= (self.w >> 21) ^ (t ^ (t >> 4));
-        self.w
+    pub fn nexti(&mut self) -> u64 {
+        let mut x = self.a;
+        x ^= x << 12;
+        x ^= x >> 25;
+        x ^= x << 27;
+        self.a = x;
+        x.wrapping_mul(0x2545F4914F6CDD1D)
     }
 
     pub fn next(&mut self) -> f64 {
-        self.nexti() as f64 / 0xffffffffu32 as f64
+        self.nexti() as f64 / u64::MAX as f64
     }
 }
