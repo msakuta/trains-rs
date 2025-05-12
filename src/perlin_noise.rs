@@ -99,3 +99,13 @@ impl Xorshift64Star {
         self.nexti() as f64 / u64::MAX as f64
     }
 }
+
+pub fn white_noise(x: f64, y: f64, seed: Seed) -> f64 {
+    let mut rng = Xorshift64Star::new(
+        i64_to_u64(x as i64)
+            .wrapping_mul(3125)
+            .wrapping_add(i64_to_u64(y as i64).wrapping_mul(5021904))
+            .wrapping_add(seed.wrapping_mul(9650143)),
+    );
+    rng.next()
+}

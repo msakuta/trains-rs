@@ -6,7 +6,7 @@ use crate::{
     marching_squares::{
         Idx, Shape, border_pixel, cell_border_interpolated, pick_bits, pick_values,
     },
-    perlin_noise::{Xorshift64Star, gen_seeds, perlin_noise_pixel},
+    perlin_noise::{Xorshift64Star, gen_seeds, perlin_noise_pixel, white_noise},
 };
 
 use super::{AREA_HEIGHT, AREA_WIDTH, TrainsApp};
@@ -40,7 +40,14 @@ const DOWNSAMPLED_SHAPE: Shape = (
     (AREA_HEIGHT / DOWNSAMPLE) as isize,
 );
 
+#[derive(PartialEq, Eq)]
+pub(crate) enum NoiseType {
+    White,
+    Perlin,
+}
+
 pub(crate) struct HeightMapParams {
+    pub noise_type: NoiseType,
     pub persistence_octaves: u32,
     pub persistence_noise_scale: f64,
     pub persistence_scale: f64,
@@ -53,6 +60,7 @@ pub(crate) struct HeightMapParams {
 impl HeightMapParams {
     pub(super) fn new() -> Self {
         Self {
+            noise_type: NoiseType::Perlin,
             persistence_octaves: DEFAULT_PERSISTENCE_OCTAVES,
             persistence_noise_scale: DEFAULT_PERSISTENCE_NOISE_SCALE,
             persistence_scale: DEFAULT_PERSISTENCE_SCALE,
@@ -64,6 +72,10 @@ impl HeightMapParams {
     }
 
     pub(super) fn params_ui(&mut self, ui: &mut Ui) {
+        ui.group(|ui| {
+            ui.radio_value(&mut self.noise_type, NoiseType::Perlin, "Perlin");
+            ui.radio_value(&mut self.noise_type, NoiseType::White, "White");
+        });
         ui.horizontal(|ui| {
             ui.label("Persistence noise octaves:");
             ui.add(egui::Slider::new(
@@ -361,14 +373,17 @@ pub(super) fn init_heightmap(params: &HeightMapParams) -> HeightMap {
                     * params.persistence_scale
                     + params.min_persistence;
                 let pos = crate::vec2::Vec2::new(ix as f64, iy as f64) * params.noise_scale;
-                perlin_noise_pixel(
-                    pos.x,
-                    pos.y,
-                    params.noise_octaves,
-                    &seeds,
-                    persistence_sample,
-                ) as f32
-                    * params.height_scale as f32
+                let val = match params.noise_type {
+                    NoiseType::Perlin => perlin_noise_pixel(
+                        pos.x,
+                        pos.y,
+                        params.noise_octaves,
+                        &seeds,
+                        persistence_sample,
+                    ),
+                    NoiseType::White => white_noise(pos.x, pos.y, seeds[0]),
+                };
+                val as f32 * params.height_scale as f32
             })
             .collect(),
         (AREA_WIDTH as isize, AREA_HEIGHT as isize),
