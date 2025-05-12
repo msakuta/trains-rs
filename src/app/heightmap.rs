@@ -6,7 +6,7 @@ use crate::{
     marching_squares::{
         Idx, Shape, border_pixel, cell_border_interpolated, pick_bits, pick_values,
     },
-    perlin_noise::{Xor128, Xorshift64Star, gen_seeds, perlin_noise_pixel},
+    perlin_noise::{Xorshift64Star, gen_seeds, perlin_noise_pixel},
 };
 
 use super::{AREA_HEIGHT, AREA_WIDTH, TrainsApp};
