@@ -27,7 +27,7 @@ const DEFAULT_PERSISTENCE_NOISE_SCALE: f64 = 0.01;
 const MAX_NOISE_OCTAVES: u32 = 10;
 const DEFAULT_NOISE_OCTAVES: u32 = 4;
 
-const MAX_NOISE_SCALE: f64 = 0.5;
+const MAX_NOISE_SCALE: f64 = 1.;
 const MIN_NOISE_SCALE: f64 = 0.01;
 const DEFAULT_NOISE_SCALE: f64 = 0.05;
 
@@ -35,10 +35,6 @@ const DEFAULT_HEIGHT_SCALE: f64 = 10.;
 const MAX_HEIGHT_SCALE: f64 = 50.;
 
 const DOWNSAMPLE: usize = 10;
-const DOWNSAMPLED_SHAPE: Shape = (
-    (AREA_WIDTH / DOWNSAMPLE) as isize,
-    (AREA_HEIGHT / DOWNSAMPLE) as isize,
-);
 
 #[derive(PartialEq, Eq)]
 pub(crate) enum NoiseType {
@@ -48,6 +44,8 @@ pub(crate) enum NoiseType {
 
 pub(crate) struct HeightMapParams {
     pub noise_type: NoiseType,
+    pub width: usize,
+    pub height: usize,
     pub persistence_octaves: u32,
     pub persistence_noise_scale: f64,
     pub persistence_scale: f64,
@@ -61,6 +59,8 @@ impl HeightMapParams {
     pub(super) fn new() -> Self {
         Self {
             noise_type: NoiseType::Perlin,
+            width: AREA_WIDTH,
+            height: AREA_HEIGHT,
             persistence_octaves: DEFAULT_PERSISTENCE_OCTAVES,
             persistence_noise_scale: DEFAULT_PERSISTENCE_NOISE_SCALE,
             persistence_scale: DEFAULT_PERSISTENCE_SCALE,
@@ -75,6 +75,14 @@ impl HeightMapParams {
         ui.group(|ui| {
             ui.radio_value(&mut self.noise_type, NoiseType::Perlin, "Perlin");
             ui.radio_value(&mut self.noise_type, NoiseType::White, "White");
+        });
+        ui.horizontal(|ui| {
+            ui.label("Width:");
+            ui.add(egui::Slider::new(&mut self.width, 1..=1024));
+        });
+        ui.horizontal(|ui| {
+            ui.label("Height:");
+            ui.add(egui::Slider::new(&mut self.height, 1..=1024));
         });
         ui.horizontal(|ui| {
             ui.label("Persistence noise octaves:");
@@ -166,7 +174,17 @@ impl HeightMap {
             .iter()
             .map(|p| ((p - min_p) / (max_p - min_p) * 127. + 127.) as u8)
             .collect();
-        let img = eframe::egui::ColorImage::from_gray([AREA_WIDTH, AREA_HEIGHT], &bitmap);
+        let _ = image::save_buffer(
+            "noise.png",
+            &bitmap,
+            self.shape.0 as u32,
+            self.shape.1 as u32,
+            image::ColorType::L8,
+        );
+        let img = eframe::egui::ColorImage::from_gray(
+            [self.shape.0 as usize, self.shape.1 as usize],
+            &bitmap,
+        );
         Ok(img)
     }
 
@@ -207,7 +225,7 @@ pub type ContoursCache = HashMap<i32, Vec<[Pos2; 2]>>;
 impl TrainsApp {
     pub fn render_contours(&self, painter: &Painter, to_pos2: &impl Fn(Pos2) -> Pos2) {
         if self.show_grid {
-            render_grid(painter, to_pos2);
+            render_grid(painter, &self.heightmap.shape, to_pos2);
         }
 
         if !self.show_contours {
@@ -226,7 +244,7 @@ impl TrainsApp {
 
     pub fn render_contours_with_cache(&self, painter: &Painter, to_pos2: &impl Fn(Pos2) -> Pos2) {
         if self.show_grid {
-            render_grid(painter, to_pos2);
+            render_grid(painter, &self.heightmap.shape, to_pos2);
         }
 
         if !self.show_contours {
@@ -267,13 +285,14 @@ impl HeightMap {
     }
 
     fn process_contours(&self, mut f: impl FnMut(i32, &[Pos2; 2])) {
-        let downsampled: Vec<_> = (0..AREA_WIDTH * AREA_HEIGHT / DOWNSAMPLE / DOWNSAMPLE)
-            .map(|i| {
-                let x = (i % (AREA_WIDTH / DOWNSAMPLE)) * DOWNSAMPLE;
-                let y = (i / (AREA_WIDTH / DOWNSAMPLE)) * DOWNSAMPLE;
-                self[(x as isize, y as isize)]
-            })
-            .collect();
+        let downsampled: Vec<_> =
+            (0..self.shape.0 as usize * self.shape.1 as usize / DOWNSAMPLE / DOWNSAMPLE)
+                .map(|i| {
+                    let x = (i % (self.shape.0 as usize / DOWNSAMPLE)) * DOWNSAMPLE;
+                    let y = (i / (self.shape.0 as usize / DOWNSAMPLE)) * DOWNSAMPLE;
+                    self[(x as isize, y as isize)]
+                })
+                .collect();
 
         let resol = DOWNSAMPLE as f32; //self.resolution;
 
@@ -297,18 +316,23 @@ impl HeightMap {
         let num_levels = max_i - min_i;
         let incr = num_levels / 10 + 1;
 
+        let downsampled_shape = (
+            self.shape.0 / DOWNSAMPLE as isize,
+            self.shape.1 / DOWNSAMPLE as isize,
+        );
+
         for i in min_i / incr..max_i / incr {
             let level = (i * incr) as f32;
             // let offset = vec2(offset_x, offset_y);
-            for cy in 0..DOWNSAMPLED_SHAPE.1 - 1 {
+            for cy in 0..downsampled_shape.1 - 1 {
                 let offset_y = (cy as f32 + 0.5) * resol;
-                for cx in 0..DOWNSAMPLED_SHAPE.0 - 1 {
+                for cx in 0..downsampled_shape.0 - 1 {
                     let offset_x = (cx as f32 + 0.5) * resol;
-                    let bits = pick_bits(&downsampled, DOWNSAMPLED_SHAPE, (cx, cy), level);
+                    let bits = pick_bits(&downsampled, downsampled_shape, (cx, cy), level);
                     if !border_pixel(bits) {
                         continue;
                     }
-                    let values = pick_values(&downsampled, DOWNSAMPLED_SHAPE, (cx, cy), level);
+                    let values = pick_values(&downsampled, downsampled_shape, (cx, cy), level);
                     if let Some((lines, len)) = cell_border_interpolated(bits, values) {
                         for line in lines.chunks(4).take(len / 4) {
                             let points = [
@@ -330,9 +354,9 @@ impl HeightMap {
     }
 }
 
-fn render_grid(painter: &Painter, to_pos2: &impl Fn(Pos2) -> Pos2) {
-    let right = AREA_WIDTH as f32;
-    for iy in 0..AREA_HEIGHT / DOWNSAMPLE {
+fn render_grid(painter: &Painter, shape: &Shape, to_pos2: &impl Fn(Pos2) -> Pos2) {
+    let right = shape.0 as f32;
+    for iy in 0..shape.1 as usize / DOWNSAMPLE {
         let y = (iy * DOWNSAMPLE) as f32;
         painter.line_segment(
             [to_pos2(pos2(0., y)), to_pos2(pos2(right, y))],
@@ -340,8 +364,8 @@ fn render_grid(painter: &Painter, to_pos2: &impl Fn(Pos2) -> Pos2) {
         );
     }
 
-    let bottom = AREA_HEIGHT as f32;
-    for ix in 0..AREA_WIDTH / DOWNSAMPLE {
+    let bottom = shape.1 as f32;
+    for ix in 0..shape.0 as usize / DOWNSAMPLE {
         let x = (ix * DOWNSAMPLE) as f32;
         painter.line_segment(
             [to_pos2(pos2(x, 0.)), to_pos2(pos2(x, bottom))],
@@ -356,10 +380,10 @@ pub(super) fn init_heightmap(params: &HeightMapParams) -> HeightMap {
     let persistence_seeds = gen_seeds(&mut rng, params.persistence_octaves);
     let seeds = gen_seeds(&mut rng, params.noise_octaves);
     HeightMap::new(
-        (0..AREA_WIDTH * AREA_HEIGHT)
+        (0..params.width * params.height)
             .map(|i| {
-                let ix = (i % AREA_WIDTH) as f64;
-                let iy = (i / AREA_WIDTH) as f64;
+                let ix = (i % params.width) as f64;
+                let iy = (i / params.width) as f64;
                 let p_pos =
                     crate::vec2::Vec2::new(ix as f64, iy as f64) * params.persistence_noise_scale;
                 let persistence_sample = perlin_noise_pixel(
@@ -386,6 +410,6 @@ pub(super) fn init_heightmap(params: &HeightMapParams) -> HeightMap {
                 val as f32 * params.height_scale as f32
             })
             .collect(),
-        (AREA_WIDTH as isize, AREA_HEIGHT as isize),
+        (params.width as isize, params.height as isize),
     )
 }

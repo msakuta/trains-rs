@@ -17,8 +17,8 @@ use crate::{
     vec2::Vec2,
 };
 
-pub(crate) const AREA_WIDTH: usize = 1000;
-pub(crate) const AREA_HEIGHT: usize = 1000;
+pub(crate) const AREA_WIDTH: usize = 512;
+pub(crate) const AREA_HEIGHT: usize = 512;
 // const AREA_SHAPE: Shape = (AREA_WIDTH as isize, AREA_HEIGHT as isize);
 const SELECT_PIXEL_RADIUS: f64 = 20.;
 const MAX_NUM_CARS: usize = 10;
