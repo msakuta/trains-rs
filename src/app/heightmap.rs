@@ -6,7 +6,9 @@ use crate::{
     marching_squares::{
         Idx, Shape, border_pixel, cell_border_interpolated, pick_bits, pick_values,
     },
-    perlin_noise::{Xorshift64Star, gen_seeds, perlin_noise_pixel, white_noise},
+    perlin_noise::{
+        Xorshift64Star, gen_seeds, perlin_noise_pixel, white_fractal_noise,
+    },
 };
 
 use super::{AREA_HEIGHT, AREA_WIDTH, TrainsApp};
@@ -174,13 +176,13 @@ impl HeightMap {
             .iter()
             .map(|p| ((p - min_p) / (max_p - min_p) * 127. + 127.) as u8)
             .collect();
-        let _ = image::save_buffer(
-            "noise.png",
-            &bitmap,
-            self.shape.0 as u32,
-            self.shape.1 as u32,
-            image::ColorType::L8,
-        );
+        // let _ = image::save_buffer(
+        //     "noise.png",
+        //     &bitmap,
+        //     self.shape.0 as u32,
+        //     self.shape.1 as u32,
+        //     image::ColorType::L8,
+        // );
         let img = eframe::egui::ColorImage::from_gray(
             [self.shape.0 as usize, self.shape.1 as usize],
             &bitmap,
@@ -405,7 +407,9 @@ pub(super) fn init_heightmap(params: &HeightMapParams) -> HeightMap {
                         &seeds,
                         persistence_sample,
                     ),
-                    NoiseType::White => white_noise(pos.x, pos.y, seeds[0]),
+                    NoiseType::White => {
+                        white_fractal_noise(pos.x, pos.y, &seeds, persistence_sample)
+                    }
                 };
                 val as f32 * params.height_scale as f32
             })

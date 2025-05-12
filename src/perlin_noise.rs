@@ -109,3 +109,28 @@ pub fn white_noise(x: f64, y: f64, seed: Seed) -> f64 {
     );
     rng.next()
 }
+
+pub fn white_fractal_noise(x: f64, y: f64, seeds: &[Seed], persistence: f64) -> f64 {
+    let mut sum = 0.;
+    let [mut maxv, mut f] = [0., 1.];
+    for (i, seed) in seeds.iter().enumerate().rev() {
+        let cell = 1 << i;
+        let fcell = cell as f64;
+        let dx = x / fcell;
+        let dy = y / fcell;
+        let x0 = dx.floor();
+        let x1 = x0 + 1.;
+        let y0 = dy.floor();
+        let y1 = y0 + 1.;
+        let a00 = white_noise(x0, y0, *seed);
+        let a01 = white_noise(x0, y1, *seed);
+        let a10 = white_noise(x1, y0, *seed);
+        let a11 = white_noise(x1, y1, *seed);
+        let fx = smooth_step(dx - x0);
+        let fy = smooth_step(dy - y0);
+        sum += ((a00 * (1. - fx) + a10 * fx) * (1. - fy) + (a01 * (1. - fx) + a11 * fx) * fy) * f;
+        maxv += f;
+        f *= persistence;
+    }
+    sum / maxv
+}
