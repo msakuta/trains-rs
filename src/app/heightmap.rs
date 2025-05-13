@@ -6,9 +6,7 @@ use crate::{
     marching_squares::{
         Idx, Shape, border_pixel, cell_border_interpolated, pick_bits, pick_values,
     },
-    perlin_noise::{
-        Xorshift64Star, gen_seeds, perlin_noise_pixel, white_fractal_noise,
-    },
+    perlin_noise::{Xorshift64Star, gen_seeds, perlin_noise_pixel, white_fractal_noise},
 };
 
 use super::{AREA_HEIGHT, AREA_WIDTH, TrainsApp};
@@ -36,7 +34,7 @@ const DEFAULT_NOISE_SCALE: f64 = 0.05;
 const DEFAULT_HEIGHT_SCALE: f64 = 10.;
 const MAX_HEIGHT_SCALE: f64 = 50.;
 
-const DOWNSAMPLE: usize = 10;
+pub(super) const DOWNSAMPLE: usize = 16;
 
 #[derive(PartialEq, Eq)]
 pub(crate) enum NoiseType {
@@ -222,31 +220,58 @@ impl std::ops::IndexMut<(isize, isize)> for HeightMap {
     }
 }
 
-pub type ContoursCache = HashMap<i32, Vec<[Pos2; 2]>>;
+pub struct ContoursCache {
+    grid_step: usize,
+    contours: HashMap<i32, Vec<[Pos2; 2]>>,
+}
+
+impl ContoursCache {
+    fn new(grid_step: usize) -> Self {
+        Self {
+            grid_step,
+            contours: HashMap::new(),
+        }
+    }
+
+    pub(super) fn grid_step(&self) -> usize {
+        self.grid_step
+    }
+}
 
 impl TrainsApp {
-    pub fn render_contours(&self, painter: &Painter, to_pos2: &impl Fn(Pos2) -> Pos2) {
+    pub fn render_contours(
+        &self,
+        painter: &Painter,
+        to_pos2: &impl Fn(Pos2) -> Pos2,
+        contour_grid_step: usize,
+    ) {
         if self.show_grid {
-            render_grid(painter, &self.heightmap.shape, to_pos2);
+            render_grid(painter, &self.heightmap.shape, to_pos2, contour_grid_step);
         }
 
         if !self.show_contours {
             return;
         }
 
-        self.heightmap.process_contours(|level, points| {
-            let points = [to_pos2(points[0]), to_pos2(points[1])];
+        self.heightmap
+            .process_contours(contour_grid_step, |level, points| {
+                let points = [to_pos2(points[0]), to_pos2(points[1])];
 
-            let line_width = if level % 4 == 0 { 1.5 } else { 1. };
-            let r = 127 + (level * 32).wrapping_rem_euclid(128);
+                let line_width = if level % 4 == 0 { 1.5 } else { 1. };
+                let r = 127 + (level * 32).wrapping_rem_euclid(128);
 
-            painter.line_segment(points, (line_width, Color32::from_rgb(r as u8, 0, 0)));
-        });
+                painter.line_segment(points, (line_width, Color32::from_rgb(r as u8, 0, 0)));
+            });
     }
 
-    pub fn render_contours_with_cache(&self, painter: &Painter, to_pos2: &impl Fn(Pos2) -> Pos2) {
+    pub fn render_contours_with_cache(
+        &self,
+        painter: &Painter,
+        to_pos2: &impl Fn(Pos2) -> Pos2,
+        contour_grid_step: usize,
+    ) {
         if self.show_grid {
-            render_grid(painter, &self.heightmap.shape, to_pos2);
+            render_grid(painter, &self.heightmap.shape, to_pos2, contour_grid_step);
         }
 
         if !self.show_contours {
@@ -260,10 +285,10 @@ impl TrainsApp {
 }
 
 impl HeightMap {
-    pub fn cache_contours(&self) -> ContoursCache {
-        let mut ret = ContoursCache::new();
-        self.process_contours(|level, points| {
-            ret.entry(level).or_default().push(*points);
+    pub fn cache_contours(&self, contour_grid_step: usize) -> ContoursCache {
+        let mut ret = ContoursCache::new(contour_grid_step);
+        self.process_contours(contour_grid_step, |level, points| {
+            ret.contours.entry(level).or_default().push(*points);
         });
 
         ret
@@ -274,7 +299,7 @@ impl HeightMap {
         cache: &ContoursCache,
         to_pos2: &impl Fn(Pos2) -> Pos2,
     ) {
-        for (level, contours) in cache {
+        for (level, contours) in &cache.contours {
             for points in contours {
                 let points = [to_pos2(points[0]), to_pos2(points[1])];
 
@@ -286,17 +311,18 @@ impl HeightMap {
         }
     }
 
-    fn process_contours(&self, mut f: impl FnMut(i32, &[Pos2; 2])) {
-        let downsampled: Vec<_> =
-            (0..self.shape.0 as usize * self.shape.1 as usize / DOWNSAMPLE / DOWNSAMPLE)
-                .map(|i| {
-                    let x = (i % (self.shape.0 as usize / DOWNSAMPLE)) * DOWNSAMPLE;
-                    let y = (i / (self.shape.0 as usize / DOWNSAMPLE)) * DOWNSAMPLE;
-                    self[(x as isize, y as isize)]
-                })
-                .collect();
+    fn process_contours(&self, contour_grid_step: usize, mut f: impl FnMut(i32, &[Pos2; 2])) {
+        let downsampled: Vec<_> = (0..self.shape.0 as usize * self.shape.1 as usize
+            / contour_grid_step
+            / contour_grid_step)
+            .map(|i| {
+                let x = (i % (self.shape.0 as usize / contour_grid_step)) * contour_grid_step;
+                let y = (i / (self.shape.0 as usize / contour_grid_step)) * contour_grid_step;
+                self[(x as isize, y as isize)]
+            })
+            .collect();
 
-        let resol = DOWNSAMPLE as f32; //self.resolution;
+        let resol = contour_grid_step as f32;
 
         let minmax_contour = downsampled
             .iter()
@@ -319,8 +345,8 @@ impl HeightMap {
         let incr = num_levels / 10 + 1;
 
         let downsampled_shape = (
-            self.shape.0 / DOWNSAMPLE as isize,
-            self.shape.1 / DOWNSAMPLE as isize,
+            self.shape.0 / contour_grid_step as isize,
+            self.shape.1 / contour_grid_step as isize,
         );
 
         for i in min_i / incr..max_i / incr {
@@ -356,10 +382,15 @@ impl HeightMap {
     }
 }
 
-fn render_grid(painter: &Painter, shape: &Shape, to_pos2: &impl Fn(Pos2) -> Pos2) {
+fn render_grid(
+    painter: &Painter,
+    shape: &Shape,
+    to_pos2: &impl Fn(Pos2) -> Pos2,
+    contour_grid_step: usize,
+) {
     let right = shape.0 as f32;
-    for iy in 0..shape.1 as usize / DOWNSAMPLE {
-        let y = (iy * DOWNSAMPLE) as f32;
+    for iy in 0..shape.1 as usize / contour_grid_step {
+        let y = (iy * contour_grid_step) as f32;
         painter.line_segment(
             [to_pos2(pos2(0., y)), to_pos2(pos2(right, y))],
             (1., Color32::GRAY),
@@ -367,8 +398,8 @@ fn render_grid(painter: &Painter, shape: &Shape, to_pos2: &impl Fn(Pos2) -> Pos2
     }
 
     let bottom = shape.1 as f32;
-    for ix in 0..shape.0 as usize / DOWNSAMPLE {
-        let x = (ix * DOWNSAMPLE) as f32;
+    for ix in 0..shape.0 as usize / contour_grid_step {
+        let x = (ix * contour_grid_step) as f32;
         painter.line_segment(
             [to_pos2(pos2(x, 0.)), to_pos2(pos2(x, bottom))],
             (1., Color32::GRAY),

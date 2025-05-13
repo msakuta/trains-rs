@@ -3,9 +3,10 @@ mod heightmap;
 use std::rc::Rc;
 
 use eframe::{
-    egui::{self, Align2, Color32, FontId, Frame, Painter, Pos2, Ui},
+    egui::{self, Align2, Color32, FontId, Frame, Painter, Pos2, Ui, output::OutputEvent},
     epaint::PathShape,
 };
+use heightmap::DOWNSAMPLE;
 
 pub(crate) use self::heightmap::HeightMap;
 use self::heightmap::{ContoursCache, HeightMapParams, init_heightmap};
@@ -22,6 +23,7 @@ pub(crate) const AREA_HEIGHT: usize = 512;
 // const AREA_SHAPE: Shape = (AREA_WIDTH as isize, AREA_HEIGHT as isize);
 const SELECT_PIXEL_RADIUS: f64 = 20.;
 const MAX_NUM_CARS: usize = 10;
+const MAX_CONTOURS_GRID_STEP: usize = 100;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ClickMode {
@@ -38,6 +40,7 @@ pub(crate) struct TrainsApp {
     heightmap: HeightMap,
     heightmap_params: HeightMapParams,
     contours_cache: Option<ContoursCache>,
+    contour_grid_step: usize,
     bg: BgImage,
     show_contours: bool,
     show_grid: bool,
@@ -54,13 +57,15 @@ impl TrainsApp {
     pub fn new() -> Self {
         let heightmap_params = HeightMapParams::new();
         let heightmap = init_heightmap(&heightmap_params);
+        let contour_grid_step = DOWNSAMPLE;
 
-        let contours_cache = heightmap.cache_contours();
+        let contours_cache = heightmap.cache_contours(contour_grid_step);
         Self {
             transform: Transform::new(1.),
             heightmap,
             heightmap_params,
             contours_cache: Some(contours_cache),
+            contour_grid_step,
             bg: BgImage::new(),
             show_contours: true,
             show_grid: false,
@@ -150,9 +155,17 @@ impl TrainsApp {
         );
 
         if self.use_cached_contours {
-            self.render_contours_with_cache(&painter, &|p| paint_transform.transform_pos2(p));
+            self.render_contours_with_cache(
+                &painter,
+                &|p| paint_transform.transform_pos2(p),
+                self.contour_grid_step,
+            );
         } else {
-            self.render_contours(&painter, &|p| paint_transform.transform_pos2(p));
+            self.render_contours(
+                &painter,
+                &|p| paint_transform.transform_pos2(p),
+                self.contour_grid_step,
+            );
         }
 
         if 1. < self.transform.scale() {
@@ -464,6 +477,20 @@ impl TrainsApp {
 
     fn ui_panel(&mut self, ui: &mut Ui) {
         ui.checkbox(&mut self.show_contours, "Show contour lines");
+        ui.horizontal(|ui| {
+            ui.label("Contours grid step:");
+            ui.add(egui::Slider::new(
+                &mut self.contour_grid_step,
+                1..=MAX_CONTOURS_GRID_STEP,
+            ));
+        });
+        if self
+            .contours_cache
+            .as_ref()
+            .is_some_and(|c| c.grid_step() != self.contour_grid_step)
+        {
+            self.contours_cache = Some(self.heightmap.cache_contours(self.contour_grid_step));
+        }
         ui.checkbox(&mut self.show_grid, "Show grid");
         ui.checkbox(&mut self.use_cached_contours, "Use cached contours");
         ui.checkbox(&mut self.show_debug_slope, "Show debug slope");
@@ -479,7 +506,7 @@ impl TrainsApp {
             self.heightmap_params.params_ui(ui);
             if ui.button("Regenerate").clicked() {
                 self.heightmap = init_heightmap(&self.heightmap_params);
-                self.contours_cache = Some(self.heightmap.cache_contours());
+                self.contours_cache = Some(self.heightmap.cache_contours(self.contour_grid_step));
                 self.bg.clear();
             }
         });
