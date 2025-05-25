@@ -239,9 +239,7 @@ impl Train {
                 if path_segments.track.iter().any(|p| heightmap.is_water(p)) {
                     return Err("Cannot build tracks through water".to_string());
                 }
-                if let Some(path) = self.paths.get_mut(&self.path_id) {
-                    path.extend(&path_segments.segments);
-                }
+                self.add_segment(path_segments)?;
             }
             Err(e) => {
                 self.ghost_path = None;
@@ -253,6 +251,32 @@ impl Train {
 
     pub fn ghost_gentle(&mut self, pos: Vec2<f64>) {
         self.ghost_path = self.compute_gentle(pos).ok();
+    }
+
+    /// Attempt to add a segment from the selected node. If it was at the end of a path,
+    /// extend it, or create a new path.
+    fn add_segment(&mut self, path_bundle: PathBundle) -> Result<(), String> {
+        let Some((selected_path, selected_node)) = self.selected_node else {
+            return Err("Select a node first".to_string());
+        };
+        if let Some(path) = self.paths.get_mut(&selected_path) {
+            // If it was the last segment, just extend it
+            if selected_node == path.segments.len() - 1 {
+                path.extend(&path_bundle.segments);
+                // Continue extending from the added segment
+                self.selected_node =
+                    Some((selected_path, selected_node + path_bundle.segments.len()));
+            } else {
+                let last_segment = path_bundle.segments.len() - 1;
+                // Othewise, add a new path starting from the selected node,
+                // whose sole member is the new segment.
+                self.paths.insert(self.path_id_gen, path_bundle);
+                // Continue extending from the added segment
+                self.selected_node = Some((self.path_id_gen, last_segment));
+                self.path_id_gen += 1;
+            }
+        }
+        Ok(())
     }
 
     pub fn has_selected_node(&self) -> bool {
@@ -278,8 +302,15 @@ impl Train {
     }
 
     fn compute_gentle(&self, pos: Vec2<f64>) -> Result<PathBundle, String> {
-        let Some(prev) = self.paths[&self.path_id].segments.last() else {
-            return Err("Path needs at least one segment to connect to".to_string());
+        let Some((selected_path, selected_node)) = self.selected_node else {
+            return Err("Select a node first".to_string());
+        };
+        let Some(prev) = self
+            .paths
+            .get(&selected_path)
+            .and_then(|path| path.segments.get(selected_node))
+        else {
+            return Err("Path segment to extend was not found".to_string());
         };
         let prev_pos = prev.end();
         let prev_angle = prev.end_angle();
@@ -309,10 +340,7 @@ impl Train {
             return Err("Cannot build tracks through water".to_string());
         }
 
-        if let Some(path) = self.paths.get_mut(&self.path_id) {
-            path.extend(&path_segments.segments);
-        }
-        Ok(())
+        self.add_segment(path_segments)
     }
 
     pub fn ghost_straight(&mut self, pos: Vec2<f64>) {
@@ -320,8 +348,15 @@ impl Train {
     }
 
     fn compute_straight(&self, pos: Vec2<f64>) -> Result<PathBundle, String> {
-        let Some(prev) = self.paths[&self.path_id].segments.last() else {
-            return Err("Path needs at least one segment to connect to".to_string());
+        let Some((selected_path, selected_node)) = self.selected_node else {
+            return Err("Select a node first".to_string());
+        };
+        let Some(prev) = self
+            .paths
+            .get(&selected_path)
+            .and_then(|path| path.segments.get(selected_node))
+        else {
+            return Err("Path segment to extend was not found".to_string());
         };
         let prev_pos = prev.end();
         let prev_angle = prev.end_angle();
@@ -345,10 +380,7 @@ impl Train {
             return Err("Cannot build tracks through water".to_string());
         }
 
-        if let Some(path) = self.paths.get_mut(&self.path_id) {
-            path.extend(&path_segments.segments);
-        }
-        Ok(())
+        self.add_segment(path_segments)
     }
 
     pub fn ghost_tight(&mut self, pos: Vec2<f64>) {
@@ -356,8 +388,15 @@ impl Train {
     }
 
     fn compute_tight(&self, pos: Vec2<f64>) -> Result<PathBundle, String> {
-        let Some(prev) = self.paths[&self.path_id].segments.last() else {
-            return Err("Path needs at least one segment to connect to".to_string());
+        let Some((selected_path, selected_node)) = self.selected_node else {
+            return Err("Select a node first".to_string());
+        };
+        let Some(prev) = self
+            .paths
+            .get(&selected_path)
+            .and_then(|path| path.segments.get(selected_node))
+        else {
+            return Err("Path segment to extend was not found".to_string());
         };
         let prev_pos = prev.end();
         let prev_angle = prev.end_angle();
