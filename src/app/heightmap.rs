@@ -34,6 +34,8 @@ const DEFAULT_NOISE_SCALE: f64 = 0.05;
 const DEFAULT_HEIGHT_SCALE: f64 = 10.;
 const MAX_HEIGHT_SCALE: f64 = 50.;
 
+const DEFAULT_WATER_LEVEL: f64 = 0.3;
+
 pub(super) const DOWNSAMPLE: usize = 16;
 
 #[derive(PartialEq, Eq)]
@@ -53,6 +55,7 @@ pub(crate) struct HeightMapParams {
     pub noise_octaves: u32,
     pub noise_scale: f64,
     pub height_scale: f64,
+    pub water_level: f64,
 }
 
 impl HeightMapParams {
@@ -68,6 +71,7 @@ impl HeightMapParams {
             noise_octaves: DEFAULT_NOISE_OCTAVES,
             noise_scale: DEFAULT_NOISE_SCALE,
             height_scale: DEFAULT_HEIGHT_SCALE,
+            water_level: DEFAULT_WATER_LEVEL,
         }
     }
 
@@ -133,17 +137,26 @@ impl HeightMapParams {
                 (0.)..=MAX_HEIGHT_SCALE,
             ));
         });
+        ui.horizontal(|ui| {
+            ui.label("Water level:");
+            ui.add(egui::Slider::new(&mut self.water_level, (0.)..=1.));
+        });
     }
 }
 
 pub(crate) struct HeightMap {
     pub(super) map: Vec<f32>,
     pub(super) shape: Shape,
+    pub(super) water_level: f32,
 }
 
 impl HeightMap {
-    fn new(map: Vec<f32>, shape: Shape) -> Self {
-        Self { map, shape }
+    fn new(map: Vec<f32>, shape: Shape, water_level: f32) -> Self {
+        Self {
+            map,
+            shape,
+            water_level,
+        }
     }
 
     pub fn get_image(&self) -> Result<ColorImage, ()> {
@@ -169,10 +182,21 @@ impl HeightMap {
                 }
             })
             .ok_or(())?;
+        let water_level = (max_p - min_p) * self.water_level + min_p;
         let bitmap: Vec<_> = self
             .map
             .iter()
-            .map(|p| ((p - min_p) / (max_p - min_p) * 127. + 127.) as u8)
+            .map(|p| {
+                let is_water = *p < water_level;
+                if is_water {
+                    [0u8, 95, 191]
+                } else {
+                    let inten = ((p - min_p) / (max_p - min_p) * 127. + 127.) as u8;
+                    [inten, inten, inten]
+                }
+                .into_iter()
+            })
+            .flatten()
             .collect();
         // let _ = image::save_buffer(
         //     "noise.png",
@@ -181,7 +205,7 @@ impl HeightMap {
         //     self.shape.1 as u32,
         //     image::ColorType::L8,
         // );
-        let img = eframe::egui::ColorImage::from_gray(
+        let img = eframe::egui::ColorImage::from_rgb(
             [self.shape.0 as usize, self.shape.1 as usize],
             &bitmap,
         );
@@ -446,5 +470,6 @@ pub(super) fn init_heightmap(params: &HeightMapParams) -> HeightMap {
             })
             .collect(),
         (params.width as isize, params.height as isize),
+        params.water_level as f32,
     )
 }
