@@ -5,13 +5,18 @@ use crate::{
 
 use super::SEGMENT_LENGTH;
 
-/// A path and its accompanying data.
+/// A path and its accompanying data. A path is a sequence of segments without a branch.
+/// `start_paths` and `end_paths` points to the paths connected to the start and end of this path, respectively.
 pub(crate) struct PathBundle {
     /// A segment is a continuous line or curve with the same curvature
     pub(super) segments: Vec<PathSegment>,
     /// Interpolated points along the track in the interval SEGMENT_LENGTH
     pub track: Vec<Vec2<f64>>,
     pub(super) track_ranges: Vec<usize>,
+    /// A list of connected paths to the start.
+    pub(super) start_paths: Vec<PathConnection>,
+    /// A list of connected paths to the start.
+    pub(super) end_paths: Vec<PathConnection>,
 }
 
 impl PathBundle {
@@ -21,6 +26,8 @@ impl PathBundle {
             segments: vec![path_segment],
             track,
             track_ranges,
+            start_paths: vec![],
+            end_paths: vec![],
         }
     }
 
@@ -31,12 +38,22 @@ impl PathBundle {
             segments: path_segments,
             track,
             track_ranges,
+            start_paths: vec![],
+            end_paths: vec![],
         }
     }
 
     pub fn extend(&mut self, path_segments: &[PathSegment]) {
         self.segments.extend_from_slice(path_segments);
         (self.track, self.track_ranges) = compute_track_ps(&self.segments);
+    }
+
+    /// Modifies the path and update track nodes
+    pub fn truncate(&mut self, node: usize) {
+        if node < self.segments.len() {
+            self.segments.truncate(node);
+            (self.track, self.track_ranges) = compute_track_ps(&self.segments);
+        }
     }
 
     pub fn segments(&self) -> impl Iterator<Item = &PathSegment> {
@@ -102,6 +119,30 @@ impl PathBundle {
             Some(Self::multi(new_path))
         } else {
             None
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum ConnectPoint {
+    Start,
+    End,
+}
+
+/// A connection to a path. This data structure indicates only one way of the connection,
+/// but the other path should have the connection in the other way to form a bidirectional graph.
+#[derive(Clone, Copy)]
+pub(super) struct PathConnection {
+    pub path_id: usize,
+    /// Where does this path connects to the other path
+    pub connect_point: ConnectPoint,
+}
+
+impl PathConnection {
+    pub fn new(path_id: usize, connect_point: ConnectPoint) -> Self {
+        Self {
+            path_id,
+            connect_point,
         }
     }
 }

@@ -16,6 +16,7 @@ use crate::{
 };
 
 pub(crate) use path_bundle::PathBundle;
+use path_bundle::{ConnectPoint, PathConnection};
 
 const CAR_LENGTH: f64 = 1.;
 const TRAIN_ACCEL: f64 = 0.001;
@@ -255,26 +256,63 @@ impl Train {
 
     /// Attempt to add a segment from the selected node. If it was at the end of a path,
     /// extend it, or create a new path.
-    fn add_segment(&mut self, path_bundle: PathBundle) -> Result<(), String> {
+    fn add_segment(&mut self, mut path_bundle: PathBundle) -> Result<(), String> {
         let Some((selected_path, selected_node)) = self.selected_node else {
             return Err("Select a node first".to_string());
         };
-        if let Some(path) = self.paths.get_mut(&selected_path) {
-            // If it was the last segment, just extend it
-            if selected_node == path.segments.len() - 1 {
-                path.extend(&path_bundle.segments);
-                // Continue extending from the added segment
-                self.selected_node =
-                    Some((selected_path, selected_node + path_bundle.segments.len()));
-            } else {
-                let last_segment = path_bundle.segments.len() - 1;
-                // Othewise, add a new path starting from the selected node,
-                // whose sole member is the new segment.
-                self.paths.insert(self.path_id_gen, path_bundle);
-                // Continue extending from the added segment
-                self.selected_node = Some((self.path_id_gen, last_segment));
-                self.path_id_gen += 1;
-            }
+        let Some(path) = self.paths.get_mut(&selected_path) else {
+            return Err("Path not found; perhaps deleted".to_string());
+        };
+        // If it was the last segment, just extend it
+        if selected_node == path.segments.len() - 1 {
+            path.extend(&path_bundle.segments);
+            // Continue extending from the added segment
+            self.selected_node = Some((selected_path, selected_node + path_bundle.segments.len()));
+        } else {
+            // Othewise, split the path at the node and add a new path starting from the selected node,
+            // whose sole member is the new segment.
+
+            // Allocate path ids for the new paths
+            let split_path_id = self.path_id_gen;
+            self.path_id_gen += 1;
+            let new_path_id = self.path_id_gen;
+            self.path_id_gen += 1;
+
+            // First, create a path for the segments after the selected node.
+            let mut split_path = PathBundle::multi(
+                path.segments[selected_node..]
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            );
+            split_path
+                .start_paths
+                .push(PathConnection::new(selected_path, ConnectPoint::End));
+            println!(
+                "split path: path #{split_path_id} from path #{selected_path} at node #{selected_node} into {}/{} segments",
+                selected_node + 1,
+                split_path.segments.len()
+            );
+
+            // Next, truncate the selected path after the selected node.
+            path.truncate(selected_node + 1);
+            path.end_paths
+                .push(PathConnection::new(split_path_id, ConnectPoint::Start));
+            path.end_paths
+                .push(PathConnection::new(new_path_id, ConnectPoint::Start));
+
+            // Add the split path after the selected path is modified, in order to avoid the borrow checker.
+            self.paths.insert(split_path_id, split_path);
+
+            // Lastly, add the new path for the new segment.
+            path_bundle
+                .start_paths
+                .push(PathConnection::new(selected_path, ConnectPoint::End));
+            let last_segment = path_bundle.segments.len() - 1;
+            self.paths.insert(new_path_id, path_bundle);
+
+            // Select the segment just added to allow continuing extending
+            self.selected_node = Some((self.path_id_gen, last_segment));
         }
         Ok(())
     }
