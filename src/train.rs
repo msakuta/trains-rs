@@ -230,9 +230,12 @@ impl Train {
         ))));
     }
 
-    pub fn add_gentle(&mut self, pos: Vec2<f64>) -> Result<(), String> {
+    pub fn add_gentle(&mut self, pos: Vec2<f64>, heightmap: &HeightMap) -> Result<(), String> {
         match self.compute_gentle(pos) {
             Ok(path_segments) => {
+                if path_segments.track.iter().any(|p| heightmap.is_water(p)) {
+                    return Err("Cannot build tracks through water".to_string());
+                }
                 if let Some(path) = self.paths.get_mut(&self.path_id) {
                     path.extend(&path_segments.segments);
                 }
@@ -274,8 +277,13 @@ impl Train {
         Ok(PathBundle::single(path_segment))
     }
 
-    pub fn add_straight(&mut self, pos: Vec2<f64>) -> Result<(), String> {
+    pub fn add_straight(&mut self, pos: Vec2<f64>, heightmap: &HeightMap) -> Result<(), String> {
         let path_segments = self.compute_straight(pos)?;
+
+        if path_segments.track.iter().any(|p| heightmap.is_water(p)) {
+            return Err("Cannot build tracks through water".to_string());
+        }
+
         if let Some(path) = self.paths.get_mut(&self.path_id) {
             path.extend(&path_segments.segments);
         }
@@ -305,8 +313,13 @@ impl Train {
         Ok(PathBundle::single(path_segment))
     }
 
-    pub fn add_tight(&mut self, pos: Vec2<f64>) -> Result<(), String> {
+    pub fn add_tight(&mut self, pos: Vec2<f64>, heightmap: &HeightMap) -> Result<(), String> {
         let path_segments = self.compute_tight(pos)?;
+
+        if path_segments.track.iter().any(|p| heightmap.is_water(p)) {
+            return Err("Cannot build tracks through water".to_string());
+        }
+
         if let Some(path) = self.paths.get_mut(&self.path_id) {
             path.extend(&path_segments.segments);
         }

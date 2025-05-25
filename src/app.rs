@@ -103,17 +103,17 @@ impl TrainsApp {
                     ClickMode::GentleCurve => {
                         let pos = paint_transform.from_pos2(pointer);
                         // self.train.control_points.push(pos);
-                        let res = self.train.add_gentle(pos);
+                        let res = self.train.add_gentle(pos, &self.heightmap);
                         self.process_result(pos, res);
                     }
                     ClickMode::TightCurve => {
                         let pos = paint_transform.from_pos2(pointer);
-                        let res = self.train.add_tight(pos);
+                        let res = self.train.add_tight(pos, &self.heightmap);
                         self.process_result(pos, res);
                     }
                     ClickMode::StraightLine => {
                         let pos = paint_transform.from_pos2(pointer);
-                        let res = self.train.add_straight(pos);
+                        let res = self.train.add_straight(pos, &self.heightmap);
                         self.process_result(pos, res);
                     }
                     ClickMode::DeleteSegment => {
@@ -174,7 +174,11 @@ impl TrainsApp {
                     .track
                     .iter()
                     .any(|p| self.heightmap.is_water(p));
-                let color = Color32::from_rgba_premultiplied(255, 0, 255, 63);
+                let color = if is_intersecting_water {
+                    Color32::from_rgba_premultiplied(255, 0, 0, 127)
+                } else {
+                    Color32::from_rgba_premultiplied(255, 0, 255, 63)
+                };
                 self.render_track_detail(
                     &ghost_segments.track,
                     &painter,
