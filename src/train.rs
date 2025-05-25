@@ -288,11 +288,6 @@ impl Train {
             split_path
                 .start_paths
                 .push(PathConnection::new(selected_path, ConnectPoint::End));
-            println!(
-                "split path: path #{split_path_id} from path #{selected_path} at node #{selected_node} into {}/{} segments",
-                selected_node + 1,
-                split_path.segments.len()
-            );
 
             // Next, truncate the selected path after the selected node.
             path.truncate(selected_node + 1);
@@ -312,7 +307,7 @@ impl Train {
             self.paths.insert(new_path_id, path_bundle);
 
             // Select the segment just added to allow continuing extending
-            self.selected_node = Some((self.path_id_gen, last_segment));
+            self.selected_node = Some((new_path_id, last_segment));
         }
         Ok(())
     }
@@ -322,15 +317,18 @@ impl Train {
     }
 
     pub fn selected_node(&self) -> Option<Vec2<f64>> {
-        self.selected_node.and_then(|(path_id, segment_id)| {
-            let Some(path) = self.paths.get(&path_id) else {
-                return None;
-            };
-            let Some(seg) = path.segments.get(segment_id) else {
-                return None;
-            };
-            Some(seg.end())
-        })
+        self.selected_node
+            .and_then(|selected_node| self.node_position(selected_node))
+    }
+
+    pub fn node_position(&self, (path_id, segment_id): (usize, usize)) -> Option<Vec2<f64>> {
+        let Some(path) = self.paths.get(&path_id) else {
+            return None;
+        };
+        let Some(seg) = path.segments.get(segment_id) else {
+            return None;
+        };
+        Some(seg.end())
     }
 
     pub fn select_node(&mut self, pos: Vec2<f64>, thresh: f64) -> Option<(usize, usize)> {

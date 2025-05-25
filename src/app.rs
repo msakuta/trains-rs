@@ -277,13 +277,31 @@ impl TrainsApp {
             ClickMode::AddStation => {
                 if let Some(pointer) = response.hover_pos() {
                     let pos = paint_transform.from_pos2(pointer);
-                    let thresh = SELECT_PIXEL_RADIUS / self.transform.scale() as f64;
                     if let Some((path_id, _, node_id)) = self.train.find_path_node(pos, thresh) {
                         let station =
                             Station::new(self.new_station.clone(), path_id, node_id as f64);
                         self.render_station(&painter, &paint_transform, &station, false, true);
                     }
                 }
+            }
+        }
+
+        if let Some(pointer) = response.hover_pos() {
+            let pos = paint_transform.from_pos2(pointer);
+            if let Some(node_pos) = self
+                .train
+                .find_segment_node(pos, thresh)
+                .and_then(|id| self.train.node_position(id))
+            {
+                painter.rect_stroke(
+                    Rect::from_center_size(
+                        paint_transform.to_pos2(node_pos),
+                        egui::Vec2::splat(10.),
+                    ),
+                    0.,
+                    (1., Color32::from_rgba_premultiplied(255, 0, 255, 127)),
+                    egui::StrokeKind::Middle,
+                );
             }
         }
 
