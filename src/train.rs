@@ -214,13 +214,44 @@ impl Train {
             }
         }
 
-        if self.s == 0. && self.speed < 0. {
-            self.speed = 0.;
+        if let Some(path) = self.paths.get(&self.path_id) {
+            if self.s == 0. && self.speed < 0. {
+                if let Some(prev_path) = path.start_paths.first() {
+                    match prev_path.connect_point {
+                        ConnectPoint::Start => {
+                            self.path_id = prev_path.path_id;
+                            self.s = 0.;
+                            self.speed *= -1.;
+                        }
+                        ConnectPoint::End => {
+                            self.path_id = prev_path.path_id;
+                            self.s = path.track.len() as f64;
+                        }
+                    }
+                } else {
+                    self.speed = 0.;
+                }
+            }
+
+            if path.track.len() as f64 <= self.s && 0. < self.speed {
+                if let Some(next_path) = path.end_paths.first() {
+                    match next_path.connect_point {
+                        ConnectPoint::Start => {
+                            self.path_id = next_path.path_id;
+                            self.s = 0.;
+                        }
+                        ConnectPoint::End => {
+                            self.path_id = next_path.path_id;
+                            self.s = path.track.len() as f64;
+                            self.speed *= -1.;
+                        }
+                    }
+                } else {
+                    self.speed = 0.;
+                }
+            }
+            self.s = (self.s + self.speed).clamp(0., path.track.len() as f64);
         }
-        if self.paths[&self.path_id].track.len() as f64 <= self.s && 0. < self.speed {
-            self.speed = 0.;
-        }
-        self.s = (self.s + self.speed).clamp(0., self.paths[&self.path_id].track.len() as f64);
     }
 
     pub fn add_station(&mut self, name: impl Into<String>, pos: Vec2<f64>, thresh: f64) {
