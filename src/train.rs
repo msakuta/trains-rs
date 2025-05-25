@@ -85,6 +85,8 @@ pub(crate) struct Train {
     pub paths: HashMap<usize, PathBundle>,
     /// The next id of the path
     pub path_id_gen: usize,
+    /// A pair of (path id, node id) of the currently selected node
+    pub selected_node: Option<(usize, usize)>,
     /// Build ghost segment, which is not actually built yet
     pub ghost_path: Option<PathBundle>,
     /// The index of the path_bundle that the train is on
@@ -107,6 +109,7 @@ impl Train {
             // control_points: C_POINTS.to_vec(),
             paths,
             path_id_gen: 1,
+            selected_node: None,
             ghost_path: None,
             s: 0.,
             speed: 0.,
@@ -250,6 +253,28 @@ impl Train {
 
     pub fn ghost_gentle(&mut self, pos: Vec2<f64>) {
         self.ghost_path = self.compute_gentle(pos).ok();
+    }
+
+    pub fn has_selected_node(&self) -> bool {
+        self.selected_node.is_some()
+    }
+
+    pub fn selected_node(&self) -> Option<Vec2<f64>> {
+        self.selected_node.and_then(|(path_id, segment_id)| {
+            let Some(path) = self.paths.get(&path_id) else {
+                return None;
+            };
+            let Some(seg) = path.segments.get(segment_id) else {
+                return None;
+            };
+            Some(seg.end())
+        })
+    }
+
+    pub fn select_node(&mut self, pos: Vec2<f64>, thresh: f64) -> Option<(usize, usize)> {
+        let found_node = self.find_segment_node(pos, thresh);
+        self.selected_node = found_node;
+        found_node
     }
 
     fn compute_gentle(&self, pos: Vec2<f64>) -> Result<PathBundle, String> {
@@ -420,11 +445,22 @@ impl Train {
         }
     }
 
-    /// Returns a tuple of (path id, segment id)
+    /// Returns a tuple of (path id, segment id, node id)
     pub fn find_path_node(&self, pos: Vec2<f64>, thresh: f64) -> Option<(usize, usize, usize)> {
         self.paths.iter().find_map(|(path_id, path)| {
             let (seg_id, node_id) = path.find_node(pos, thresh)?;
             Some((*path_id, seg_id, node_id))
+        })
+    }
+
+    /// Finds a segment node and returns its id. A segment node is a point between segments, not within one.
+    pub fn find_segment_node(&self, pos: Vec2<f64>, thresh: f64) -> Option<(usize, usize)> {
+        self.paths.iter().find_map(|(path_id, path)| {
+            path.segments
+                .iter()
+                .enumerate()
+                .find(|(_seg_id, seg)| (seg.end() - pos).length2() < thresh.powi(2))
+                .map(|(seg_id, _seg)| (*path_id, seg_id))
         })
     }
 
