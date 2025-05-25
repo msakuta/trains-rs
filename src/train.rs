@@ -86,8 +86,8 @@ pub(crate) struct Train {
     pub paths: HashMap<usize, PathBundle>,
     /// The next id of the path
     pub path_id_gen: usize,
-    /// A pair of (path id, node id) of the currently selected node
-    pub selected_node: Option<(usize, usize)>,
+    /// Selected segment node to add a segment to.
+    pub selected_node: Option<SelectedSegment>,
     /// Build ghost segment, which is not actually built yet
     pub ghost_path: Option<PathBundle>,
     /// The index of the path_bundle that the train is on
@@ -257,17 +257,26 @@ impl Train {
     /// Attempt to add a segment from the selected node. If it was at the end of a path,
     /// extend it, or create a new path.
     fn add_segment(&mut self, mut path_bundle: PathBundle) -> Result<(), String> {
-        let Some((selected_path, selected_node)) = self.selected_node else {
+        let Some(selected) = self.selected_node else {
             return Err("Select a node first".to_string());
         };
-        let Some(path) = self.paths.get_mut(&selected_path) else {
+        let Some(path) = self.paths.get_mut(&selected.path_id) else {
             return Err("Path not found; perhaps deleted".to_string());
         };
+        // If it was the first pathnode, just prepend a segment
+        if selected.pathnode_id == 0 {
+            let len = path.append(path_bundle.segments);
+            self.offset_path(selected.path_id, len as f64);
+        } else
         // If it was the last segment, just extend it
-        if selected_node == path.segments.len() - 1 {
+        if selected.pathnode_id == path.segments.len() {
             path.extend(&path_bundle.segments);
             // Continue extending from the added segment
-            self.selected_node = Some((selected_path, selected_node + path_bundle.segments.len()));
+            self.selected_node = Some(SelectedSegment::new(
+                selected.path_id,
+                selected.pathnode_id + path_bundle.segments.len(),
+                selected.direction,
+            ));
         } else {
             // Othewise, split the path at the node and add a new path starting from the selected node,
             // whose sole member is the new segment.
@@ -280,17 +289,17 @@ impl Train {
 
             // First, create a path for the segments after the selected node.
             let mut split_path = PathBundle::multi(
-                path.segments[selected_node..]
+                path.segments[selected.pathnode_id - 1..]
                     .iter()
                     .cloned()
                     .collect::<Vec<_>>(),
             );
             split_path
                 .start_paths
-                .push(PathConnection::new(selected_path, ConnectPoint::End));
+                .push(PathConnection::new(selected.path_id, ConnectPoint::End));
 
             // Next, truncate the selected path after the selected node.
-            path.truncate(selected_node + 1);
+            path.truncate(selected.pathnode_id);
             path.end_paths
                 .push(PathConnection::new(split_path_id, ConnectPoint::Start));
             path.end_paths
@@ -302,14 +311,35 @@ impl Train {
             // Lastly, add the new path for the new segment.
             path_bundle
                 .start_paths
-                .push(PathConnection::new(selected_path, ConnectPoint::End));
-            let last_segment = path_bundle.segments.len() - 1;
+                .push(PathConnection::new(selected.path_id, ConnectPoint::End));
+            let last_pathnode = path_bundle.segments.len();
             self.paths.insert(new_path_id, path_bundle);
 
             // Select the segment just added to allow continuing extending
-            self.selected_node = Some((new_path_id, last_segment));
+            self.selected_node = Some(SelectedSegment::new(
+                new_path_id,
+                last_pathnode,
+                selected.direction,
+            ));
         }
         Ok(())
+    }
+
+    fn offset_path(&mut self, path_id: usize, s: f64) {
+        for station in &mut self.stations {
+            let mut station = station.borrow_mut();
+            if station.path_id == path_id {
+                println!(
+                    "Adding offset {s} to station {} at {}",
+                    station.name, station.s
+                );
+                station.s += s;
+            }
+        }
+
+        if self.path_id == path_id {
+            self.s += s;
+        }
     }
 
     pub fn has_selected_node(&self) -> bool {
@@ -318,38 +348,52 @@ impl Train {
 
     pub fn selected_node(&self) -> Option<Vec2<f64>> {
         self.selected_node
-            .and_then(|selected_node| self.node_position(selected_node))
+            .and_then(|selected| self.node_position(selected))
     }
 
-    pub fn node_position(&self, (path_id, segment_id): (usize, usize)) -> Option<Vec2<f64>> {
-        let Some(path) = self.paths.get(&path_id) else {
+    pub fn node_position(&self, selected: SelectedSegment) -> Option<Vec2<f64>> {
+        let Some(path) = self.paths.get(&selected.path_id) else {
             return None;
         };
-        let Some(seg) = path.segments.get(segment_id) else {
+        if selected.pathnode_id == 0 {
+            let Some(seg) = path.segments.first() else {
+                return None;
+            };
+            return Some(seg.start());
+        }
+        let Some(seg) = path.segments.get(selected.pathnode_id - 1) else {
             return None;
         };
         Some(seg.end())
     }
 
-    pub fn select_node(&mut self, pos: Vec2<f64>, thresh: f64) -> Option<(usize, usize)> {
+    pub fn select_node(&mut self, pos: Vec2<f64>, thresh: f64) -> Option<SelectedSegment> {
         let found_node = self.find_segment_node(pos, thresh);
         self.selected_node = found_node;
         found_node
     }
 
     fn compute_gentle(&self, pos: Vec2<f64>) -> Result<PathBundle, String> {
-        let Some((selected_path, selected_node)) = self.selected_node else {
+        let Some(selected) = self.selected_node else {
             return Err("Select a node first".to_string());
         };
         let Some(prev) = self
             .paths
-            .get(&selected_path)
-            .and_then(|path| path.segments.get(selected_node))
+            .get(&selected.path_id)
+            .and_then(|path| path.segments.get(selected.pathnode_id.saturating_sub(1)))
         else {
             return Err("Path segment to extend was not found".to_string());
         };
-        let prev_pos = prev.end();
-        let prev_angle = prev.end_angle();
+        let prev_pos;
+        let prev_angle;
+        if selected.pathnode_id == 0 {
+            prev_pos = prev.start();
+            prev_angle = prev.start_angle();
+        } else {
+            prev_pos = prev.end();
+            prev_angle = prev.end_angle();
+        };
+
         let delta = pos - prev_pos;
         let normal = Vec2::new(-prev_angle.sin(), prev_angle.cos());
         let angle = delta.y.atan2(delta.x);
@@ -384,18 +428,26 @@ impl Train {
     }
 
     fn compute_straight(&self, pos: Vec2<f64>) -> Result<PathBundle, String> {
-        let Some((selected_path, selected_node)) = self.selected_node else {
+        let Some(selected) = self.selected_node else {
             return Err("Select a node first".to_string());
         };
         let Some(prev) = self
             .paths
-            .get(&selected_path)
-            .and_then(|path| path.segments.get(selected_node))
+            .get(&selected.path_id)
+            .and_then(|path| path.segments.get(selected.pathnode_id.saturating_sub(1)))
         else {
             return Err("Path segment to extend was not found".to_string());
         };
-        let prev_pos = prev.end();
-        let prev_angle = prev.end_angle();
+
+        let prev_pos;
+        let prev_angle;
+        if selected.pathnode_id == 0 {
+            prev_pos = prev.start();
+            prev_angle = prev.start_angle();
+        } else {
+            prev_pos = prev.end();
+            prev_angle = prev.end_angle();
+        }
         let delta = pos - prev_pos;
         let tangent = Vec2::new(prev_angle.cos(), prev_angle.sin());
         let dot = tangent.dot(delta);
@@ -424,18 +476,26 @@ impl Train {
     }
 
     fn compute_tight(&self, pos: Vec2<f64>) -> Result<PathBundle, String> {
-        let Some((selected_path, selected_node)) = self.selected_node else {
+        let Some(selected) = self.selected_node else {
             return Err("Select a node first".to_string());
         };
         let Some(prev) = self
             .paths
-            .get(&selected_path)
-            .and_then(|path| path.segments.get(selected_node))
+            .get(&selected.path_id)
+            .and_then(|path| path.segments.get(selected.pathnode_id.saturating_sub(1)))
         else {
             return Err("Path segment to extend was not found".to_string());
         };
-        let prev_pos = prev.end();
-        let prev_angle = prev.end_angle();
+        let prev_pos;
+        let prev_angle;
+        if selected.pathnode_id == 0 {
+            prev_pos = prev.start();
+            prev_angle = prev.start_angle();
+        } else {
+            prev_pos = prev.end();
+            prev_angle = prev.end_angle();
+        }
+
         let tangent = Vec2::new(prev_angle.cos(), prev_angle.sin());
         let normal_left = tangent.left90();
         let mut tangent_angle: Option<(f64, f64, Vec2<f64>)> = None;
@@ -529,13 +589,31 @@ impl Train {
     }
 
     /// Finds a segment node and returns its id. A segment node is a point between segments, not within one.
-    pub fn find_segment_node(&self, pos: Vec2<f64>, thresh: f64) -> Option<(usize, usize)> {
+    pub fn find_segment_node(&self, pos: Vec2<f64>, thresh: f64) -> Option<SelectedSegment> {
         self.paths.iter().find_map(|(path_id, path)| {
+            // 0th segment node is the start of the first segment
+            if path
+                .segments
+                .first()
+                .is_some_and(|seg| (seg.start() - pos).length2() < thresh.powi(2))
+            {
+                return Some(SelectedSegment::new(*path_id, 0, SegmentDirection::Forward));
+            }
             path.segments
                 .iter()
                 .enumerate()
                 .find(|(_seg_id, seg)| (seg.end() - pos).length2() < thresh.powi(2))
-                .map(|(seg_id, _seg)| (*path_id, seg_id))
+                .map(|(seg_id, _seg)| {
+                    SelectedSegment::new(
+                        *path_id,
+                        seg_id + 1,
+                        if seg_id == path.segments.len() - 1 {
+                            SegmentDirection::Forward
+                        } else {
+                            SegmentDirection::Either
+                        },
+                    )
+                })
         })
     }
 
@@ -605,4 +683,32 @@ impl Train {
         }
         Ok(())
     }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct SelectedSegment {
+    /// The path id, an index into HashMap
+    pub path_id: usize,
+    /// The node index between segments. 0th pathnode is the start of the first segment and nth is the end of (n-1)th segment.
+    /// Note that if the path has n segments, it has n+1 pathnodes.
+    pub pathnode_id: usize,
+    /// Forward flag, used to determine the direction of the segment to add.
+    pub direction: SegmentDirection,
+}
+
+impl SelectedSegment {
+    pub fn new(path_id: usize, pathnode_id: usize, direction: SegmentDirection) -> Self {
+        Self {
+            path_id,
+            pathnode_id,
+            direction,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum SegmentDirection {
+    Forward,
+    Backward,
+    Either,
 }

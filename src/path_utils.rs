@@ -176,6 +176,26 @@ pub(crate) enum PathSegment {
 }
 
 impl PathSegment {
+    pub(crate) fn start(&self) -> Vec2<f64> {
+        match self {
+            Self::Line(pts) => pts[0],
+            Self::Arc(arc) => arc.center + Vec2::new(arc.start.cos(), arc.start.sin()) * arc.radius,
+        }
+    }
+
+    /// Tangent angle
+    pub(crate) fn start_angle(&self) -> f64 {
+        match self {
+            Self::Line(pts) => {
+                let delta = pts[0] - pts[1];
+                delta.y.atan2(delta.x)
+            }
+            Self::Arc(arc) => {
+                wrap_angle(arc.start + (arc.start - arc.end).signum() * std::f64::consts::PI * 0.5)
+            }
+        }
+    }
+
     pub(crate) fn end(&self) -> Vec2<f64> {
         match self {
             Self::Line(pts) => pts[1],
@@ -216,6 +236,16 @@ impl PathSegment {
                 arc.center + relpos
             }
         })
+    }
+
+    pub(crate) fn reverse(mut self) -> Self {
+        match &mut self {
+            Self::Line(pts) => pts.swap(0, 1),
+            Self::Arc(arc) => {
+                std::mem::swap(&mut arc.start, &mut arc.end);
+            }
+        }
+        self
     }
 }
 

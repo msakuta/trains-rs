@@ -43,6 +43,19 @@ impl PathBundle {
         }
     }
 
+    /// Append path segments at the start. Try to avoid this since it is slow.
+    /// Unlike `extend`, consumes the argument to reverse them in place.
+    /// Returns a number of nodes added to the track.
+    pub fn append(&mut self, path_segments: Vec<PathSegment>) -> usize {
+        let prev_track_len = self.track.len();
+        for segment in path_segments.into_iter() {
+            println!("appending segment: {segment:?}");
+            self.segments.insert(0, segment.reverse());
+        }
+        (self.track, self.track_ranges) = compute_track_ps(&self.segments);
+        self.track.len() - prev_track_len
+    }
+
     pub fn extend(&mut self, path_segments: &[PathSegment]) {
         self.segments.extend_from_slice(path_segments);
         (self.track, self.track_ranges) = compute_track_ps(&self.segments);
