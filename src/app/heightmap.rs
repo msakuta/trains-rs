@@ -34,7 +34,7 @@ const DEFAULT_NOISE_SCALE: f64 = 0.05;
 const DEFAULT_HEIGHT_SCALE: f64 = 10.;
 const MAX_HEIGHT_SCALE: f64 = 50.;
 
-const DEFAULT_WATER_LEVEL: f64 = 0.3;
+const DEFAULT_WATER_LEVEL: f32 = 0.3;
 
 pub(super) const DOWNSAMPLE: usize = 16;
 
@@ -55,7 +55,7 @@ pub(crate) struct HeightMapParams {
     pub noise_octaves: u32,
     pub noise_scale: f64,
     pub height_scale: f64,
-    pub water_level: f64,
+    pub water_level: f32,
 }
 
 impl HeightMapParams {
@@ -151,12 +151,71 @@ pub(crate) struct HeightMap {
 }
 
 impl HeightMap {
-    fn new(map: Vec<f32>, shape: Shape, water_level: f32) -> Self {
-        Self {
+    pub(super) fn new(params: &HeightMapParams) -> Result<Self, String> {
+        let mut rng = Xorshift64Star::new(8357);
+
+        let persistence_seeds = gen_seeds(&mut rng, params.persistence_octaves);
+        let seeds = gen_seeds(&mut rng, params.noise_octaves);
+        let map: Vec<_> = (0..params.width * params.height)
+            .map(|i| {
+                let ix = (i % params.width) as f64;
+                let iy = (i / params.width) as f64;
+                let p_pos =
+                    crate::vec2::Vec2::new(ix as f64, iy as f64) * params.persistence_noise_scale;
+                let persistence_sample = perlin_noise_pixel(
+                    p_pos.x,
+                    p_pos.y,
+                    params.persistence_octaves,
+                    &persistence_seeds,
+                    0.5,
+                )
+                .abs()
+                    * params.persistence_scale
+                    + params.min_persistence;
+                let pos = crate::vec2::Vec2::new(ix as f64, iy as f64) * params.noise_scale;
+                let val = match params.noise_type {
+                    NoiseType::Perlin => perlin_noise_pixel(
+                        pos.x,
+                        pos.y,
+                        params.noise_octaves,
+                        &seeds,
+                        persistence_sample,
+                    ),
+                    NoiseType::White => {
+                        white_fractal_noise(pos.x, pos.y, &seeds, persistence_sample)
+                    }
+                };
+                val as f32 * params.height_scale as f32
+            })
+            .collect();
+
+        let min_p = map
+            .iter()
+            .fold(None, |acc, cur| {
+                if let Some(acc) = acc {
+                    if acc < *cur { Some(acc) } else { Some(*cur) }
+                } else {
+                    Some(*cur)
+                }
+            })
+            .ok_or_else(|| "Min value not found".to_string())?;
+        let max_p = map
+            .iter()
+            .fold(None, |acc, cur| {
+                if let Some(acc) = acc {
+                    if acc < *cur { Some(*cur) } else { Some(acc) }
+                } else {
+                    Some(*cur)
+                }
+            })
+            .ok_or_else(|| "Max value not found".to_string())?;
+        let water_level = (max_p - min_p) * params.water_level + min_p;
+
+        Ok(Self {
             map,
-            shape,
+            shape: (params.width as isize, params.height as isize),
             water_level,
-        }
+        })
     }
 
     pub fn get_image(&self) -> Result<ColorImage, ()> {
@@ -182,12 +241,11 @@ impl HeightMap {
                 }
             })
             .ok_or(())?;
-        let water_level = (max_p - min_p) * self.water_level + min_p;
         let bitmap: Vec<_> = self
             .map
             .iter()
             .map(|p| {
-                let is_water = *p < water_level;
+                let is_water = *p < self.water_level;
                 if is_water {
                     [0u8, 95, 191]
                 } else {
@@ -228,6 +286,14 @@ impl HeightMap {
         // let lerp = |a, b, f| (1. - f) * a + f * b;
         // lerp(lerp(heightmap[shape.idx(x, y)], heightmap[shape.idx(x + 1, y)], fx),
         // lerp(heightmap[shape.idx(x, y + 1)], heightmap[shape.idx(x + 1, y + 1)], fx), fy)
+    }
+
+    pub(crate) fn is_water(&self, pos: &crate::vec2::Vec2<f64>) -> bool {
+        let [x, y] = [pos.x as isize, pos.y as isize];
+        if x < 0 || self.shape.0 <= x || y < 0 || self.shape.1 < y {
+            return false;
+        }
+        self.map[self.shape.idx(x, y)] < self.water_level
     }
 }
 
@@ -429,47 +495,4 @@ fn render_grid(
             (1., Color32::GRAY),
         );
     }
-}
-
-pub(super) fn init_heightmap(params: &HeightMapParams) -> HeightMap {
-    let mut rng = Xorshift64Star::new(8357);
-
-    let persistence_seeds = gen_seeds(&mut rng, params.persistence_octaves);
-    let seeds = gen_seeds(&mut rng, params.noise_octaves);
-    HeightMap::new(
-        (0..params.width * params.height)
-            .map(|i| {
-                let ix = (i % params.width) as f64;
-                let iy = (i / params.width) as f64;
-                let p_pos =
-                    crate::vec2::Vec2::new(ix as f64, iy as f64) * params.persistence_noise_scale;
-                let persistence_sample = perlin_noise_pixel(
-                    p_pos.x,
-                    p_pos.y,
-                    params.persistence_octaves,
-                    &persistence_seeds,
-                    0.5,
-                )
-                .abs()
-                    * params.persistence_scale
-                    + params.min_persistence;
-                let pos = crate::vec2::Vec2::new(ix as f64, iy as f64) * params.noise_scale;
-                let val = match params.noise_type {
-                    NoiseType::Perlin => perlin_noise_pixel(
-                        pos.x,
-                        pos.y,
-                        params.noise_octaves,
-                        &seeds,
-                        persistence_sample,
-                    ),
-                    NoiseType::White => {
-                        white_fractal_noise(pos.x, pos.y, &seeds, persistence_sample)
-                    }
-                };
-                val as f32 * params.height_scale as f32
-            })
-            .collect(),
-        (params.width as isize, params.height as isize),
-        params.water_level as f32,
-    )
 }

@@ -3,13 +3,13 @@ mod heightmap;
 use std::rc::Rc;
 
 use eframe::{
-    egui::{self, Align2, Color32, FontId, Frame, Painter, Pos2, Ui, output::OutputEvent},
+    egui::{self, Align2, Color32, FontId, Frame, Painter, Pos2, Ui},
     epaint::PathShape,
 };
 use heightmap::DOWNSAMPLE;
 
 pub(crate) use self::heightmap::HeightMap;
-use self::heightmap::{ContoursCache, HeightMapParams, init_heightmap};
+use self::heightmap::{ContoursCache, HeightMapParams};
 
 use crate::{
     bg_image::BgImage,
@@ -56,7 +56,7 @@ pub(crate) struct TrainsApp {
 impl TrainsApp {
     pub fn new() -> Self {
         let heightmap_params = HeightMapParams::new();
-        let heightmap = init_heightmap(&heightmap_params);
+        let heightmap = HeightMap::new(&heightmap_params).unwrap();
         let contour_grid_step = DOWNSAMPLE;
 
         let contours_cache = heightmap.cache_contours(contour_grid_step);
@@ -170,6 +170,10 @@ impl TrainsApp {
 
         if 1. < self.transform.scale() {
             if let Some(ghost_segments) = &self.train.ghost_path {
+                let is_intersecting_water = ghost_segments
+                    .track
+                    .iter()
+                    .any(|p| self.heightmap.is_water(p));
                 let color = Color32::from_rgba_premultiplied(255, 0, 255, 63);
                 self.render_track_detail(
                     &ghost_segments.track,
@@ -505,9 +509,17 @@ impl TrainsApp {
             ui.label("Terrain generation params");
             self.heightmap_params.params_ui(ui);
             if ui.button("Regenerate").clicked() {
-                self.heightmap = init_heightmap(&self.heightmap_params);
-                self.contours_cache = Some(self.heightmap.cache_contours(self.contour_grid_step));
-                self.bg.clear();
+                match HeightMap::new(&self.heightmap_params) {
+                    Ok(map) => {
+                        self.heightmap = map;
+                        self.contours_cache =
+                            Some(self.heightmap.cache_contours(self.contour_grid_step));
+                        self.bg.clear();
+                    }
+                    Err(e) => {
+                        self.error_msg = Some((e.to_string(), 10.));
+                    }
+                }
             }
         });
         ui.group(|ui| {
