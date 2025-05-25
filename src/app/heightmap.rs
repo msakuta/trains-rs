@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use core::f32;
+use std::{collections::HashMap, vec};
 
 use eframe::egui::{self, Color32, ColorImage, Painter, Pos2, Ui, pos2};
 
@@ -412,39 +413,75 @@ pub(super) fn init_heightmap(params: &HeightMapParams) -> HeightMap {
 
     let persistence_seeds = gen_seeds(&mut rng, params.persistence_octaves);
     let seeds = gen_seeds(&mut rng, params.noise_octaves);
-    HeightMap::new(
-        (0..params.width * params.height)
-            .map(|i| {
-                let ix = (i % params.width) as f64;
-                let iy = (i / params.width) as f64;
-                let p_pos =
-                    crate::vec2::Vec2::new(ix as f64, iy as f64) * params.persistence_noise_scale;
-                let persistence_sample = perlin_noise_pixel(
-                    p_pos.x,
-                    p_pos.y,
-                    params.persistence_octaves,
-                    &persistence_seeds,
-                    0.5,
-                )
-                .abs()
-                    * params.persistence_scale
-                    + params.min_persistence;
-                let pos = crate::vec2::Vec2::new(ix as f64, iy as f64) * params.noise_scale;
-                let val = match params.noise_type {
-                    NoiseType::Perlin => perlin_noise_pixel(
-                        pos.x,
-                        pos.y,
-                        params.noise_octaves,
-                        &seeds,
-                        persistence_sample,
-                    ),
-                    NoiseType::White => {
-                        white_fractal_noise(pos.x, pos.y, &seeds, persistence_sample)
+    let mut map = (0..params.width * params.height)
+        .map(|i| {
+            let ix = (i % params.width) as f64;
+            let iy = (i / params.width) as f64;
+            let p_pos =
+                crate::vec2::Vec2::new(ix as f64, iy as f64) * params.persistence_noise_scale;
+            let persistence_sample = perlin_noise_pixel(
+                p_pos.x,
+                p_pos.y,
+                params.persistence_octaves,
+                &persistence_seeds,
+                0.5,
+            )
+            .abs()
+                * params.persistence_scale
+                + params.min_persistence;
+            let pos = crate::vec2::Vec2::new(ix as f64, iy as f64) * params.noise_scale;
+            let val = match params.noise_type {
+                NoiseType::Perlin => perlin_noise_pixel(
+                    pos.x,
+                    pos.y,
+                    params.noise_octaves,
+                    &seeds,
+                    persistence_sample,
+                ),
+                NoiseType::White => white_fractal_noise(pos.x, pos.y, &seeds, persistence_sample),
+            };
+            val as f32 * params.height_scale as f32
+        })
+        .collect::<Vec<_>>();
+    let mut map2 = vec![0.; params.width * params.height];
+    for _ in 0..30 {
+        erode(
+            &map,
+            &mut map2,
+            (params.width as isize, params.height as isize),
+        );
+        std::mem::swap(&mut map, &mut map2);
+    }
+    HeightMap::new(map2, (params.width as isize, params.height as isize))
+}
+
+const NEIGHBORS: [[isize; 2]; 8] = [
+    [1, 0],
+    [1, 1],
+    [0, 1],
+    [-1, 1],
+    [-1, 0],
+    [-1, -1],
+    [0, -1],
+    [1, -1],
+];
+
+fn erode(input: &[f32], output: &mut [f32], shape: Shape) {
+    output.fill(0.);
+    for y in 0..shape.1 {
+        for x in 0..shape.0 {
+            output[x as usize + (shape.0 * y) as usize] = NEIGHBORS
+                .iter()
+                .map(|neighbor| {
+                    let jx = x + neighbor[0];
+                    let jy = y + neighbor[1];
+                    if jx < 0 || shape.0 <= jx || jy < 0 || shape.1 <= jy {
+                        f32::MAX
+                    } else {
+                        input[jx as usize + (shape.0 * jy) as usize]
                     }
-                };
-                val as f32 * params.height_scale as f32
-            })
-            .collect(),
-        (params.width as isize, params.height as isize),
-    )
+                })
+                .fold(f32::MAX, |acc, cur| cur.min(acc));
+        }
+    }
 }
