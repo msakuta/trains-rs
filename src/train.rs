@@ -255,7 +255,8 @@ impl Train {
     }
 
     /// Attempt to add a segment from the selected node. If it was at the end of a path,
-    /// extend it, or create a new path.
+    /// extend it, otherwise split the path in the middle and attach a new path.
+    /// This way we maintain that any path does not have a branch.
     fn add_segment(&mut self, mut path_bundle: PathBundle) -> Result<(), String> {
         let Some(selected) = self.selected_node else {
             return Err("Select a node first".to_string());
@@ -279,7 +280,7 @@ impl Train {
             ));
         } else {
             // Othewise, split the path at the node and add a new path starting from the selected node,
-            // whose sole member is the new segment.
+            // whose sole member is the new segments.
 
             // Allocate path ids for the new paths
             let split_path_id = self.path_id_gen;
@@ -289,7 +290,7 @@ impl Train {
 
             // First, create a path for the segments after the selected node.
             let mut split_path = PathBundle::multi(
-                path.segments[selected.pathnode_id - 1..]
+                path.segments[selected.pathnode_id..]
                     .iter()
                     .cloned()
                     .collect::<Vec<_>>(),
@@ -304,6 +305,20 @@ impl Train {
                 .push(PathConnection::new(split_path_id, ConnectPoint::Start));
             path.end_paths
                 .push(PathConnection::new(new_path_id, ConnectPoint::Start));
+
+            // Move the stations after the split point to the split path and subtract the first half path
+            let new_path_len = path.track.len() as f64;
+            for station in &self.stations {
+                let mut station = station.borrow_mut();
+                if station.path_id == selected.path_id && new_path_len < station.s {
+                    station.path_id = split_path_id;
+                    station.s -= new_path_len;
+                }
+            }
+            if self.path_id == selected.path_id && new_path_len < self.s {
+                self.path_id = split_path_id;
+                self.s -= new_path_len;
+            }
 
             // Add the split path after the selected path is modified, in order to avoid the borrow checker.
             self.paths.insert(split_path_id, split_path);
