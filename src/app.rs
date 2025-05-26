@@ -13,7 +13,7 @@ use self::heightmap::{ContoursCache, HeightMapParams};
 
 use crate::{
     bg_image::BgImage,
-    train::{SelectedPathNode, Station, Train},
+    train::{SelectedPathNode, Station, TrainTracks},
     transform::{PaintTransform, Transform, half_rect},
     vec2::Vec2,
 };
@@ -48,7 +48,7 @@ pub(crate) struct TrainsApp {
     use_cached_contours: bool,
     show_debug_slope: bool,
     click_mode: ClickMode,
-    train: Train,
+    train: TrainTracks,
     selected_station: Option<usize>,
     new_station: String,
     error_msg: Option<(String, f64)>,
@@ -69,7 +69,7 @@ impl TrainsApp {
             })
             .unwrap_or_else(|e| {
                 eprintln!("Failed to load train data, falling back to default: {e}");
-                Train::new()
+                TrainTracks::new()
             });
         Self {
             transform: Transform::new(1.),

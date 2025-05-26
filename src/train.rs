@@ -83,8 +83,9 @@ pub(crate) enum TrainTask {
     Wait(usize),
 }
 
+/// Represents the whole train track network. Can be serialized to a save file.
 #[derive(Serialize, Deserialize)]
-pub(crate) struct Train {
+pub(crate) struct TrainTracks {
     // pub control_points: Vec<Vec2<f64>>,
     /// A collection of paths. It could be a vec of `Rc`s, but we want serializable data structure.
     pub paths: HashMap<usize, PathBundle>,
@@ -110,7 +111,7 @@ pub(crate) struct Train {
     pub schedule: Vec<Weak<RefCell<Station>>>,
 }
 
-impl Train {
+impl TrainTracks {
     pub fn new() -> Self {
         let mut paths = HashMap::new();
         paths.insert(0, PathBundle::multi(PATH_SEGMENTS.to_vec()));
