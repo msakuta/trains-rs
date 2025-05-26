@@ -87,7 +87,7 @@ pub(crate) struct Train {
     /// The next id of the path
     pub path_id_gen: usize,
     /// Selected segment node to add a segment to.
-    pub selected_node: Option<SelectedSegment>,
+    pub selected_node: Option<SelectedPathNode>,
     /// Build ghost segment, which is not actually built yet
     pub ghost_path: Option<PathBundle>,
     /// The index of the path_bundle that the train is on
@@ -304,7 +304,7 @@ impl Train {
         if selected.pathnode_id == path.segments.len() {
             path.extend(&path_bundle.segments);
             // Continue extending from the added segment
-            self.selected_node = Some(SelectedSegment::new(
+            self.selected_node = Some(SelectedPathNode::new(
                 selected.path_id,
                 selected.pathnode_id + path_bundle.segments.len(),
                 selected.direction,
@@ -362,7 +362,7 @@ impl Train {
             self.paths.insert(new_path_id, path_bundle);
 
             // Select the segment just added to allow continuing extending
-            self.selected_node = Some(SelectedSegment::new(
+            self.selected_node = Some(SelectedPathNode::new(
                 new_path_id,
                 next_pathnode,
                 SegmentDirection::Forward,
@@ -399,7 +399,7 @@ impl Train {
     }
 
     /// Returns the position and the angle of the given node
-    pub fn node_position(&self, selected: SelectedSegment) -> Option<(Vec2<f64>, f64)> {
+    pub fn node_position(&self, selected: SelectedPathNode) -> Option<(Vec2<f64>, f64)> {
         let Some(path) = self.paths.get(&selected.path_id) else {
             return None;
         };
@@ -428,7 +428,7 @@ impl Train {
         }
     }
 
-    pub fn select_node(&mut self, pos: Vec2<f64>, thresh: f64) -> Option<SelectedSegment> {
+    pub fn select_node(&mut self, pos: Vec2<f64>, thresh: f64) -> Option<SelectedPathNode> {
         let found_node = self.find_segment_node(pos, thresh);
         self.selected_node = found_node;
         found_node
@@ -602,7 +602,7 @@ impl Train {
     }
 
     /// Finds a segment node and returns its id. A segment node is a point between segments, not within one.
-    pub fn find_segment_node(&self, pos: Vec2<f64>, thresh: f64) -> Option<SelectedSegment> {
+    pub fn find_segment_node(&self, pos: Vec2<f64>, thresh: f64) -> Option<SelectedPathNode> {
         self.paths.iter().find_map(|(path_id, path)| {
             // 0th segment node is the start of the first segment
             if path
@@ -610,7 +610,7 @@ impl Train {
                 .first()
                 .is_some_and(|seg| (seg.start() - pos).length2() < thresh.powi(2))
             {
-                return Some(SelectedSegment::new(
+                return Some(SelectedPathNode::new(
                     *path_id,
                     0,
                     SegmentDirection::Backward,
@@ -621,7 +621,7 @@ impl Train {
                     let angle = seg.end_angle();
                     let delta = seg.end() - pos;
                     if 0. < delta.dot(Vec2::new(angle.cos(), angle.sin())) {
-                        return Some(SelectedSegment::new(
+                        return Some(SelectedPathNode::new(
                             *path_id,
                             seg_id + 1,
                             SegmentDirection::Forward,
@@ -633,7 +633,7 @@ impl Train {
                     let angle = seg.start_angle();
                     let delta = seg.start() - pos;
                     if 0. < delta.dot(Vec2::new(angle.cos(), angle.sin())) {
-                        return Some(SelectedSegment::new(
+                        return Some(SelectedPathNode::new(
                             *path_id,
                             seg_id,
                             SegmentDirection::Backward,
@@ -714,18 +714,22 @@ impl Train {
     }
 }
 
+/// A selected path node with direction. A path node is a point between segments, including both ends of the path.
+/// 0th and nth pathnodes are at the ends, where n is the number of segments.
+///
+/// This type is used to store the position and the direction of a segment to add.
 #[derive(Clone, Copy)]
-pub(crate) struct SelectedSegment {
+pub(crate) struct SelectedPathNode {
     /// The path id, an index into HashMap
     pub path_id: usize,
     /// The node index between segments. 0th pathnode is the start of the first segment and nth is the end of (n-1)th segment.
     /// Note that if the path has n segments, it has n+1 pathnodes.
     pub pathnode_id: usize,
-    /// Forward flag, used to determine the direction of the segment to add.
+    /// Direction, used to determine angle of the segment to add.
     pub direction: SegmentDirection,
 }
 
-impl SelectedSegment {
+impl SelectedPathNode {
     pub fn new(path_id: usize, pathnode_id: usize, direction: SegmentDirection) -> Self {
         Self {
             path_id,
@@ -737,6 +741,8 @@ impl SelectedSegment {
 
 #[derive(Clone, Copy)]
 pub(crate) enum SegmentDirection {
+    /// Follow the direction of the increasing s
     Forward,
+    /// Reverse of forward
     Backward,
 }

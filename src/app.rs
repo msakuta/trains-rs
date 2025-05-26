@@ -13,7 +13,7 @@ use self::heightmap::{ContoursCache, HeightMapParams};
 
 use crate::{
     bg_image::BgImage,
-    train::{SelectedSegment, Station, Train},
+    train::{SelectedPathNode, Station, Train},
     transform::{PaintTransform, Transform, half_rect},
     vec2::Vec2,
 };
@@ -556,7 +556,7 @@ impl TrainsApp {
         &self,
         painter: &Painter,
         paint_transform: &PaintTransform,
-        selected_segment: &SelectedSegment,
+        selected_segment: &SelectedPathNode,
     ) {
         let Some((pos, angle)) = self.train.node_position(*selected_segment) else {
             return;
