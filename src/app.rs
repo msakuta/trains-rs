@@ -24,6 +24,7 @@ pub(crate) const AREA_HEIGHT: usize = 512;
 const SELECT_PIXEL_RADIUS: f64 = 20.;
 const MAX_NUM_CARS: usize = 10;
 const MAX_CONTOURS_GRID_STEP: usize = 100;
+const TRAIN_JSON: &str = "train.json";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ClickMode {
@@ -61,7 +62,7 @@ impl TrainsApp {
 
         let contours_cache = heightmap.cache_contours(contour_grid_step);
 
-        let train = std::fs::File::open("train.json")
+        let train = std::fs::File::open(TRAIN_JSON)
             .and_then(|train_json| {
                 serde_json::from_reader(std::io::BufReader::new(train_json))
                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
@@ -710,7 +711,7 @@ impl std::ops::Drop for TrainsApp {
     fn drop(&mut self) {
         println!("TrainsApp dropped");
         let _ = serde_json::to_writer(
-            std::io::BufWriter::new(std::fs::File::create("train.json").unwrap()),
+            std::io::BufWriter::new(std::fs::File::create(TRAIN_JSON).unwrap()),
             &self.train,
         );
     }
