@@ -60,6 +60,16 @@ impl TrainsApp {
         let contour_grid_step = DOWNSAMPLE;
 
         let contours_cache = heightmap.cache_contours(contour_grid_step);
+
+        let train = std::fs::File::open("train.json")
+            .and_then(|train_json| {
+                serde_json::from_reader(std::io::BufReader::new(train_json))
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+            })
+            .unwrap_or_else(|e| {
+                eprintln!("Failed to load train data, falling back to default: {e}");
+                Train::new()
+            });
         Self {
             transform: Transform::new(1.),
             heightmap,
@@ -72,7 +82,7 @@ impl TrainsApp {
             use_cached_contours: true,
             show_debug_slope: false,
             click_mode: ClickMode::None,
-            train: Train::new(),
+            train,
             selected_station: None,
             new_station: "New Station".to_string(),
             error_msg: None,
@@ -693,5 +703,15 @@ impl eframe::App for TrainsApp {
             }
         });
         self.train.update(thrust, &self.heightmap);
+    }
+}
+
+impl std::ops::Drop for TrainsApp {
+    fn drop(&mut self) {
+        println!("TrainsApp dropped");
+        let _ = serde_json::to_writer(
+            std::io::BufWriter::new(std::fs::File::create("train.json").unwrap()),
+            &self.train,
+        );
     }
 }

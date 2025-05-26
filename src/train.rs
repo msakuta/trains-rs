@@ -18,6 +18,8 @@ use crate::{
 pub(crate) use path_bundle::PathBundle;
 use path_bundle::{ConnectPoint, PathConnection};
 
+use serde::{Deserialize, Serialize};
+
 const CAR_LENGTH: f64 = 1.;
 const TRAIN_ACCEL: f64 = 0.001;
 const MAX_SPEED: f64 = 1.;
@@ -73,20 +75,23 @@ impl Station {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub(crate) enum TrainTask {
+    #[default]
     Idle,
     Goto(Weak<RefCell<Station>>),
     Wait(usize),
 }
 
+#[derive(Serialize, Deserialize)]
 pub(crate) struct Train {
     // pub control_points: Vec<Vec2<f64>>,
     /// A collection of paths. It could be a vec of `Rc`s, but we want serializable data structure.
     pub paths: HashMap<usize, PathBundle>,
     /// The next id of the path
     pub path_id_gen: usize,
-    /// Selected segment node to add a segment to.
+    /// Selected segment node to add a segment to. Skipped from serde since it is not a game state par se.
+    #[serde(skip)]
     pub selected_node: Option<SelectedPathNode>,
     /// Build ghost segment, which is not actually built yet
     pub ghost_path: Option<PathBundle>,
@@ -97,8 +102,11 @@ pub(crate) struct Train {
     /// Speed along s
     pub speed: f64,
     pub num_cars: usize,
+    #[serde(skip)]
     pub stations: Vec<Rc<RefCell<Station>>>,
+    #[serde(skip)]
     pub train_task: TrainTask,
+    #[serde(skip)]
     pub schedule: Vec<Weak<RefCell<Station>>>,
 }
 
@@ -718,7 +726,7 @@ impl Train {
 /// 0th and nth pathnodes are at the ends, where n is the number of segments.
 ///
 /// This type is used to store the position and the direction of a segment to add.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub(crate) struct SelectedPathNode {
     /// The path id, an index into HashMap
     pub path_id: usize,
@@ -739,7 +747,7 @@ impl SelectedPathNode {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub(crate) enum SegmentDirection {
     /// Follow the direction of the increasing s
     Forward,

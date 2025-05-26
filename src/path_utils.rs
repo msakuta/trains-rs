@@ -1,5 +1,7 @@
 use crate::vec2::Vec2;
 
+use serde::{Deserialize, Serialize};
+
 pub(super) fn find_closest_node(path: &[Vec2<f64>], pos: Vec2<f64>) -> f64 {
     let closest_two =
         path.iter()
@@ -150,7 +152,7 @@ pub(crate) fn _bezier_length(c_points: &[Vec2<f64>]) -> Option<f64> {
     }))
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) struct CircleArc {
     pub center: Vec2<f64>,
     pub radius: f64,
@@ -169,7 +171,7 @@ impl CircleArc {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) enum PathSegment {
     Line([Vec2<f64>; 2]),
     Arc(CircleArc),

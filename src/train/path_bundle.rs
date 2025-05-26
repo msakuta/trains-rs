@@ -5,6 +5,9 @@ use crate::{
 
 use super::SEGMENT_LENGTH;
 
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize)]
 /// A path and its accompanying data. A path is a sequence of segments without a branch.
 /// `start_paths` and `end_paths` points to the paths connected to the start and end of this path, respectively.
 pub(crate) struct PathBundle {
@@ -136,7 +139,7 @@ impl PathBundle {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub(super) enum ConnectPoint {
     Start,
     End,
@@ -144,7 +147,7 @@ pub(super) enum ConnectPoint {
 
 /// A connection to a path. This data structure indicates only one way of the connection,
 /// but the other path should have the connection in the other way to form a bidirectional graph.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub(super) struct PathConnection {
     pub path_id: usize,
     /// Where does this path connects to the other path
