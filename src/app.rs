@@ -13,7 +13,7 @@ use self::heightmap::{ContoursCache, HeightMapParams};
 
 use crate::{
     bg_image::BgImage,
-    train::{Station, Train},
+    train::{SelectedSegment, Station, Train},
     transform::{PaintTransform, Transform, half_rect},
     vec2::Vec2,
 };
@@ -258,10 +258,10 @@ impl TrainsApp {
 
         if let Some(pointer) = response.hover_pos() {
             let pos = paint_transform.from_pos2(pointer);
-            if let Some(node_pos) = self
+            if let Some((id, node_pos)) = self
                 .train
                 .find_segment_node(pos, thresh)
-                .and_then(|id| self.train.node_position(id))
+                .and_then(|id| Some((id, self.train.node_position(id)?.0)))
             {
                 painter.rect_stroke(
                     Rect::from_center_size(
@@ -272,12 +272,14 @@ impl TrainsApp {
                     (1., Color32::from_rgba_premultiplied(255, 0, 255, 127)),
                     egui::StrokeKind::Middle,
                 );
+
+                self.render_path_direction(&painter, &paint_transform, &id);
             }
         }
 
         if let Some(sel_node) = self.train.selected_node() {
             painter.rect_stroke(
-                Rect::from_center_size(paint_transform.to_pos2(sel_node), egui::Vec2::splat(10.)),
+                Rect::from_center_size(paint_transform.to_pos2(sel_node.0), egui::Vec2::splat(10.)),
                 0.,
                 (2., Color32::from_rgb(255, 0, 255)),
                 egui::StrokeKind::Middle,
@@ -548,6 +550,30 @@ impl TrainsApp {
 
         let track_line = PathShape::line(track_points, (2., color));
         painter.add(track_line);
+    }
+
+    fn render_path_direction(
+        &self,
+        painter: &Painter,
+        paint_transform: &PaintTransform,
+        selected_segment: &SelectedSegment,
+    ) {
+        let Some((pos, angle)) = self.train.node_position(*selected_segment) else {
+            return;
+        };
+
+        painter.add(PathShape::convex_polygon(
+            [[0., 0.], [-10., -6.], [-10., 6.]]
+                .into_iter()
+                .map(|ofs| {
+                    let x = ofs[0] * angle.cos() + ofs[1] * angle.sin();
+                    let y = -ofs[0] * angle.sin() + ofs[1] * angle.cos();
+                    paint_transform.to_pos2(pos) + egui::vec2(x as f32, y as f32)
+                })
+                .collect(),
+            Color32::from_rgba_premultiplied(255, 255, 0, 255),
+            (2., Color32::from_rgba_premultiplied(127, 127, 0, 255)),
+        ));
     }
 
     fn ui_panel(&mut self, ui: &mut Ui) {

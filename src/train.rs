@@ -358,14 +358,14 @@ impl Train {
             path_bundle
                 .start_paths
                 .push(PathConnection::new(selected.path_id, ConnectPoint::End));
-            let last_pathnode = path_bundle.segments.len();
+            let next_pathnode = path_bundle.segments.len();
             self.paths.insert(new_path_id, path_bundle);
 
             // Select the segment just added to allow continuing extending
             self.selected_node = Some(SelectedSegment::new(
                 new_path_id,
-                last_pathnode,
-                selected.direction,
+                next_pathnode,
+                SegmentDirection::Forward,
             ));
         }
         Ok(())
@@ -392,25 +392,40 @@ impl Train {
         self.selected_node.is_some()
     }
 
-    pub fn selected_node(&self) -> Option<Vec2<f64>> {
+    /// Returns the position and the angle of the selected node
+    pub fn selected_node(&self) -> Option<(Vec2<f64>, f64)> {
         self.selected_node
             .and_then(|selected| self.node_position(selected))
     }
 
-    pub fn node_position(&self, selected: SelectedSegment) -> Option<Vec2<f64>> {
+    /// Returns the position and the angle of the given node
+    pub fn node_position(&self, selected: SelectedSegment) -> Option<(Vec2<f64>, f64)> {
         let Some(path) = self.paths.get(&selected.path_id) else {
             return None;
         };
-        if selected.pathnode_id == 0 {
-            let Some(seg) = path.segments.first() else {
-                return None;
-            };
-            return Some(seg.start());
+        match selected.direction {
+            SegmentDirection::Forward => {
+                if selected.pathnode_id == 0 {
+                    let Some(seg) = path.segments.first() else {
+                        return None;
+                    };
+                    return Some((
+                        seg.start(),
+                        wrap_angle(seg.start_angle() + std::f64::consts::PI),
+                    ));
+                }
+                let Some(seg) = path.segments.get(selected.pathnode_id - 1) else {
+                    return None;
+                };
+                return Some((seg.end(), seg.end_angle()));
+            }
+            SegmentDirection::Backward => {
+                let Some(seg) = path.segments.get(selected.pathnode_id) else {
+                    return None;
+                };
+                return Some((seg.start(), seg.start_angle()));
+            }
         }
-        let Some(seg) = path.segments.get(selected.pathnode_id - 1) else {
-            return None;
-        };
-        Some(seg.end())
     }
 
     pub fn select_node(&mut self, pos: Vec2<f64>, thresh: f64) -> Option<SelectedSegment> {
@@ -420,24 +435,8 @@ impl Train {
     }
 
     fn compute_gentle(&self, pos: Vec2<f64>) -> Result<PathBundle, String> {
-        let Some(selected) = self.selected_node else {
+        let Some((prev_pos, prev_angle)) = self.selected_node() else {
             return Err("Select a node first".to_string());
-        };
-        let Some(prev) = self
-            .paths
-            .get(&selected.path_id)
-            .and_then(|path| path.segments.get(selected.pathnode_id.saturating_sub(1)))
-        else {
-            return Err("Path segment to extend was not found".to_string());
-        };
-        let prev_pos;
-        let prev_angle;
-        if selected.pathnode_id == 0 {
-            prev_pos = prev.start();
-            prev_angle = prev.start_angle();
-        } else {
-            prev_pos = prev.end();
-            prev_angle = prev.end_angle();
         };
 
         let delta = pos - prev_pos;
@@ -474,26 +473,10 @@ impl Train {
     }
 
     fn compute_straight(&self, pos: Vec2<f64>) -> Result<PathBundle, String> {
-        let Some(selected) = self.selected_node else {
+        let Some((prev_pos, prev_angle)) = self.selected_node() else {
             return Err("Select a node first".to_string());
         };
-        let Some(prev) = self
-            .paths
-            .get(&selected.path_id)
-            .and_then(|path| path.segments.get(selected.pathnode_id.saturating_sub(1)))
-        else {
-            return Err("Path segment to extend was not found".to_string());
-        };
 
-        let prev_pos;
-        let prev_angle;
-        if selected.pathnode_id == 0 {
-            prev_pos = prev.start();
-            prev_angle = prev.start_angle();
-        } else {
-            prev_pos = prev.end();
-            prev_angle = prev.end_angle();
-        }
         let delta = pos - prev_pos;
         let tangent = Vec2::new(prev_angle.cos(), prev_angle.sin());
         let dot = tangent.dot(delta);
@@ -522,25 +505,9 @@ impl Train {
     }
 
     fn compute_tight(&self, pos: Vec2<f64>) -> Result<PathBundle, String> {
-        let Some(selected) = self.selected_node else {
+        let Some((prev_pos, prev_angle)) = self.selected_node() else {
             return Err("Select a node first".to_string());
         };
-        let Some(prev) = self
-            .paths
-            .get(&selected.path_id)
-            .and_then(|path| path.segments.get(selected.pathnode_id.saturating_sub(1)))
-        else {
-            return Err("Path segment to extend was not found".to_string());
-        };
-        let prev_pos;
-        let prev_angle;
-        if selected.pathnode_id == 0 {
-            prev_pos = prev.start();
-            prev_angle = prev.start_angle();
-        } else {
-            prev_pos = prev.end();
-            prev_angle = prev.end_angle();
-        }
 
         let tangent = Vec2::new(prev_angle.cos(), prev_angle.sin());
         let normal_left = tangent.left90();
@@ -643,23 +610,39 @@ impl Train {
                 .first()
                 .is_some_and(|seg| (seg.start() - pos).length2() < thresh.powi(2))
             {
-                return Some(SelectedSegment::new(*path_id, 0, SegmentDirection::Forward));
+                return Some(SelectedSegment::new(
+                    *path_id,
+                    0,
+                    SegmentDirection::Backward,
+                ));
             }
-            path.segments
-                .iter()
-                .enumerate()
-                .find(|(_seg_id, seg)| (seg.end() - pos).length2() < thresh.powi(2))
-                .map(|(seg_id, _seg)| {
-                    SelectedSegment::new(
-                        *path_id,
-                        seg_id + 1,
-                        if seg_id == path.segments.len() - 1 {
-                            SegmentDirection::Forward
-                        } else {
-                            SegmentDirection::Either
-                        },
-                    )
-                })
+            path.segments.iter().enumerate().find_map(|(seg_id, seg)| {
+                if (seg.end() - pos).length2() < thresh.powi(2) {
+                    let angle = seg.end_angle();
+                    let delta = seg.end() - pos;
+                    if 0. < delta.dot(Vec2::new(angle.cos(), angle.sin())) {
+                        return Some(SelectedSegment::new(
+                            *path_id,
+                            seg_id + 1,
+                            SegmentDirection::Forward,
+                        ));
+                    }
+                }
+
+                if (seg.start() - pos).length2() < thresh.powi(2) {
+                    let angle = seg.start_angle();
+                    let delta = seg.start() - pos;
+                    if 0. < delta.dot(Vec2::new(angle.cos(), angle.sin())) {
+                        return Some(SelectedSegment::new(
+                            *path_id,
+                            seg_id,
+                            SegmentDirection::Backward,
+                        ));
+                    }
+                }
+
+                None
+            })
         })
     }
 
@@ -753,8 +736,7 @@ impl SelectedSegment {
 }
 
 #[derive(Clone, Copy)]
-enum SegmentDirection {
+pub(crate) enum SegmentDirection {
     Forward,
     Backward,
-    Either,
 }
