@@ -183,37 +183,7 @@ impl TrainsApp {
             );
         }
 
-        if 1. < self.transform.scale() {
-            if let Some(ghost_segments) = &self.train.ghost_path {
-                let is_intersecting_water = ghost_segments
-                    .track
-                    .iter()
-                    .any(|p| self.heightmap.is_water(p));
-                let color = if is_intersecting_water {
-                    Color32::from_rgba_premultiplied(255, 0, 0, 127)
-                } else {
-                    Color32::from_rgba_premultiplied(255, 0, 255, 63)
-                };
-                self.render_track_detail(
-                    &ghost_segments.track,
-                    &painter,
-                    &paint_transform,
-                    1.,
-                    color,
-                );
-            }
-            let color = Color32::from_rgba_premultiplied(255, 0, 255, 255);
-            for bundle in self.train.paths.values() {
-                self.render_track_detail(&bundle.track, &painter, &paint_transform, 1., color);
-            }
-        } else {
-            if let Some(ghost_segments) = &self.train.ghost_path {
-                self.render_track(&ghost_segments.track, &painter, &paint_transform, 63);
-            }
-            for bundle in self.train.paths.values() {
-                self.render_track(&bundle.track, &painter, &paint_transform, 255);
-            }
-        }
+        self.render_track(&painter, &paint_transform);
 
         let rotation_matrix = |angle: f32| {
             [
@@ -451,6 +421,47 @@ impl TrainsApp {
         );
     }
 
+    fn render_track(&self, painter: &Painter, paint_transform: &PaintTransform) {
+        let ghost_path = self.train.ghost_path.as_ref().map(|ghost_segments| {
+            let is_intersecting_water = ghost_segments
+                .track
+                .iter()
+                .any(|p| self.heightmap.is_water(p));
+
+            let ghost_color = if is_intersecting_water {
+                Color32::from_rgba_premultiplied(255, 0, 0, 127)
+            } else {
+                Color32::from_rgba_premultiplied(255, 0, 255, 63)
+            };
+
+            (ghost_segments, ghost_color)
+        });
+
+        let color = Color32::from_rgba_premultiplied(255, 0, 255, 255);
+
+        if 1. < self.transform.scale() {
+            if let Some((ghost_segments, color)) = ghost_path {
+                self.render_track_detail(
+                    &ghost_segments.track,
+                    &painter,
+                    &paint_transform,
+                    1.,
+                    color,
+                );
+            }
+            for bundle in self.train.paths.values() {
+                self.render_track_detail(&bundle.track, &painter, &paint_transform, 1., color);
+            }
+        } else {
+            if let Some((ghost_segments, color)) = ghost_path {
+                self.render_track_simple(&ghost_segments.track, &painter, &paint_transform, color);
+            }
+            for bundle in self.train.paths.values() {
+                self.render_track_simple(&bundle.track, &painter, &paint_transform, color);
+            }
+        }
+    }
+
     fn render_track_detail(
         &self,
         track: &[Vec2<f64>],
@@ -473,11 +484,21 @@ impl TrainsApp {
         // const TIE_INTERPOLATES: usize = 3;
 
         for ofs in [RAIL_HALFWIDTH, -RAIL_HALFWIDTH] {
-            let left_rail_points = track
+            let mut left_rail_points: Vec<Pos2> = track
                 .iter()
                 .zip(track.iter().skip(1))
                 .map(parallel_offset(ofs))
                 .collect();
+
+            // Extend the last segment using the same normal vector from the last segment.
+            // This could be inaccurate, but is better than disconnection.
+            if let Some((last, last2)) = track.last().zip(track.get(track.len() - 2)) {
+                let delta = (*last - *last2).normalized();
+                left_rail_points.push(Pos2::from(
+                    paint_transform.to_pos2(delta.left90() * ofs + *last),
+                ));
+            }
+
             let left_rail = PathShape::line(left_rail_points, (line_width, color));
             painter.add(left_rail);
         }
@@ -507,19 +528,17 @@ impl TrainsApp {
         // }
     }
 
-    fn render_track(
+    fn render_track_simple(
         &self,
         track: &[Vec2<f64>],
         painter: &Painter,
         paint_transform: &PaintTransform,
-        alpha: u8,
+        color: Color32,
     ) {
         let track_points: Vec<_> = track
             .iter()
             .map(|ofs| Pos2::from(paint_transform.to_pos2(*ofs)))
             .collect();
-
-        let color = Color32::from_rgba_premultiplied(255, 0, 255, alpha);
 
         // if self.show_track_nodes {
         //     for track_point in &track_points {
