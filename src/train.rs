@@ -83,14 +83,38 @@ pub(crate) enum TrainTask {
     Wait(usize),
 }
 
+#[derive(Serialize, Deserialize)]
+pub(crate) struct TrainNode {
+    pos: Vec2<f64>,
+    forward_paths: Vec<PathConnection>,
+    backward_paths: Vec<PathConnection>,
+}
+
+impl TrainNode {
+    fn new(pos: Vec2<f64>) -> Self {
+        Self {
+            pos,
+            forward_paths: vec![],
+            backward_paths: vec![],
+        }
+    }
+}
+
 /// Represents the whole train track network. Can be serialized to a save file.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct TrainTracks {
     // pub control_points: Vec<Vec2<f64>>,
-    /// A collection of paths. It could be a vec of `Rc`s, but we want serializable data structure.
+    /// A collection of paths. A path is an edge as in graph theory.
+    /// It could be a vec of `Rc`s, but we want serializable data structure.
+    /// We may replace it with a generational id arena to keep the ordering stable.
     pub paths: HashMap<usize, PathBundle>,
     /// The next id of the path
     pub path_id_gen: usize,
+    /// A collection of train track nodes, which connects paths. A node as in graph theory.
+    /// Used for connectivity calculations.
+    pub nodes: HashMap<usize, TrainNode>,
+    /// The next id of the node
+    pub node_id_gen: usize,
     /// Selected segment node to add a segment to. Skipped from serde since it is not a game state par se.
     #[serde(skip)]
     pub selected_node: Option<SelectedPathNode>,
@@ -114,12 +138,25 @@ pub(crate) struct TrainTracks {
 impl TrainTracks {
     pub fn new() -> Self {
         let mut paths = HashMap::new();
-        paths.insert(0, PathBundle::multi(PATH_SEGMENTS.to_vec()));
+        paths.insert(0, PathBundle::multi(PATH_SEGMENTS.to_vec(), 0, 1));
+        let mut nodes = HashMap::new();
+        let mut first_node = TrainNode::new(PATH_SEGMENTS.first().unwrap().start());
+        first_node
+            .forward_paths
+            .push(PathConnection::new(0, ConnectPoint::Start));
+        nodes.insert(0, first_node);
+        let mut last_node = TrainNode::new(PATH_SEGMENTS.last().unwrap().end());
+        last_node
+            .backward_paths
+            .push(PathConnection::new(0, ConnectPoint::End));
+        nodes.insert(1, last_node);
         Self {
             // control_points: C_POINTS.to_vec(),
             paths,
             path_id_gen: 1,
             selected_node: None,
+            nodes,
+            node_id_gen: 2,
             ghost_path: None,
             s: 0.,
             speed: 0.,
@@ -225,7 +262,11 @@ impl TrainTracks {
 
         if let Some(path) = self.paths.get(&self.path_id) {
             if self.s == 0. && self.speed < 0. {
-                if let Some(prev_path) = path.start_paths.first() {
+                if let Some(prev_path) = self
+                    .nodes
+                    .get(&path.start_node)
+                    .and_then(|node| node.forward_paths.first())
+                {
                     match prev_path.connect_point {
                         ConnectPoint::Start => {
                             self.path_id = prev_path.path_id;
@@ -243,7 +284,11 @@ impl TrainTracks {
             }
 
             if path.track.len() as f64 <= self.s && 0. < self.speed {
-                if let Some(next_path) = path.end_paths.first() {
+                if let Some(next_path) = self
+                    .nodes
+                    .get(&path.end_node)
+                    .and_then(|node| node.backward_paths.first())
+                {
                     match next_path.connect_point {
                         ConnectPoint::Start => {
                             self.path_id = next_path.path_id;
@@ -319,14 +364,44 @@ impl TrainTracks {
                 selected.direction,
             ));
         } else {
-            // Othewise, split the path at the node and add a new path starting from the selected node,
+            // Othewise, split the path at the node and add a new path starting from the selected pathnode,
             // whose sole member is the new segments.
+            // It can be quite complicated, so see the figures below to understand the desired before and after state
+            // along with the variable names.
+            //
+            // Before:
+            //
+            //          * end_node
+            //           \
+            //            \
+            //             \
+            //              | selected.path_id
+            //              |
+            //              |
+            //              * start_node
+            //
+            // After:
+            //
+            // end_node *       * new_end_node
+            //           \     /
+            // split_path \   / new_path
+            //             \ /
+            //              * split_node
+            //              |
+            //              | selected.path_id
+            //              |
+            //              * start_node
+            //
 
             // Allocate path ids for the new paths
             let split_path_id = self.path_id_gen;
             self.path_id_gen += 1;
             let new_path_id = self.path_id_gen;
             self.path_id_gen += 1;
+            let split_node_id = self.node_id_gen;
+            self.node_id_gen += 1;
+            let new_end_node_id = self.node_id_gen;
+            self.node_id_gen += 1;
 
             // First, create a path for the segments after the selected node.
             let mut split_path = PathBundle::multi(
@@ -334,17 +409,44 @@ impl TrainTracks {
                     .iter()
                     .cloned()
                     .collect::<Vec<_>>(),
+                split_node_id,
+                path.end_node,
             );
-            split_path
-                .start_paths
+
+            // Set up the split node. Note that the new path can have different direction depending on
+            // selected.direction.
+            let mut split_node = TrainNode::new(split_path.start());
+            split_node
+                .forward_paths
+                .push(PathConnection::new(split_path_id, ConnectPoint::Start));
+            split_node
+                .forward_paths
+                .push(PathConnection::new(new_path_id, ConnectPoint::End));
+            split_node
+                .backward_paths
                 .push(PathConnection::new(selected.path_id, ConnectPoint::End));
+            match selected.direction {
+                SegmentDirection::Forward => {
+                    split_node
+                        .forward_paths
+                        .push(PathConnection::new(new_path_id, ConnectPoint::Start));
+                }
+                SegmentDirection::Backward => {
+                    split_node
+                        .backward_paths
+                        .push(PathConnection::new(new_path_id, ConnectPoint::Start));
+                }
+            }
+            self.nodes.insert(split_node_id, split_node);
 
             // Next, truncate the selected path after the selected node.
             path.truncate(selected.pathnode_id);
-            path.end_paths
-                .push(PathConnection::new(split_path_id, ConnectPoint::Start));
-            path.end_paths
-                .push(PathConnection::new(new_path_id, ConnectPoint::Start));
+            if let Some(node) = self.nodes.get_mut(&path.end_node) {
+                node.forward_paths.retain(|p| p.path_id != selected.path_id);
+                node.backward_paths
+                    .retain(|p| p.path_id != selected.path_id);
+            }
+            path.end_node = split_node_id;
 
             // Move the stations after the split point to the split path and subtract the first half path
             let new_path_len = path.track.len() as f64;
@@ -363,11 +465,17 @@ impl TrainTracks {
             // Add the split path after the selected path is modified, in order to avoid the borrow checker.
             self.paths.insert(split_path_id, split_path);
 
-            // Lastly, add the new path for the new segment.
-            path_bundle
-                .start_paths
+            // Set up the new end node
+            let mut new_end_node = TrainNode::new(path_bundle.end());
+
+            // Then, add a new node for the end of the new path.
+            new_end_node
+                .backward_paths
                 .push(PathConnection::new(selected.path_id, ConnectPoint::End));
+            self.nodes.insert(path_bundle.start_node, new_end_node);
             let next_pathnode = path_bundle.segments.len();
+
+            // Lastly, add the new path for the new segment.
             self.paths.insert(new_path_id, path_bundle);
 
             // Select the segment just added to allow continuing extending
@@ -464,7 +572,7 @@ impl TrainTracks {
             start,
             end,
         ));
-        Ok(PathBundle::single(path_segment))
+        Ok(PathBundle::single(path_segment, 0, 0))
     }
 
     pub fn add_straight(&mut self, pos: Vec2<f64>, heightmap: &HeightMap) -> Result<(), String> {
@@ -496,7 +604,7 @@ impl TrainTracks {
         }
         let perpendicular_foot = prev_pos + tangent * dot;
         let path_segment = PathSegment::Line([prev_pos, perpendicular_foot]);
-        Ok(PathBundle::single(path_segment))
+        Ok(PathBundle::single(path_segment, 0, 0))
     }
 
     pub fn add_tight(&mut self, pos: Vec2<f64>, heightmap: &HeightMap) -> Result<(), String> {
@@ -547,7 +655,7 @@ impl TrainTracks {
                 PathSegment::Arc(CircleArc::new(a, MIN_RADIUS, start_angle, end_angle)),
                 PathSegment::Line([tangent_pos, pos]),
             ];
-            Ok(PathBundle::multi(path_segments))
+            Ok(PathBundle::multi(path_segments, 0, 0))
         } else {
             Err("Clicked point requires tighter curvature radius than allowed".to_string())
         }
@@ -596,7 +704,7 @@ impl TrainTracks {
                 PathSegment::Arc(CircleArc::new(a, MIN_RADIUS, start_angle, end_angle)),
                 PathSegment::Line([tangent_pos, pos]),
             ];
-            Ok(PathBundle::multi(path_segments))
+            Ok(PathBundle::multi(path_segments, 0, 0))
         } else {
             Err("Clicked point requires tighter curvature radius than allowed".to_string())
         }
@@ -671,7 +779,12 @@ impl TrainTracks {
             };
             let delete_end = path.track_ranges[seg] as f64;
             println!("Delete node range: {}, {}", delete_begin, delete_end);
-            let new_path = path.delete_segment(seg);
+            let new_path = path.delete_segment(seg, |added_node| {
+                let node_id = self.node_id_gen;
+                self.nodes.insert(node_id, TrainNode::new(added_node));
+                self.node_id_gen += 1;
+                node_id
+            });
             let path_len = path.segments.len();
             if let Some(new_path) = new_path {
                 let new_id = self.path_id_gen;
