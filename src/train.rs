@@ -262,15 +262,18 @@ impl TrainTracks {
 
         if let Some(path) = self.paths.get(&self.path_id) {
             if self.s == 0. && self.speed < 0. {
-                if let Some(prev_path) = self.nodes.get(&path.start_node).and_then(|node| {
+                let prev_path = self.nodes.get(&path.start_node).and_then(|node| {
                     let forward = node.forward_paths.iter().any(|p| p.path_id == self.path_id);
                     // If we came from forward, we should continue on backward
-                    if forward {
+                    let path_con = if forward {
                         node.backward_paths.first()
                     } else {
                         node.forward_paths.first()
-                    }
-                }) {
+                    }?;
+                    let path_ref = self.paths.get(&path_con.path_id)?;
+                    Some((path_con, path_ref))
+                });
+                if let Some((prev_path, prev_path_ref)) = prev_path {
                     match prev_path.connect_point {
                         ConnectPoint::Start => {
                             self.path_id = prev_path.path_id;
