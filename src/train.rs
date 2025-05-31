@@ -262,11 +262,15 @@ impl TrainTracks {
 
         if let Some(path) = self.paths.get(&self.path_id) {
             if self.s == 0. && self.speed < 0. {
-                if let Some(prev_path) = self
-                    .nodes
-                    .get(&path.start_node)
-                    .and_then(|node| node.forward_paths.first())
-                {
+                if let Some(prev_path) = self.nodes.get(&path.start_node).and_then(|node| {
+                    let forward = node.forward_paths.iter().any(|p| p.path_id == self.path_id);
+                    // If we came from forward, we should continue on backward
+                    if forward {
+                        node.backward_paths.first()
+                    } else {
+                        node.forward_paths.first()
+                    }
+                }) {
                     match prev_path.connect_point {
                         ConnectPoint::Start => {
                             self.path_id = prev_path.path_id;
@@ -275,7 +279,7 @@ impl TrainTracks {
                         }
                         ConnectPoint::End => {
                             self.path_id = prev_path.path_id;
-                            self.s = path.track.len() as f64;
+                            self.s = prev_path_ref.track.len() as f64;
                         }
                     }
                 } else {
@@ -284,11 +288,15 @@ impl TrainTracks {
             }
 
             if path.track.len() as f64 <= self.s && 0. < self.speed {
-                if let Some(next_path) = self
-                    .nodes
-                    .get(&path.end_node)
-                    .and_then(|node| node.backward_paths.first())
-                {
+                if let Some(next_path) = self.nodes.get(&path.end_node).and_then(|node| {
+                    let forward = node.forward_paths.iter().any(|p| p.path_id == self.path_id);
+                    // If we came from forward, we should continue on backward
+                    if forward {
+                        node.backward_paths.first()
+                    } else {
+                        node.forward_paths.first()
+                    }
+                }) {
                     match next_path.connect_point {
                         ConnectPoint::Start => {
                             self.path_id = next_path.path_id;
@@ -304,6 +312,9 @@ impl TrainTracks {
                     self.speed = 0.;
                 }
             }
+
+            // Acquire path again because it may have changed
+            let path = &self.paths[&self.path_id];
             self.s = (self.s + self.speed).clamp(0., path.track.len() as f64);
         }
     }
