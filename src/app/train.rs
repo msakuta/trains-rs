@@ -196,12 +196,47 @@ impl TrainsApp {
             }
         };
 
+        const RENDER_DIRECTION_COUNT: usize = 5;
+
+        if is_start_node_switching {
+            for (prev, next) in track
+                .iter()
+                .take(RENDER_DIRECTION_COUNT)
+                .zip(track.iter().skip(1))
+            {
+                // let delta = (*next - *prev).normalized();
+                // let heading = delta.y.atan2(delta.x);
+                let prev_pos = paint_transform.to_pos2(*prev);
+                let next_pos = paint_transform.to_pos2(*next);
+                painter.arrow(prev_pos, next_pos - prev_pos, (3., Color32::RED));
+            }
+        }
+
+        if is_end_node_switching {
+            for (prev, next) in track
+                .iter()
+                .rev()
+                .take(RENDER_DIRECTION_COUNT)
+                .zip(track.iter().rev().skip(1))
+            {
+                // let delta = (*next - *prev).normalized();
+                // let heading = delta.y.atan2(delta.x);
+                let prev_pos = paint_transform.to_pos2(*prev);
+                let next_pos = paint_transform.to_pos2(*next);
+                painter.arrow(
+                    prev_pos,
+                    next_pos - prev_pos,
+                    (3., Color32::from_rgb(0, 191, 0)),
+                );
+            }
+        }
+
         if let Some((first, second)) = track.get(0).zip(track.get(1)) {
             let par = parallel_offset(ofs)((first, second));
             painter.arrow(
                 par,
                 perpendicular_offset(ofs * 2.)((&first, &second)),
-                (if is_start_node_switching { 4. } else { 2. }, Color32::RED),
+                (2., Color32::RED),
             );
         }
 
@@ -210,10 +245,7 @@ impl TrainsApp {
             painter.arrow(
                 par,
                 perpendicular_offset(ofs * 2.)((&first, &second)),
-                (
-                    if is_end_node_switching { 4. } else { 2. },
-                    Color32::from_rgb(0, 127, 0),
-                ),
+                (2., Color32::from_rgb(0, 191, 0)),
             );
         }
     }
