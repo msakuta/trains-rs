@@ -420,9 +420,6 @@ impl TrainTracks {
                 .forward_paths
                 .push(PathConnection::new(split_path_id, ConnectPoint::Start));
             split_node
-                .forward_paths
-                .push(PathConnection::new(new_path_id, ConnectPoint::End));
-            split_node
                 .backward_paths
                 .push(PathConnection::new(selected.path_id, ConnectPoint::End));
             match selected.direction {
@@ -445,6 +442,8 @@ impl TrainTracks {
                 node.forward_paths.retain(|p| p.path_id != selected.path_id);
                 node.backward_paths
                     .retain(|p| p.path_id != selected.path_id);
+                node.backward_paths
+                    .push(PathConnection::new(split_path_id, ConnectPoint::End));
             }
             path.end_node = split_node_id;
 
@@ -471,8 +470,10 @@ impl TrainTracks {
             // Then, add a new node for the end of the new path.
             new_end_node
                 .backward_paths
-                .push(PathConnection::new(selected.path_id, ConnectPoint::End));
-            self.nodes.insert(path_bundle.start_node, new_end_node);
+                .push(PathConnection::new(new_path_id, ConnectPoint::End));
+            self.nodes.insert(new_end_node_id, new_end_node);
+            path_bundle.start_node = split_node_id;
+            path_bundle.end_node = new_end_node_id;
             let next_pathnode = path_bundle.segments.len();
 
             // Lastly, add the new path for the new segment.
