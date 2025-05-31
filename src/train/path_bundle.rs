@@ -17,9 +17,9 @@ pub(crate) struct PathBundle {
     pub track: Vec<Vec2<f64>>,
     pub(super) track_ranges: Vec<usize>,
     /// A node id of the starting node.
-    pub(super) start_node: usize,
+    pub(crate) start_node: usize,
     /// A node id of the end node.
-    pub(super) end_node: usize,
+    pub(crate) end_node: usize,
 }
 
 impl PathBundle {
@@ -168,7 +168,7 @@ impl PathBundle {
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
-pub(super) enum ConnectPoint {
+pub(crate) enum ConnectPoint {
     Start,
     End,
 }
@@ -176,7 +176,7 @@ pub(super) enum ConnectPoint {
 /// A connection to a path. This data structure indicates only one way of the connection,
 /// but the other path should have the connection in the other way to form a bidirectional graph.
 #[derive(Clone, Copy, Serialize, Deserialize)]
-pub(super) struct PathConnection {
+pub(crate) struct PathConnection {
     pub path_id: usize,
     /// Where does this path connects to the other path
     pub connect_point: ConnectPoint,

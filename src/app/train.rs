@@ -3,7 +3,7 @@ use eframe::{
     epaint::PathShape,
 };
 
-use crate::{transform::PaintTransform, vec2::Vec2};
+use crate::{train::PathBundle, transform::PaintTransform, vec2::Vec2};
 
 use super::TrainsApp;
 
@@ -41,8 +41,9 @@ impl TrainsApp {
                     color,
                 );
             }
-            for bundle in self.train.paths.values() {
+            for (id, bundle) in &self.train.paths {
                 self.render_track_detail(&bundle.track, &painter, &paint_transform, 1., color);
+                self.render_track_direction(*id, &bundle, &painter, &paint_transform);
             }
         } else {
             if let Some((ghost_segments, color)) = ghost_path {
@@ -117,11 +118,66 @@ impl TrainsApp {
 
     fn render_track_direction(
         &self,
-        track: &[Vec2<f64>],
+        path_id: usize,
+        path: &PathBundle,
         painter: &Painter,
         paint_transform: &PaintTransform,
     ) {
         let ofs = RAIL_HALFWIDTH * 2.;
+
+        let is_start_node_switching = self.train.nodes.get(&path.start_node).is_some_and(|node| {
+            node.backward_paths
+                .iter()
+                .any(|p| p.path_id == self.train.path_id)
+                && node
+                    .forward_paths
+                    .get(
+                        self.train
+                            .switch_path
+                            .min(node.forward_paths.len().saturating_sub(1)),
+                    )
+                    .is_some_and(|p| p.path_id == path_id)
+                || node
+                    .forward_paths
+                    .iter()
+                    .any(|p| p.path_id == self.train.path_id)
+                    && node
+                        .backward_paths
+                        .get(
+                            self.train
+                                .switch_path
+                                .min(node.backward_paths.len().saturating_sub(1)),
+                        )
+                        .is_some_and(|p| p.path_id == path_id)
+        });
+
+        let is_end_node_switching = self.train.nodes.get(&path.end_node).is_some_and(|node| {
+            node.backward_paths
+                .iter()
+                .any(|p| p.path_id == self.train.path_id)
+                && node
+                    .forward_paths
+                    .get(
+                        self.train
+                            .switch_path
+                            .min(node.forward_paths.len().saturating_sub(1)),
+                    )
+                    .is_some_and(|p| p.path_id == path_id)
+                || node
+                    .forward_paths
+                    .iter()
+                    .any(|p| p.path_id == self.train.path_id)
+                    && node
+                        .backward_paths
+                        .get(
+                            self.train
+                                .switch_path
+                                .min(node.backward_paths.len().saturating_sub(1)),
+                        )
+                        .is_some_and(|p| p.path_id == path_id)
+        });
+
+        let track = &path.track;
 
         let parallel_offset = |ofs| {
             let paint_transform = &paint_transform;
@@ -145,7 +201,7 @@ impl TrainsApp {
             painter.arrow(
                 par,
                 perpendicular_offset(ofs * 2.)((&first, &second)),
-                (2., Color32::RED),
+                (if is_start_node_switching { 4. } else { 2. }, Color32::RED),
             );
         }
 
@@ -154,7 +210,10 @@ impl TrainsApp {
             painter.arrow(
                 par,
                 perpendicular_offset(ofs * 2.)((&first, &second)),
-                (2., Color32::from_rgb(0, 127, 0)),
+                (
+                    if is_end_node_switching { 4. } else { 2. },
+                    Color32::from_rgb(0, 127, 0),
+                ),
             );
         }
     }
