@@ -491,6 +491,15 @@ impl TrainsApp {
             }
         };
 
+        let perpendicular_offset = |ofs| {
+            let scale = paint_transform.scale();
+            move |(prev, next): (&Vec2<f64>, &Vec2<f64>)| {
+                let delta = (*next - *prev).normalized();
+                let v = delta * ofs;
+                egui::vec2(v.x as f32, -v.y as f32) * scale
+            }
+        };
+
         const RAIL_HALFWIDTH: f64 = 1.25;
         // const TIE_HALFLENGTH: f64 = 1.5;
         // const TIE_HALFWIDTH: f64 = 0.3;
@@ -514,6 +523,25 @@ impl TrainsApp {
 
             let left_rail = PathShape::line(left_rail_points, (line_width, color));
             painter.add(left_rail);
+        }
+
+        let ofs = RAIL_HALFWIDTH * 2.;
+        if let Some((first, second)) = track.get(0).zip(track.get(1)) {
+            let par = parallel_offset(ofs)((first, second));
+            painter.arrow(
+                par,
+                perpendicular_offset(ofs * 2.)((&first, &second)),
+                (2., Color32::RED),
+            );
+        }
+
+        if let [first, second] = track[track.len() - 2..] {
+            let par = parallel_offset(ofs)((&first, &second));
+            painter.arrow(
+                par,
+                perpendicular_offset(ofs * 2.)((&first, &second)),
+                (2., Color32::from_rgb(0, 127, 0)),
+            );
         }
 
         // if self.show_rail_ties {

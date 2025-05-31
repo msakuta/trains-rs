@@ -186,21 +186,21 @@ impl TrainTracks {
 
     pub fn train_pos(&self, car_idx: usize) -> Option<Vec2<f64>> {
         interpolate_path(
-            &self.paths[&self.path_id].track,
+            &self.paths.get(&self.path_id)?.track,
             self.s - car_idx as f64 * CAR_LENGTH,
         )
     }
 
     pub fn heading(&self, car_idx: usize) -> Option<f64> {
         interpolate_path_heading(
-            &self.paths[&self.path_id].track,
+            &self.paths.get(&self.path_id)?.track,
             self.s - car_idx as f64 * CAR_LENGTH,
         )
     }
 
     pub fn tangent(&self, car_idx: usize) -> Option<Vec2<f64>> {
         interpolate_path_tangent(
-            &self.paths[&self.path_id].track,
+            &self.paths.get(&self.path_id)?.track,
             self.s - car_idx as f64 * CAR_LENGTH,
         )
     }
