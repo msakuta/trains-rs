@@ -133,6 +133,8 @@ pub(crate) struct TrainTracks {
     pub train_task: TrainTask,
     #[serde(skip)]
     pub schedule: Vec<Weak<RefCell<Station>>>,
+    #[serde(skip)]
+    pub switch_path: usize,
 }
 
 impl TrainTracks {
@@ -168,6 +170,7 @@ impl TrainTracks {
                 .collect(),
             train_task: TrainTask::Idle,
             schedule: vec![],
+            switch_path: 0,
         }
     }
 
@@ -295,9 +298,11 @@ impl TrainTracks {
                     let forward = node.forward_paths.iter().any(|p| p.path_id == self.path_id);
                     // If we came from forward, we should continue on backward
                     if forward {
-                        node.backward_paths.first()
+                        node.backward_paths
+                            .get(self.switch_path.clamp(0, node.backward_paths.len() - 1))
                     } else {
-                        node.forward_paths.first()
+                        node.forward_paths
+                            .get(self.switch_path.clamp(0, node.forward_paths.len() - 1))
                     }
                 }) {
                     match next_path.connect_point {
