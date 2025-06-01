@@ -412,16 +412,46 @@ impl TrainTracks {
                 // Lastly, add the new path for the new segment.
                 self.paths.insert(new_path_id, path_bundle);
             }
-        } else
-        // If it was the last segment, just extend it
-        if selected.pathnode_id == path.segments.len() {
-            path.extend(&path_bundle.segments);
-            // Continue extending from the added segment
-            self.selected_node = Some(SelectedPathNode::new(
-                selected.path_id,
-                selected.pathnode_id + path_bundle.segments.len(),
-                selected.direction,
-            ));
+        } else if selected.pathnode_id == path.segments.len() {
+            // If it was the last segment ...
+
+            let end_node = self.nodes.get_mut(&path.end_node).unwrap();
+            // ... and it does not have any other path, just extend it ...
+            if end_node.count_connections() < 2 {
+                path.extend(&path_bundle.segments);
+                // Continue extending from the added segment
+                self.selected_node = Some(SelectedPathNode::new(
+                    selected.path_id,
+                    selected.pathnode_id + path_bundle.segments.len(),
+                    selected.direction,
+                ));
+            } else {
+                // ... unless there are already connected paths in which case we can't just extend.
+
+                // Allocate path ids for the new paths
+                let new_path_id = self.path_id_gen;
+                self.path_id_gen += 1;
+                let new_end_node_id = self.node_id_gen;
+                self.node_id_gen += 1;
+
+                end_node
+                    .forward_paths
+                    .push(PathConnection::new(new_path_id, ConnectPoint::Start));
+
+                // Set up the new start node
+                let mut new_end_node = TrainNode::new(path_bundle.end());
+
+                // Then, add a new node for the end of the new path.
+                new_end_node
+                    .backward_paths
+                    .push(PathConnection::new(new_path_id, ConnectPoint::End));
+                self.nodes.insert(new_end_node_id, new_end_node);
+                path_bundle.start_node = path.end_node;
+                path_bundle.end_node = new_end_node_id;
+
+                // Lastly, add the new path for the new segment.
+                self.paths.insert(new_path_id, path_bundle);
+            }
         } else {
             // Othewise, split the path at the node and add a new path starting from the selected pathnode,
             // whose sole member is the new segments.
