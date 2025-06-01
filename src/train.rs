@@ -98,6 +98,15 @@ impl TrainNode {
             backward_paths: vec![],
         }
     }
+
+    fn is_connected_to(&self, path_id: usize) -> bool {
+        self.forward_paths.iter().any(|p| p.path_id == path_id)
+            || self.backward_paths.iter().any(|p| p.path_id == path_id)
+    }
+
+    fn count_connections(&self) -> usize {
+        self.forward_paths.len() + self.backward_paths.len()
+    }
 }
 
 /// Represents the whole train track network. Can be serialized to a save file.
@@ -263,15 +272,19 @@ impl TrainTracks {
             }
         }
 
+        fn get_clamped(v: &[PathConnection], i: usize) -> Option<&PathConnection> {
+            v.get(i.clamp(0, v.len().saturating_sub(1)))
+        }
+
         if let Some(path) = self.paths.get(&self.path_id) {
             if self.s == 0. && self.speed < 0. {
                 let prev_path = self.nodes.get(&path.start_node).and_then(|node| {
                     let forward = node.forward_paths.iter().any(|p| p.path_id == self.path_id);
                     // If we came from forward, we should continue on backward
                     let path_con = if forward {
-                        node.backward_paths.first()
+                        get_clamped(&node.backward_paths, self.switch_path)
                     } else {
-                        node.forward_paths.first()
+                        get_clamped(&node.forward_paths, self.switch_path)
                     }?;
                     let path_ref = self.paths.get(&path_con.path_id)?;
                     Some((path_con, path_ref))
@@ -298,15 +311,9 @@ impl TrainTracks {
                     let forward = node.forward_paths.iter().any(|p| p.path_id == self.path_id);
                     // If we came from forward, we should continue on backward
                     if forward {
-                        node.backward_paths.get(
-                            self.switch_path
-                                .clamp(0, node.backward_paths.len().saturating_sub(1)),
-                        )
+                        get_clamped(&node.backward_paths, self.switch_path)
                     } else {
-                        node.forward_paths.get(
-                            self.switch_path
-                                .clamp(0, node.forward_paths.len().saturating_sub(1)),
-                        )
+                        get_clamped(&node.forward_paths, self.switch_path)
                     }
                 }) {
                     match next_path.connect_point {
@@ -372,10 +379,39 @@ impl TrainTracks {
         let Some(path) = self.paths.get_mut(&selected.path_id) else {
             return Err("Path not found; perhaps deleted".to_string());
         };
-        // If it was the first pathnode, just prepend a segment
+        // If it was the first pathnode...
         if selected.pathnode_id == 0 {
-            let len = path.append(path_bundle.segments);
-            self.offset_path(selected.path_id, len as f64);
+            let start_node = self.nodes.get_mut(&path.start_node).unwrap();
+            // ... and it does not have any other path, just prepend a segment, ...
+            if start_node.count_connections() < 2 {
+                let len = path.append(path_bundle.segments);
+                self.offset_path(selected.path_id, len as f64);
+            } else {
+                // ... unless there are already connected paths in which case we can't just extend.
+                // Allocate path ids for the new paths
+                let new_path_id = self.path_id_gen;
+                self.path_id_gen += 1;
+                let new_end_node_id = self.node_id_gen;
+                self.node_id_gen += 1;
+
+                start_node
+                    .backward_paths
+                    .push(PathConnection::new(new_path_id, ConnectPoint::Start));
+
+                // Set up the new end node
+                let mut new_end_node = TrainNode::new(path_bundle.end());
+
+                // Then, add a new node for the end of the new path.
+                new_end_node
+                    .backward_paths
+                    .push(PathConnection::new(new_path_id, ConnectPoint::End));
+                self.nodes.insert(new_end_node_id, new_end_node);
+                path_bundle.start_node = path.start_node;
+                path_bundle.end_node = new_end_node_id;
+
+                // Lastly, add the new path for the new segment.
+                self.paths.insert(new_path_id, path_bundle);
+            }
         } else
         // If it was the last segment, just extend it
         if selected.pathnode_id == path.segments.len() {

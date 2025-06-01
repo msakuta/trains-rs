@@ -80,7 +80,7 @@ impl TrainsApp {
 
             // Extend the last segment using the same normal vector from the last segment.
             // This could be inaccurate, but is better than disconnection.
-            if let Some((last, last2)) = track.last().zip(track.get(track.len() - 2)) {
+            if let Some([last, last2]) = track.get(track.len().saturating_sub(2)..) {
                 let delta = (*last - *last2).normalized();
                 left_rail_points.push(Pos2::from(
                     paint_transform.to_pos2(delta.left90() * ofs + *last),
@@ -240,7 +240,7 @@ impl TrainsApp {
             );
         }
 
-        if let [first, second] = track[track.len() - 2..] {
+        if let [first, second] = track[track.len().saturating_sub(2)..] {
             let par = parallel_offset(ofs)((&first, &second));
             painter.arrow(
                 par,
