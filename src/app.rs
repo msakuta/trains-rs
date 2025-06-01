@@ -572,10 +572,10 @@ impl eframe::App for TrainsApp {
                     egui::Key::W => thrust += 1.,
                     egui::Key::S => thrust -= 1.,
                     egui::Key::A => {
-                        self.train.switch_path = self.train.switch_path.saturating_sub(1)
+                        self.train.switch_path = self.train.switch_path.saturating_add(1)
                     }
                     egui::Key::D => {
-                        self.train.switch_path = self.train.switch_path.saturating_add(1)
+                        self.train.switch_path = self.train.switch_path.saturating_sub(1)
                     }
                     _ => {}
                 }

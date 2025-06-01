@@ -427,7 +427,7 @@ impl TrainTracks {
             self.node_id_gen += 1;
 
             // First, create a path for the segments after the selected node.
-            let mut split_path = PathBundle::multi(
+            let split_path = PathBundle::multi(
                 path.segments[selected.pathnode_id..]
                     .iter()
                     .cloned()
@@ -508,8 +508,59 @@ impl TrainTracks {
                 next_pathnode,
                 SegmentDirection::Forward,
             ));
+
+            // Sort the connection list after new connections are added.
+            // Note that new_end_node does not have to sort because there is only 1 connection.
+            self.sort_node_connections(split_node_id);
         }
         Ok(())
+    }
+
+    fn sort_node_connections(&mut self, node_id: usize) {
+        let Some(node) = self.nodes.get_mut(&node_id) else {
+            return;
+        };
+
+        let key = |con: &PathConnection| {
+            self.paths
+                .get(&con.path_id)
+                .map(|p| match con.connect_point {
+                    ConnectPoint::Start => {
+                        p.track
+                            .get(p.track.len().saturating_sub(5))
+                            .map_or(0., |offset_pos| {
+                                let delta = *offset_pos - node.pos;
+                                delta.y.atan2(delta.x)
+                            })
+                    }
+                    ConnectPoint::End => p.track.get(5).map_or(0., |offset_pos| {
+                        let delta = *offset_pos - node.pos;
+                        delta.y.atan2(delta.x)
+                    }),
+                })
+        };
+
+        node.forward_paths.sort_by(|lhs, rhs| {
+            let lhs = key(lhs).unwrap_or(0.);
+            let rhs = key(rhs).unwrap_or(0.);
+            // Ignore nans for now
+            lhs.partial_cmp(&rhs).unwrap()
+        });
+
+        for (i, con) in node.forward_paths.iter().enumerate() {
+            println!("forward con {i} {:?}", key(con));
+        }
+
+        node.backward_paths.sort_by(|lhs, rhs| {
+            let lhs = key(lhs).unwrap_or(0.);
+            let rhs = key(rhs).unwrap_or(0.);
+            // Ignore nans for now
+            lhs.partial_cmp(&rhs).unwrap()
+        });
+
+        for (i, con) in node.backward_paths.iter().enumerate() {
+            println!("backward con {i} {:?}", key(con));
+        }
     }
 
     fn offset_path(&mut self, path_id: usize, s: f64) {
