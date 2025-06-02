@@ -569,8 +569,8 @@ impl eframe::App for TrainsApp {
         ctx.input(|input| {
             for key in input.keys_down.iter() {
                 match key {
-                    egui::Key::W => thrust += 1.,
-                    egui::Key::S => thrust -= 1.,
+                    egui::Key::W => thrust += self.train.train_direction.signum(),
+                    egui::Key::S => thrust -= self.train.train_direction.signum(),
                     egui::Key::A => {
                         self.train.switch_path = self.train.switch_path.saturating_add(1)
                     }

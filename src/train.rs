@@ -142,6 +142,8 @@ pub(crate) struct TrainTracks {
     pub train_task: TrainTask,
     #[serde(skip)]
     pub schedule: Vec<Weak<RefCell<Station>>>,
+    pub train_direction: SegmentDirection,
+    /// The index of the direction of the path in the next branch.
     #[serde(skip)]
     pub switch_path: usize,
 }
@@ -179,6 +181,7 @@ impl TrainTracks {
                 .collect(),
             train_task: TrainTask::Idle,
             schedule: vec![],
+            train_direction: SegmentDirection::Forward,
             switch_path: 0,
         }
     }
@@ -295,6 +298,8 @@ impl TrainTracks {
                             self.path_id = prev_path.path_id;
                             self.s = 0.;
                             self.speed *= -1.;
+                            // Invert the direction if the track direction reversed
+                            self.train_direction = !self.train_direction;
                         }
                         ConnectPoint::End => {
                             self.path_id = prev_path.path_id;
@@ -325,6 +330,8 @@ impl TrainTracks {
                             self.path_id = next_path.path_id;
                             self.s = path.track.len() as f64;
                             self.speed *= -1.;
+                            // Invert the direction if the track direction reversed
+                            self.train_direction = !self.train_direction;
                         }
                     }
                 } else {
@@ -1002,10 +1009,31 @@ impl SelectedPathNode {
     }
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Serialize, Deserialize, Default)]
 pub(crate) enum SegmentDirection {
     /// Follow the direction of the increasing s
+    #[default]
     Forward,
     /// Reverse of forward
     Backward,
+}
+
+impl std::ops::Not for SegmentDirection {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        match self {
+            Self::Forward => Self::Backward,
+            Self::Backward => Self::Forward,
+        }
+    }
+}
+
+impl SegmentDirection {
+    pub fn signum(&self) -> f64 {
+        match self {
+            Self::Forward => 1.,
+            Self::Backward => -1.,
+        }
+    }
 }
