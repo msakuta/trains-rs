@@ -83,14 +83,47 @@ pub(crate) enum TrainTask {
     Wait(usize),
 }
 
+#[derive(Serialize, Deserialize)]
+pub(crate) struct TrainNode {
+    pos: Vec2<f64>,
+    pub(crate) forward_paths: Vec<PathConnection>,
+    pub(crate) backward_paths: Vec<PathConnection>,
+}
+
+impl TrainNode {
+    fn new(pos: Vec2<f64>) -> Self {
+        Self {
+            pos,
+            forward_paths: vec![],
+            backward_paths: vec![],
+        }
+    }
+
+    fn is_connected_to(&self, path_id: usize) -> bool {
+        self.forward_paths.iter().any(|p| p.path_id == path_id)
+            || self.backward_paths.iter().any(|p| p.path_id == path_id)
+    }
+
+    fn count_connections(&self) -> usize {
+        self.forward_paths.len() + self.backward_paths.len()
+    }
+}
+
 /// Represents the whole train track network. Can be serialized to a save file.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct TrainTracks {
     // pub control_points: Vec<Vec2<f64>>,
-    /// A collection of paths. It could be a vec of `Rc`s, but we want serializable data structure.
+    /// A collection of paths. A path is an edge as in graph theory.
+    /// It could be a vec of `Rc`s, but we want serializable data structure.
+    /// We may replace it with a generational id arena to keep the ordering stable.
     pub paths: HashMap<usize, PathBundle>,
     /// The next id of the path
     pub path_id_gen: usize,
+    /// A collection of train track nodes, which connects paths. A node as in graph theory.
+    /// Used for connectivity calculations.
+    pub nodes: HashMap<usize, TrainNode>,
+    /// The next id of the node
+    pub node_id_gen: usize,
     /// Selected segment node to add a segment to. Skipped from serde since it is not a game state par se.
     #[serde(skip)]
     pub selected_node: Option<SelectedPathNode>,
@@ -109,17 +142,34 @@ pub(crate) struct TrainTracks {
     pub train_task: TrainTask,
     #[serde(skip)]
     pub schedule: Vec<Weak<RefCell<Station>>>,
+    pub train_direction: SegmentDirection,
+    /// The index of the direction of the path in the next branch.
+    #[serde(skip)]
+    pub switch_path: usize,
 }
 
 impl TrainTracks {
     pub fn new() -> Self {
         let mut paths = HashMap::new();
-        paths.insert(0, PathBundle::multi(PATH_SEGMENTS.to_vec()));
+        paths.insert(0, PathBundle::multi(PATH_SEGMENTS.to_vec(), 0, 1));
+        let mut nodes = HashMap::new();
+        let mut first_node = TrainNode::new(PATH_SEGMENTS.first().unwrap().start());
+        first_node
+            .forward_paths
+            .push(PathConnection::new(0, ConnectPoint::Start));
+        nodes.insert(0, first_node);
+        let mut last_node = TrainNode::new(PATH_SEGMENTS.last().unwrap().end());
+        last_node
+            .backward_paths
+            .push(PathConnection::new(0, ConnectPoint::End));
+        nodes.insert(1, last_node);
         Self {
             // control_points: C_POINTS.to_vec(),
             paths,
             path_id_gen: 1,
             selected_node: None,
+            nodes,
+            node_id_gen: 2,
             ghost_path: None,
             s: 0.,
             speed: 0.,
@@ -131,6 +181,8 @@ impl TrainTracks {
                 .collect(),
             train_task: TrainTask::Idle,
             schedule: vec![],
+            train_direction: SegmentDirection::Forward,
+            switch_path: 0,
         }
     }
 
@@ -149,21 +201,21 @@ impl TrainTracks {
 
     pub fn train_pos(&self, car_idx: usize) -> Option<Vec2<f64>> {
         interpolate_path(
-            &self.paths[&self.path_id].track,
+            &self.paths.get(&self.path_id)?.track,
             self.s - car_idx as f64 * CAR_LENGTH,
         )
     }
 
     pub fn heading(&self, car_idx: usize) -> Option<f64> {
         interpolate_path_heading(
-            &self.paths[&self.path_id].track,
+            &self.paths.get(&self.path_id)?.track,
             self.s - car_idx as f64 * CAR_LENGTH,
         )
     }
 
     pub fn tangent(&self, car_idx: usize) -> Option<Vec2<f64>> {
         interpolate_path_tangent(
-            &self.paths[&self.path_id].track,
+            &self.paths.get(&self.path_id)?.track,
             self.s - car_idx as f64 * CAR_LENGTH,
         )
     }
@@ -223,18 +275,35 @@ impl TrainTracks {
             }
         }
 
+        fn get_clamped(v: &[PathConnection], i: usize) -> Option<&PathConnection> {
+            v.get(i.clamp(0, v.len().saturating_sub(1)))
+        }
+
         if let Some(path) = self.paths.get(&self.path_id) {
             if self.s == 0. && self.speed < 0. {
-                if let Some(prev_path) = path.start_paths.first() {
+                let prev_path = self.nodes.get(&path.start_node).and_then(|node| {
+                    let forward = node.forward_paths.iter().any(|p| p.path_id == self.path_id);
+                    // If we came from forward, we should continue on backward
+                    let path_con = if forward {
+                        get_clamped(&node.backward_paths, self.switch_path)
+                    } else {
+                        get_clamped(&node.forward_paths, self.switch_path)
+                    }?;
+                    let path_ref = self.paths.get(&path_con.path_id)?;
+                    Some((path_con, path_ref))
+                });
+                if let Some((prev_path, prev_path_ref)) = prev_path {
                     match prev_path.connect_point {
                         ConnectPoint::Start => {
                             self.path_id = prev_path.path_id;
                             self.s = 0.;
                             self.speed *= -1.;
+                            // Invert the direction if the track direction reversed
+                            self.train_direction = !self.train_direction;
                         }
                         ConnectPoint::End => {
                             self.path_id = prev_path.path_id;
-                            self.s = path.track.len() as f64;
+                            self.s = prev_path_ref.track.len() as f64;
                         }
                     }
                 } else {
@@ -243,7 +312,15 @@ impl TrainTracks {
             }
 
             if path.track.len() as f64 <= self.s && 0. < self.speed {
-                if let Some(next_path) = path.end_paths.first() {
+                if let Some(next_path) = self.nodes.get(&path.end_node).and_then(|node| {
+                    let forward = node.forward_paths.iter().any(|p| p.path_id == self.path_id);
+                    // If we came from forward, we should continue on backward
+                    if forward {
+                        get_clamped(&node.backward_paths, self.switch_path)
+                    } else {
+                        get_clamped(&node.forward_paths, self.switch_path)
+                    }
+                }) {
                     match next_path.connect_point {
                         ConnectPoint::Start => {
                             self.path_id = next_path.path_id;
@@ -253,12 +330,17 @@ impl TrainTracks {
                             self.path_id = next_path.path_id;
                             self.s = path.track.len() as f64;
                             self.speed *= -1.;
+                            // Invert the direction if the track direction reversed
+                            self.train_direction = !self.train_direction;
                         }
                     }
                 } else {
                     self.speed = 0.;
                 }
             }
+
+            // Acquire path again because it may have changed
+            let path = &self.paths[&self.path_id];
             self.s = (self.s + self.speed).clamp(0., path.track.len() as f64);
         }
     }
@@ -304,47 +386,162 @@ impl TrainTracks {
         let Some(path) = self.paths.get_mut(&selected.path_id) else {
             return Err("Path not found; perhaps deleted".to_string());
         };
-        // If it was the first pathnode, just prepend a segment
+        // If it was the first pathnode...
         if selected.pathnode_id == 0 {
-            let len = path.append(path_bundle.segments);
-            self.offset_path(selected.path_id, len as f64);
-        } else
-        // If it was the last segment, just extend it
-        if selected.pathnode_id == path.segments.len() {
-            path.extend(&path_bundle.segments);
-            // Continue extending from the added segment
-            self.selected_node = Some(SelectedPathNode::new(
-                selected.path_id,
-                selected.pathnode_id + path_bundle.segments.len(),
-                selected.direction,
-            ));
+            let start_node = self.nodes.get_mut(&path.start_node).unwrap();
+            // ... and it does not have any other path, just prepend a segment, ...
+            if start_node.count_connections() < 2 {
+                let len = path.append(path_bundle.segments);
+                self.offset_path(selected.path_id, len as f64);
+            } else {
+                // ... unless there are already connected paths in which case we can't just extend.
+                // Allocate path ids for the new paths
+                let new_path_id = self.path_id_gen;
+                self.path_id_gen += 1;
+                let new_end_node_id = self.node_id_gen;
+                self.node_id_gen += 1;
+
+                start_node
+                    .backward_paths
+                    .push(PathConnection::new(new_path_id, ConnectPoint::Start));
+
+                // Set up the new end node
+                let mut new_end_node = TrainNode::new(path_bundle.end());
+
+                // Then, add a new node for the end of the new path.
+                new_end_node
+                    .backward_paths
+                    .push(PathConnection::new(new_path_id, ConnectPoint::End));
+                self.nodes.insert(new_end_node_id, new_end_node);
+                path_bundle.start_node = path.start_node;
+                path_bundle.end_node = new_end_node_id;
+
+                // Lastly, add the new path for the new segment.
+                self.paths.insert(new_path_id, path_bundle);
+            }
+        } else if selected.pathnode_id == path.segments.len() {
+            // If it was the last segment ...
+
+            let end_node = self.nodes.get_mut(&path.end_node).unwrap();
+            // ... and it does not have any other path, just extend it ...
+            if end_node.count_connections() < 2 {
+                path.extend(&path_bundle.segments);
+                // Continue extending from the added segment
+                self.selected_node = Some(SelectedPathNode::new(
+                    selected.path_id,
+                    selected.pathnode_id + path_bundle.segments.len(),
+                    selected.direction,
+                ));
+            } else {
+                // ... unless there are already connected paths in which case we can't just extend.
+
+                // Allocate path ids for the new paths
+                let new_path_id = self.path_id_gen;
+                self.path_id_gen += 1;
+                let new_end_node_id = self.node_id_gen;
+                self.node_id_gen += 1;
+
+                end_node
+                    .forward_paths
+                    .push(PathConnection::new(new_path_id, ConnectPoint::Start));
+
+                // Set up the new start node
+                let mut new_end_node = TrainNode::new(path_bundle.end());
+
+                // Then, add a new node for the end of the new path.
+                new_end_node
+                    .backward_paths
+                    .push(PathConnection::new(new_path_id, ConnectPoint::End));
+                self.nodes.insert(new_end_node_id, new_end_node);
+                path_bundle.start_node = path.end_node;
+                path_bundle.end_node = new_end_node_id;
+
+                // Lastly, add the new path for the new segment.
+                self.paths.insert(new_path_id, path_bundle);
+            }
         } else {
-            // Othewise, split the path at the node and add a new path starting from the selected node,
+            // Othewise, split the path at the node and add a new path starting from the selected pathnode,
             // whose sole member is the new segments.
+            // It can be quite complicated, so see the figures below to understand the desired before and after state
+            // along with the variable names.
+            //
+            // Before:
+            //
+            //          * end_node
+            //           \
+            //            \
+            //             \
+            //              | selected.path_id
+            //              |
+            //              |
+            //              * start_node
+            //
+            // After:
+            //
+            // end_node *       * new_end_node
+            //           \     /
+            // split_path \   / new_path
+            //             \ /
+            //              * split_node
+            //              |
+            //              | selected.path_id
+            //              |
+            //              * start_node
+            //
 
             // Allocate path ids for the new paths
             let split_path_id = self.path_id_gen;
             self.path_id_gen += 1;
             let new_path_id = self.path_id_gen;
             self.path_id_gen += 1;
+            let split_node_id = self.node_id_gen;
+            self.node_id_gen += 1;
+            let new_end_node_id = self.node_id_gen;
+            self.node_id_gen += 1;
 
             // First, create a path for the segments after the selected node.
-            let mut split_path = PathBundle::multi(
+            let split_path = PathBundle::multi(
                 path.segments[selected.pathnode_id..]
                     .iter()
                     .cloned()
                     .collect::<Vec<_>>(),
+                split_node_id,
+                path.end_node,
             );
-            split_path
-                .start_paths
+
+            // Set up the split node. Note that the new path can have different direction depending on
+            // selected.direction.
+            let mut split_node = TrainNode::new(split_path.start());
+            split_node
+                .forward_paths
+                .push(PathConnection::new(split_path_id, ConnectPoint::Start));
+            split_node
+                .backward_paths
                 .push(PathConnection::new(selected.path_id, ConnectPoint::End));
+            match selected.direction {
+                SegmentDirection::Forward => {
+                    split_node
+                        .forward_paths
+                        .push(PathConnection::new(new_path_id, ConnectPoint::Start));
+                }
+                SegmentDirection::Backward => {
+                    split_node
+                        .backward_paths
+                        .push(PathConnection::new(new_path_id, ConnectPoint::Start));
+                }
+            }
+            self.nodes.insert(split_node_id, split_node);
 
             // Next, truncate the selected path after the selected node.
             path.truncate(selected.pathnode_id);
-            path.end_paths
-                .push(PathConnection::new(split_path_id, ConnectPoint::Start));
-            path.end_paths
-                .push(PathConnection::new(new_path_id, ConnectPoint::Start));
+            if let Some(node) = self.nodes.get_mut(&path.end_node) {
+                node.forward_paths.retain(|p| p.path_id != selected.path_id);
+                node.backward_paths
+                    .retain(|p| p.path_id != selected.path_id);
+                node.backward_paths
+                    .push(PathConnection::new(split_path_id, ConnectPoint::End));
+            }
+            path.end_node = split_node_id;
 
             // Move the stations after the split point to the split path and subtract the first half path
             let new_path_len = path.track.len() as f64;
@@ -363,11 +560,19 @@ impl TrainTracks {
             // Add the split path after the selected path is modified, in order to avoid the borrow checker.
             self.paths.insert(split_path_id, split_path);
 
-            // Lastly, add the new path for the new segment.
-            path_bundle
-                .start_paths
-                .push(PathConnection::new(selected.path_id, ConnectPoint::End));
+            // Set up the new end node
+            let mut new_end_node = TrainNode::new(path_bundle.end());
+
+            // Then, add a new node for the end of the new path.
+            new_end_node
+                .backward_paths
+                .push(PathConnection::new(new_path_id, ConnectPoint::End));
+            self.nodes.insert(new_end_node_id, new_end_node);
+            path_bundle.start_node = split_node_id;
+            path_bundle.end_node = new_end_node_id;
             let next_pathnode = path_bundle.segments.len();
+
+            // Lastly, add the new path for the new segment.
             self.paths.insert(new_path_id, path_bundle);
 
             // Select the segment just added to allow continuing extending
@@ -376,8 +581,59 @@ impl TrainTracks {
                 next_pathnode,
                 SegmentDirection::Forward,
             ));
+
+            // Sort the connection list after new connections are added.
+            // Note that new_end_node does not have to sort because there is only 1 connection.
+            self.sort_node_connections(split_node_id);
         }
         Ok(())
+    }
+
+    fn sort_node_connections(&mut self, node_id: usize) {
+        let Some(node) = self.nodes.get_mut(&node_id) else {
+            return;
+        };
+
+        let key = |con: &PathConnection| {
+            self.paths
+                .get(&con.path_id)
+                .map(|p| match con.connect_point {
+                    ConnectPoint::Start => {
+                        p.track
+                            .get(p.track.len().saturating_sub(5))
+                            .map_or(0., |offset_pos| {
+                                let delta = *offset_pos - node.pos;
+                                delta.y.atan2(delta.x)
+                            })
+                    }
+                    ConnectPoint::End => p.track.get(5).map_or(0., |offset_pos| {
+                        let delta = *offset_pos - node.pos;
+                        delta.y.atan2(delta.x)
+                    }),
+                })
+        };
+
+        node.forward_paths.sort_by(|lhs, rhs| {
+            let lhs = key(lhs).unwrap_or(0.);
+            let rhs = key(rhs).unwrap_or(0.);
+            // Ignore nans for now
+            lhs.partial_cmp(&rhs).unwrap()
+        });
+
+        for (i, con) in node.forward_paths.iter().enumerate() {
+            println!("forward con {i} {:?}", key(con));
+        }
+
+        node.backward_paths.sort_by(|lhs, rhs| {
+            let lhs = key(lhs).unwrap_or(0.);
+            let rhs = key(rhs).unwrap_or(0.);
+            // Ignore nans for now
+            lhs.partial_cmp(&rhs).unwrap()
+        });
+
+        for (i, con) in node.backward_paths.iter().enumerate() {
+            println!("backward con {i} {:?}", key(con));
+        }
     }
 
     fn offset_path(&mut self, path_id: usize, s: f64) {
@@ -464,7 +720,7 @@ impl TrainTracks {
             start,
             end,
         ));
-        Ok(PathBundle::single(path_segment))
+        Ok(PathBundle::single(path_segment, 0, 0))
     }
 
     pub fn add_straight(&mut self, pos: Vec2<f64>, heightmap: &HeightMap) -> Result<(), String> {
@@ -496,7 +752,7 @@ impl TrainTracks {
         }
         let perpendicular_foot = prev_pos + tangent * dot;
         let path_segment = PathSegment::Line([prev_pos, perpendicular_foot]);
-        Ok(PathBundle::single(path_segment))
+        Ok(PathBundle::single(path_segment, 0, 0))
     }
 
     pub fn add_tight(&mut self, pos: Vec2<f64>, heightmap: &HeightMap) -> Result<(), String> {
@@ -547,7 +803,7 @@ impl TrainTracks {
                 PathSegment::Arc(CircleArc::new(a, MIN_RADIUS, start_angle, end_angle)),
                 PathSegment::Line([tangent_pos, pos]),
             ];
-            Ok(PathBundle::multi(path_segments))
+            Ok(PathBundle::multi(path_segments, 0, 0))
         } else {
             Err("Clicked point requires tighter curvature radius than allowed".to_string())
         }
@@ -596,7 +852,7 @@ impl TrainTracks {
                 PathSegment::Arc(CircleArc::new(a, MIN_RADIUS, start_angle, end_angle)),
                 PathSegment::Line([tangent_pos, pos]),
             ];
-            Ok(PathBundle::multi(path_segments))
+            Ok(PathBundle::multi(path_segments, 0, 0))
         } else {
             Err("Clicked point requires tighter curvature radius than allowed".to_string())
         }
@@ -671,7 +927,12 @@ impl TrainTracks {
             };
             let delete_end = path.track_ranges[seg] as f64;
             println!("Delete node range: {}, {}", delete_begin, delete_end);
-            let new_path = path.delete_segment(seg);
+            let new_path = path.delete_segment(seg, |added_node| {
+                let node_id = self.node_id_gen;
+                self.nodes.insert(node_id, TrainNode::new(added_node));
+                self.node_id_gen += 1;
+                node_id
+            });
             let path_len = path.segments.len();
             if let Some(new_path) = new_path {
                 let new_id = self.path_id_gen;
@@ -748,10 +1009,31 @@ impl SelectedPathNode {
     }
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Serialize, Deserialize, Default)]
 pub(crate) enum SegmentDirection {
     /// Follow the direction of the increasing s
+    #[default]
     Forward,
     /// Reverse of forward
     Backward,
+}
+
+impl std::ops::Not for SegmentDirection {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        match self {
+            Self::Forward => Self::Backward,
+            Self::Backward => Self::Forward,
+        }
+    }
+}
+
+impl SegmentDirection {
+    pub fn signum(&self) -> f64 {
+        match self {
+            Self::Forward => 1.,
+            Self::Backward => -1.,
+        }
+    }
 }

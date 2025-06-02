@@ -16,33 +16,37 @@ pub(crate) struct PathBundle {
     /// Interpolated points along the track in the interval SEGMENT_LENGTH
     pub track: Vec<Vec2<f64>>,
     pub(super) track_ranges: Vec<usize>,
-    /// A list of connected paths to the start.
-    pub(super) start_paths: Vec<PathConnection>,
-    /// A list of connected paths to the start.
-    pub(super) end_paths: Vec<PathConnection>,
+    /// A node id of the starting node.
+    pub(crate) start_node: usize,
+    /// A node id of the end node.
+    pub(crate) end_node: usize,
 }
 
 impl PathBundle {
-    pub(super) fn single(path_segment: PathSegment) -> Self {
+    pub(super) fn single(path_segment: PathSegment, start_node: usize, end_node: usize) -> Self {
         let (track, track_ranges) = compute_track_ps(&[path_segment]);
         PathBundle {
             segments: vec![path_segment],
             track,
             track_ranges,
-            start_paths: vec![],
-            end_paths: vec![],
+            start_node,
+            end_node,
         }
     }
 
-    pub(super) fn multi(path_segments: impl Into<Vec<PathSegment>>) -> Self {
+    pub(super) fn multi(
+        path_segments: impl Into<Vec<PathSegment>>,
+        start_node: usize,
+        end_node: usize,
+    ) -> Self {
         let path_segments = path_segments.into();
         let (track, track_ranges) = compute_track_ps(&path_segments);
         PathBundle {
             segments: path_segments,
             track,
             track_ranges,
-            start_paths: vec![],
-            end_paths: vec![],
+            start_node,
+            end_node,
         }
     }
 
@@ -86,6 +90,16 @@ impl PathBundle {
         &self.track[start..self.track_ranges[seg]]
     }
 
+    pub fn start(&self) -> Vec2<f64> {
+        // It is a logical bug if a PathBundle has no segments.
+        self.segments.first().unwrap().start()
+    }
+
+    pub fn end(&self) -> Vec2<f64> {
+        // It is a logical bug if a PathBundle has no segments.
+        self.segments.last().unwrap().end()
+    }
+
     /// Returns (segment id, node id)
     pub fn find_node(&self, pos: Vec2<f64>, dist_thresh: f64) -> Option<(usize, usize)> {
         let dist2_thresh = dist_thresh.powi(2);
@@ -122,17 +136,31 @@ impl PathBundle {
     ///
     /// Note that deleting a node by isolation doesn't make sense, because a node is a interpolated cached position
     /// from a segment parameters.
-    pub(super) fn delete_segment(&mut self, seg: usize) -> Option<PathBundle> {
+    pub(super) fn delete_segment(
+        &mut self,
+        seg: usize,
+        mut add_node: impl FnMut(Vec2<f64>) -> usize,
+    ) -> Option<PathBundle> {
         let mut new_path = vec![];
+        let prev_end_node = self.end_node;
         if seg == 0 {
             self.segments.remove(0);
+            if let Some(first_seg) = self.segments.first() {
+                // Keep old node which will accumulate as garbage
+                let new_start = add_node(first_seg.start());
+                self.start_node = new_start;
+            }
         } else {
             new_path = self.segments[seg + 1..].to_vec();
             self.segments.truncate(seg);
+            if let Some(last_seg) = self.segments.last() {
+                self.end_node = add_node(last_seg.end());
+            }
         }
         (self.track, self.track_ranges) = compute_track_ps(&self.segments);
         if !new_path.is_empty() {
-            Some(Self::multi(new_path))
+            let prev_node = new_path.first().map(|seg| add_node(seg.start()));
+            prev_node.map(|prev_node| Self::multi(new_path, prev_node, prev_end_node))
         } else {
             None
         }
@@ -140,7 +168,7 @@ impl PathBundle {
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
-pub(super) enum ConnectPoint {
+pub(crate) enum ConnectPoint {
     Start,
     End,
 }
@@ -148,7 +176,7 @@ pub(super) enum ConnectPoint {
 /// A connection to a path. This data structure indicates only one way of the connection,
 /// but the other path should have the connection in the other way to form a bidirectional graph.
 #[derive(Clone, Copy, Serialize, Deserialize)]
-pub(super) struct PathConnection {
+pub(crate) struct PathConnection {
     pub path_id: usize,
     /// Where does this path connects to the other path
     pub connect_point: ConnectPoint,
