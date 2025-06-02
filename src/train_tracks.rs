@@ -123,7 +123,6 @@ pub(crate) struct TrainTracks {
     pub selected_node: Option<SelectedPathNode>,
     /// Build ghost segment, which is not actually built yet
     pub ghost_path: Option<PathBundle>,
-    pub train: Train,
     #[serde(skip)]
     pub stations: Vec<Rc<RefCell<Station>>>,
 }
@@ -151,7 +150,6 @@ impl TrainTracks {
             nodes,
             node_id_gen: 2,
             ghost_path: None,
-            train: Train::new(),
             stations: [Station::new("Start", 0, 10.), Station::new("Goal", 0, 70.)]
                 .into_iter()
                 .map(|s| Rc::new(RefCell::new(s)))
