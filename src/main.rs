@@ -4,6 +4,7 @@ mod marching_squares;
 mod path_utils;
 mod perlin_noise;
 mod train;
+mod train_tracks;
 mod transform;
 mod vec2;
 

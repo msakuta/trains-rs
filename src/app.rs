@@ -14,7 +14,8 @@ use self::heightmap::{ContoursCache, HeightMapParams};
 
 use crate::{
     bg_image::BgImage,
-    train::{SelectedPathNode, Station, TrainTracks},
+    train::Train,
+    train_tracks::{SelectedPathNode, Station, TrainTracks},
     transform::{PaintTransform, Transform, half_rect},
     vec2::Vec2,
 };
@@ -26,6 +27,8 @@ const SELECT_PIXEL_RADIUS: f64 = 20.;
 const MAX_NUM_CARS: usize = 10;
 const MAX_CONTOURS_GRID_STEP: usize = 100;
 const TRAIN_JSON: &str = "train.json";
+const TRAIN_KEY: &str = "train";
+const TRACKS_KEY: &str = "train_tracks";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ClickMode {
@@ -49,7 +52,8 @@ pub(crate) struct TrainsApp {
     use_cached_contours: bool,
     show_debug_slope: bool,
     click_mode: ClickMode,
-    train: TrainTracks,
+    tracks: TrainTracks,
+    train: Train,
     selected_station: Option<usize>,
     new_station: String,
     error_msg: Option<(String, f64)>,
@@ -63,14 +67,34 @@ impl TrainsApp {
 
         let contours_cache = heightmap.cache_contours(contour_grid_step);
 
-        let train = std::fs::File::open(TRAIN_JSON)
+        let (train, tracks) = std::fs::File::open(TRAIN_JSON)
             .and_then(|train_json| {
-                serde_json::from_reader(std::io::BufReader::new(train_json))
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+                let mut value: serde_json::Value =
+                    serde_json::from_reader(std::io::BufReader::new(train_json))
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                let train_value = value
+                    .get_mut(TRAIN_KEY)
+                    .ok_or_else(|| {
+                        std::io::Error::new(std::io::ErrorKind::Other, "train doesn't exist")
+                    })?
+                    .take();
+                let train: Train = serde_json::from_value(train_value)
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+                let tracks_value = value
+                    .get_mut(TRACKS_KEY)
+                    .ok_or_else(|| {
+                        std::io::Error::new(std::io::ErrorKind::Other, "train_track doesn't exist")
+                    })?
+                    .take();
+
+                let tracks: TrainTracks = serde_json::from_value(tracks_value)
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                Ok((train, tracks))
             })
             .unwrap_or_else(|e| {
                 eprintln!("Failed to load train data, falling back to default: {e}");
-                TrainTracks::new()
+                (Train::new(), TrainTracks::new())
             });
         Self {
             transform: Transform::new(1.),
@@ -84,6 +108,7 @@ impl TrainsApp {
             use_cached_contours: true,
             show_debug_slope: false,
             click_mode: ClickMode::None,
+            tracks,
             train,
             selected_station: None,
             new_station: "New Station".to_string(),
@@ -115,46 +140,50 @@ impl TrainsApp {
                 match self.click_mode {
                     ClickMode::None => {
                         let pos = paint_transform.from_pos2(pointer);
-                        let _res = self.train.select_node(pos, thresh);
+                        let _res = self.tracks.select_node(pos, thresh);
                     }
                     ClickMode::GentleCurve => {
                         let pos = paint_transform.from_pos2(pointer);
-                        if self.train.has_selected_node() {
+                        if self.tracks.has_selected_node() {
                             // self.train.control_points.push(pos);
-                            let res = self.train.add_gentle(pos, &self.heightmap);
+                            let res = self
+                                .tracks
+                                .add_gentle(pos, &self.heightmap, &mut self.train);
                             self.process_result(pos, res);
                         } else {
-                            let _res = self.train.select_node(pos, thresh);
+                            let _res = self.tracks.select_node(pos, thresh);
                         }
                     }
                     ClickMode::TightCurve => {
                         let pos = paint_transform.from_pos2(pointer);
-                        if self.train.has_selected_node() {
-                            let res = self.train.add_tight(pos, &self.heightmap);
+                        if self.tracks.has_selected_node() {
+                            let res = self.tracks.add_tight(pos, &self.heightmap, &mut self.train);
                             self.process_result(pos, res);
                         } else {
-                            let _res = self.train.select_node(pos, thresh);
+                            let _res = self.tracks.select_node(pos, thresh);
                         }
                     }
                     ClickMode::StraightLine => {
                         let pos = paint_transform.from_pos2(pointer);
-                        if self.train.has_selected_node() {
-                            let res = self.train.add_straight(pos, &self.heightmap);
+                        if self.tracks.has_selected_node() {
+                            let res =
+                                self.tracks
+                                    .add_straight(pos, &self.heightmap, &mut self.train);
                             self.process_result(pos, res);
                         } else {
-                            let _res = self.train.select_node(pos, thresh);
+                            let _res = self.tracks.select_node(pos, thresh);
                         }
                     }
                     ClickMode::DeleteSegment => {
                         let pos = paint_transform.from_pos2(pointer);
-                        let res = self.train.delete_segment(pos, thresh);
+                        let res = self.tracks.delete_segment(pos, thresh, &mut self.train);
                         self.process_result(pos, res);
                     }
                     ClickMode::AddStation => {
                         let pos = paint_transform.from_pos2(pointer);
                         let next_name = (0..).find_map(|i| {
                             let cand = format!("New Station {i}");
-                            if !self.train.stations.iter().any(|s| s.borrow().name == cand)
+                            if !self.tracks.stations.iter().any(|s| s.borrow().name == cand)
                                 && self.new_station != cand
                             {
                                 Some(cand)
@@ -163,7 +192,7 @@ impl TrainsApp {
                             }
                         });
                         if let Some(name) = next_name {
-                            self.train.add_station(
+                            self.tracks.add_station(
                                 std::mem::replace(&mut self.new_station, name),
                                 pos,
                                 thresh,
@@ -214,43 +243,43 @@ impl TrainsApp {
         let scale_vec = |scale: f32, vec: &[f32; 2]| [vec[0] * scale, vec[1] * scale];
 
         match self.click_mode {
-            ClickMode::None => self.train.ghost_path = None,
+            ClickMode::None => self.tracks.ghost_path = None,
             ClickMode::GentleCurve => {
-                if self.train.has_selected_node() {
+                if self.tracks.has_selected_node() {
                     if let Some(pos) = response.hover_pos() {
-                        self.train.ghost_gentle(paint_transform.from_pos2(pos));
+                        self.tracks.ghost_gentle(paint_transform.from_pos2(pos));
                     } else {
-                        self.train.ghost_path = None;
+                        self.tracks.ghost_path = None;
                     }
                 }
             }
             ClickMode::StraightLine => {
-                if self.train.has_selected_node() {
+                if self.tracks.has_selected_node() {
                     if let Some(pos) = response.hover_pos() {
-                        self.train.ghost_straight(paint_transform.from_pos2(pos));
+                        self.tracks.ghost_straight(paint_transform.from_pos2(pos));
                     } else {
-                        self.train.ghost_path = None;
+                        self.tracks.ghost_path = None;
                     }
                 }
             }
             ClickMode::TightCurve => {
-                if self.train.has_selected_node() {
+                if self.tracks.has_selected_node() {
                     if let Some(pos) = response.hover_pos() {
-                        self.train.ghost_tight(paint_transform.from_pos2(pos));
+                        self.tracks.ghost_tight(paint_transform.from_pos2(pos));
                     } else {
-                        self.train.ghost_path = None;
+                        self.tracks.ghost_path = None;
                     }
                 }
             }
             ClickMode::DeleteSegment => {
                 let found_node = response.hover_pos().and_then(|pointer| {
                     let thresh = SELECT_PIXEL_RADIUS / self.transform.scale() as f64;
-                    self.train
+                    self.tracks
                         .find_path_node(paint_transform.from_pos2(pointer), thresh)
                 });
                 if let Some((path_id, seg_id, _)) = found_node {
                     let color = Color32::from_rgba_premultiplied(127, 0, 127, 63);
-                    if let Some(path) = self.train.paths.get(&path_id) {
+                    if let Some(path) = self.tracks.paths.get(&path_id) {
                         let seg_track = path.seg_track(seg_id);
                         self.render_track_detail(seg_track, &painter, &paint_transform, 5., color);
                     }
@@ -259,7 +288,7 @@ impl TrainsApp {
             ClickMode::AddStation => {
                 if let Some(pointer) = response.hover_pos() {
                     let pos = paint_transform.from_pos2(pointer);
-                    if let Some((path_id, _, node_id)) = self.train.find_path_node(pos, thresh) {
+                    if let Some((path_id, _, node_id)) = self.tracks.find_path_node(pos, thresh) {
                         let station =
                             Station::new(self.new_station.clone(), path_id, node_id as f64);
                         self.render_station(&painter, &paint_transform, &station, false, true);
@@ -271,9 +300,9 @@ impl TrainsApp {
         if let Some(pointer) = response.hover_pos() {
             let pos = paint_transform.from_pos2(pointer);
             if let Some((id, node_pos)) = self
-                .train
+                .tracks
                 .find_segment_node(pos, thresh)
-                .and_then(|id| Some((id, self.train.node_position(id)?.0)))
+                .and_then(|id| Some((id, self.tracks.node_position(id)?.0)))
             {
                 painter.rect_stroke(
                     Rect::from_center_size(
@@ -289,7 +318,7 @@ impl TrainsApp {
             }
         }
 
-        if let Some(sel_node) = self.train.selected_node() {
+        if let Some(sel_node) = self.tracks.selected_node() {
             painter.rect_stroke(
                 Rect::from_center_size(paint_transform.to_pos2(sel_node.0), egui::Vec2::splat(10.)),
                 0.,
@@ -298,7 +327,7 @@ impl TrainsApp {
             );
         }
 
-        for (_i, station) in self.train.stations.iter().enumerate() {
+        for (_i, station) in self.tracks.stations.iter().enumerate() {
             // let i_ptr = &*station.borrow() as *const _;
             // let is_target = if let TrainTask::Goto(target) = &self.train.train_task {
             //     if let Some(rc) = target.upgrade() {
@@ -368,9 +397,9 @@ impl TrainsApp {
         for i in 0..self.train.num_cars {
             if let Some(((train_pos, train_heading), tangent)) = self
                 .train
-                .train_pos(i)
-                .zip(self.train.heading(i))
-                .zip(self.train.tangent(i))
+                .pos(i, &self.tracks.paths)
+                .zip(self.train.heading(i, &self.tracks.paths))
+                .zip(self.train.tangent(i, &self.tracks.paths))
             {
                 paint_train(&train_pos, train_heading, &tangent);
             }
@@ -397,7 +426,7 @@ impl TrainsApp {
     ) {
         const STATION_HEIGHT: f64 = 5.;
 
-        let Some(pos) = self.train.s_pos(station.path_id, station.s) else {
+        let Some(pos) = self.tracks.s_pos(station.path_id, station.s) else {
             return;
         };
         let alpha = if is_ghost { 63 } else { 255 };
@@ -441,7 +470,7 @@ impl TrainsApp {
         paint_transform: &PaintTransform,
         selected_segment: &SelectedPathNode,
     ) {
-        let Some((pos, angle)) = self.train.node_position(*selected_segment) else {
+        let Some((pos, angle)) = self.tracks.node_position(*selected_segment) else {
             return;
         };
 
@@ -517,7 +546,7 @@ impl TrainsApp {
         });
         ui.group(|ui| {
             ui.label("Stations:");
-            for (i, rc_station) in self.train.stations.iter().enumerate() {
+            for (i, rc_station) in self.tracks.stations.iter().enumerate() {
                 let station = rc_station.borrow();
                 ui.radio_value(
                     &mut self.selected_station,
@@ -529,12 +558,12 @@ impl TrainsApp {
                 if let Some(target) = self.selected_station {
                     self.train
                         .schedule
-                        .push(Rc::downgrade(&self.train.stations[target]));
+                        .push(Rc::downgrade(&self.tracks.stations[target]));
                 }
             }
             if ui.button("Delete station").clicked() {
                 if let Some(target) = self.selected_station {
-                    self.train.stations.remove(target);
+                    self.tracks.stations.remove(target);
                 }
             }
             ui.text_edit_singleline(&mut self.new_station);
@@ -581,16 +610,25 @@ impl eframe::App for TrainsApp {
                 }
             }
         });
-        self.train.update(thrust, &self.heightmap);
+        self.train.update(thrust, &self.heightmap, &self.tracks);
     }
 }
 
 impl std::ops::Drop for TrainsApp {
     fn drop(&mut self) {
         println!("TrainsApp dropped");
+        let mut map = serde_json::Map::new();
+        map.insert(
+            TRAIN_KEY.to_string(),
+            serde_json::to_value(&self.train).unwrap(),
+        );
+        map.insert(
+            TRACKS_KEY.to_string(),
+            serde_json::to_value(&self.tracks).unwrap(),
+        );
         let _ = serde_json::to_writer(
             std::io::BufWriter::new(std::fs::File::create(TRAIN_JSON).unwrap()),
-            &self.train,
+            &map,
         );
     }
 }

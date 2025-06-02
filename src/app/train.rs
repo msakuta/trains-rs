@@ -3,7 +3,7 @@ use eframe::{
     epaint::PathShape,
 };
 
-use crate::{train::PathBundle, transform::PaintTransform, vec2::Vec2};
+use crate::{train_tracks::PathBundle, transform::PaintTransform, vec2::Vec2};
 
 use super::TrainsApp;
 
@@ -14,7 +14,7 @@ const RAIL_HALFWIDTH: f64 = 1.25;
 
 impl TrainsApp {
     pub(super) fn render_track(&self, painter: &Painter, paint_transform: &PaintTransform) {
-        let ghost_path = self.train.ghost_path.as_ref().map(|ghost_segments| {
+        let ghost_path = self.tracks.ghost_path.as_ref().map(|ghost_segments| {
             let is_intersecting_water = ghost_segments
                 .track
                 .iter()
@@ -41,7 +41,7 @@ impl TrainsApp {
                     color,
                 );
             }
-            for (id, bundle) in &self.train.paths {
+            for (id, bundle) in &self.tracks.paths {
                 self.render_track_detail(&bundle.track, &painter, &paint_transform, 1., color);
                 self.render_track_direction(*id, &bundle, &painter, &paint_transform);
             }
@@ -49,7 +49,7 @@ impl TrainsApp {
             if let Some((ghost_segments, color)) = ghost_path {
                 self.render_track_simple(&ghost_segments.track, &painter, &paint_transform, color);
             }
-            for bundle in self.train.paths.values() {
+            for bundle in self.tracks.paths.values() {
                 self.render_track_simple(&bundle.track, &painter, &paint_transform, color);
             }
         }
@@ -125,7 +125,7 @@ impl TrainsApp {
     ) {
         let ofs = RAIL_HALFWIDTH * 2.;
 
-        let is_start_node_switching = self.train.nodes.get(&path.start_node).is_some_and(|node| {
+        let is_start_node_switching = self.tracks.nodes.get(&path.start_node).is_some_and(|node| {
             node.backward_paths
                 .iter()
                 .any(|p| p.path_id == self.train.path_id)
@@ -151,7 +151,7 @@ impl TrainsApp {
                         .is_some_and(|p| p.path_id == path_id)
         });
 
-        let is_end_node_switching = self.train.nodes.get(&path.end_node).is_some_and(|node| {
+        let is_end_node_switching = self.tracks.nodes.get(&path.end_node).is_some_and(|node| {
             node.backward_paths
                 .iter()
                 .any(|p| p.path_id == self.train.path_id)
