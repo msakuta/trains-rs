@@ -600,14 +600,14 @@ impl eframe::App for TrainsApp {
                 match key {
                     egui::Key::W => thrust += self.train.train_direction.signum(),
                     egui::Key::S => thrust -= self.train.train_direction.signum(),
-                    egui::Key::A => {
-                        self.train.switch_path = self.train.switch_path.saturating_add(1)
-                    }
-                    egui::Key::D => {
-                        self.train.switch_path = self.train.switch_path.saturating_sub(1)
-                    }
                     _ => {}
                 }
+            }
+            if input.key_pressed(egui::Key::A) {
+                self.train.switch_path = self.train.switch_path.saturating_add(1)
+            }
+            if input.key_pressed(egui::Key::D) {
+                self.train.switch_path = self.train.switch_path.saturating_sub(1)
             }
         });
         self.train.update(thrust, &self.heightmap, &self.tracks);
