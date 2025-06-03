@@ -34,7 +34,7 @@ const DEFAULT_NOISE_SCALE: f64 = 0.05;
 const DEFAULT_HEIGHT_SCALE: f64 = 10.;
 const MAX_HEIGHT_SCALE: f64 = 50.;
 
-const DEFAULT_WATER_LEVEL: f32 = 0.3;
+const DEFAULT_WATER_LEVEL: f32 = 0.05;
 
 pub(super) const DOWNSAMPLE: usize = 16;
 
@@ -56,6 +56,7 @@ pub(crate) struct HeightMapParams {
     pub noise_scale: f64,
     pub height_scale: f64,
     pub water_level: f32,
+    pub abs_wrap: bool,
 }
 
 impl HeightMapParams {
@@ -72,6 +73,7 @@ impl HeightMapParams {
             noise_scale: DEFAULT_NOISE_SCALE,
             height_scale: DEFAULT_HEIGHT_SCALE,
             water_level: DEFAULT_WATER_LEVEL,
+            abs_wrap: true,
         }
     }
 
@@ -141,6 +143,7 @@ impl HeightMapParams {
             ui.label("Water level:");
             ui.add(egui::Slider::new(&mut self.water_level, (0.)..=1.));
         });
+        ui.checkbox(&mut self.abs_wrap, "Absolute wrap");
     }
 }
 
@@ -173,7 +176,7 @@ impl HeightMap {
                     * params.persistence_scale
                     + params.min_persistence;
                 let pos = crate::vec2::Vec2::new(ix as f64, iy as f64) * params.noise_scale;
-                let val = match params.noise_type {
+                let mut val = match params.noise_type {
                     NoiseType::Perlin => perlin_noise_pixel(
                         pos.x,
                         pos.y,
@@ -185,6 +188,9 @@ impl HeightMap {
                         white_fractal_noise(pos.x, pos.y, &seeds, persistence_sample)
                     }
                 };
+                if params.abs_wrap {
+                    val = val.abs();
+                }
                 val as f32 * params.height_scale as f32
             })
             .collect();
