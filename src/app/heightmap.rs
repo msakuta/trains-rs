@@ -255,7 +255,9 @@ impl HeightMap {
             .map(|(i, p)| {
                 let is_water = *p < self.water_level;
                 if is_water {
-                    [0u8, 95, 191]
+                    let water_depth = (self.water_level - p) / (self.water_level - min_p);
+                    let inten = 1. / (1. + 0.5 * water_depth);
+                    [0, (95. * inten) as u8, (191. * inten) as u8]
                 } else {
                     let above_water = (p - self.water_level) / (max_p - self.water_level);
                     let white = above_water.powi(4) as f64;
