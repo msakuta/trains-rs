@@ -7,6 +7,7 @@ use crate::{
         Idx, Shape, border_pixel, cell_border_interpolated, pick_bits, pick_values,
     },
     perlin_noise::{Xorshift64Star, gen_seeds, perlin_noise_pixel, white_fractal_noise},
+    vec2::Vec2,
 };
 
 use super::{AREA_HEIGHT, AREA_WIDTH, TrainsApp};
@@ -250,13 +251,28 @@ impl HeightMap {
         let bitmap: Vec<_> = self
             .map
             .iter()
-            .map(|p| {
+            .enumerate()
+            .map(|(i, p)| {
                 let is_water = *p < self.water_level;
                 if is_water {
                     [0u8, 95, 191]
                 } else {
-                    let inten = ((p - min_p) / (max_p - min_p) * 127. + 127.) as u8;
-                    [inten, inten, inten]
+                    let above_water = (p - self.water_level) / (max_p - self.water_level);
+                    let white = above_water.powi(4) as f64;
+                    let x = (i % self.shape.0 as usize) as f64;
+                    let y = (i / self.shape.1 as usize) as f64;
+                    let grad = self.gradient(&Vec2::new(x, y));
+                    let dot = (grad.x - grad.y) * 10.;
+                    let diffuse = (dot + 1.) / 2.5;
+                    let greenness = (1. - white) / (1. + 1000. * grad.length2());
+                    let redness = 0.5 - greenness * 0.5;
+                    let red = ((diffuse * (1. + redness - 0.5 * greenness as f64) + 0.2)
+                        .clamp(0., 1.)
+                        * 255.) as u8;
+                    let blue = ((diffuse * (1. - 0.5 * greenness as f64) + 0.2).clamp(0., 1.)
+                        * 255.) as u8;
+                    let green = ((diffuse + 0.2).clamp(0., 1.) * 255.) as u8;
+                    [red, green, blue]
                 }
                 .into_iter()
             })
