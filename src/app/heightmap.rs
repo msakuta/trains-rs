@@ -49,6 +49,8 @@ pub(crate) struct HeightMapParams {
     pub noise_type: NoiseType,
     pub width: usize,
     pub height: usize,
+    pub seed: u64,
+    seed_buf: String,
     pub persistence_octaves: u32,
     pub persistence_noise_scale: f64,
     pub persistence_scale: f64,
@@ -62,10 +64,14 @@ pub(crate) struct HeightMapParams {
 
 impl HeightMapParams {
     pub(super) fn new() -> Self {
+        let seed = 8357;
+        let seed_buf = seed.to_string();
         Self {
             noise_type: NoiseType::Perlin,
             width: AREA_WIDTH,
             height: AREA_HEIGHT,
+            seed,
+            seed_buf,
             persistence_octaves: DEFAULT_PERSISTENCE_OCTAVES,
             persistence_noise_scale: DEFAULT_PERSISTENCE_NOISE_SCALE,
             persistence_scale: DEFAULT_PERSISTENCE_SCALE,
@@ -90,6 +96,14 @@ impl HeightMapParams {
         ui.horizontal(|ui| {
             ui.label("Height:");
             ui.add(egui::Slider::new(&mut self.height, 1..=1024));
+        });
+        ui.horizontal(|ui| {
+            ui.label("Seed:");
+            if ui.text_edit_singleline(&mut self.seed_buf).changed() {
+                if let Ok(val) = self.seed_buf.parse() {
+                    self.seed = val;
+                }
+            }
         });
         ui.horizontal(|ui| {
             ui.label("Persistence noise octaves:");
@@ -156,7 +170,7 @@ pub(crate) struct HeightMap {
 
 impl HeightMap {
     pub(super) fn new(params: &HeightMapParams) -> Result<Self, String> {
-        let mut rng = Xorshift64Star::new(8357);
+        let mut rng = Xorshift64Star::new(params.seed);
 
         let persistence_seeds = gen_seeds(&mut rng, params.persistence_octaves);
         let seeds = gen_seeds(&mut rng, params.noise_octaves);
