@@ -608,7 +608,9 @@ impl eframe::App for TrainsApp {
 
         eframe::egui::SidePanel::right("side_panel")
             .min_width(200.)
-            .show(ctx, |ui| self.ui_panel(ui));
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| self.ui_panel(ui))
+            });
 
         eframe::egui::CentralPanel::default().show(ctx, |ui| {
             Frame::canvas(ui.style()).show(ui, |ui| {
