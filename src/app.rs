@@ -36,6 +36,7 @@ enum ClickMode {
     GentleCurve,
     TightCurve,
     StraightLine,
+    BezierCurve,
     DeleteSegment,
     AddStation,
 }
@@ -174,6 +175,17 @@ impl TrainsApp {
                             let _res = self.tracks.select_node(pos, thresh);
                         }
                     }
+                    ClickMode::BezierCurve => {
+                        let pos = paint_transform.from_pos2(pointer);
+                        if self.tracks.has_selected_node() {
+                            let res = self
+                                .tracks
+                                .add_bezier(pos, &self.heightmap, &mut self.train);
+                            self.process_result(pos, res);
+                        } else {
+                            let _res = self.tracks.select_node(pos, thresh);
+                        }
+                    }
                     ClickMode::DeleteSegment => {
                         let pos = paint_transform.from_pos2(pointer);
                         let res = self.tracks.delete_segment(pos, thresh, &mut self.train);
@@ -266,6 +278,15 @@ impl TrainsApp {
                 if self.tracks.has_selected_node() {
                     if let Some(pos) = response.hover_pos() {
                         self.tracks.ghost_tight(paint_transform.from_pos2(pos));
+                    } else {
+                        self.tracks.ghost_path = None;
+                    }
+                }
+            }
+            ClickMode::BezierCurve => {
+                if self.tracks.has_selected_node() {
+                    if let Some(pos) = response.hover_pos() {
+                        self.tracks.ghost_bezier(paint_transform.from_pos2(pos));
                     } else {
                         self.tracks.ghost_path = None;
                     }
@@ -541,6 +562,7 @@ impl TrainsApp {
                 ClickMode::StraightLine,
                 "Straight Line",
             );
+            ui.radio_value(&mut self.click_mode, ClickMode::BezierCurve, "Bezier Curve");
             ui.radio_value(&mut self.click_mode, ClickMode::DeleteSegment, "Delete");
             ui.radio_value(&mut self.click_mode, ClickMode::AddStation, "Add Station");
         });

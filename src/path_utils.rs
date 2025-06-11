@@ -175,6 +175,7 @@ impl CircleArc {
 pub(crate) enum PathSegment {
     Line([Vec2<f64>; 2]),
     Arc(CircleArc),
+    Bezier([Vec2<f64>; 3]),
 }
 
 impl PathSegment {
@@ -182,6 +183,7 @@ impl PathSegment {
         match self {
             Self::Line(pts) => pts[0],
             Self::Arc(arc) => arc.center + Vec2::new(arc.start.cos(), arc.start.sin()) * arc.radius,
+            Self::Bezier(pts) => pts[0],
         }
     }
 
@@ -195,6 +197,10 @@ impl PathSegment {
             Self::Arc(arc) => {
                 wrap_angle(arc.start + (arc.start - arc.end).signum() * std::f64::consts::PI * 0.5)
             }
+            Self::Bezier(pts) => {
+                let delta = pts[0] - pts[1];
+                delta.y.atan2(delta.x)
+            }
         }
     }
 
@@ -202,6 +208,7 @@ impl PathSegment {
         match self {
             Self::Line(pts) => pts[1],
             Self::Arc(arc) => arc.center + Vec2::new(arc.end.cos(), arc.end.sin()) * arc.radius,
+            Self::Bezier(pts) => pts[2],
         }
     }
 
@@ -215,6 +222,10 @@ impl PathSegment {
             Self::Arc(arc) => {
                 wrap_angle(arc.end + (arc.end - arc.start).signum() * std::f64::consts::PI * 0.5)
             }
+            Self::Bezier(pts) => {
+                let delta = pts[2] - pts[1];
+                delta.y.atan2(delta.x)
+            }
         }
     }
 
@@ -223,6 +234,10 @@ impl PathSegment {
         match self {
             Self::Line(pts) => (pts[0] - pts[1]).length(),
             Self::Arc(arc) => arc.radius * (arc.end - arc.start).abs(),
+            Self::Bezier(pts) => {
+                // Heuristic to return p1-p0 + p2-p1 distances
+                (pts[0] - pts[1]).length() + (pts[1] - pts[2]).length()
+            }
         }
     }
 
@@ -237,6 +252,11 @@ impl PathSegment {
                 let relpos = Vec2::new(phase.cos(), phase.sin()) * arc.radius;
                 arc.center + relpos
             }
+            Self::Bezier(pts) => {
+                let p01 = pts[0] * (1. - s) + pts[1] * s;
+                let p12 = pts[1] * (1. - s) + pts[2] * s;
+                p01 * (1. - s) + p12 * s
+            }
         })
     }
 
@@ -246,6 +266,7 @@ impl PathSegment {
             Self::Arc(arc) => {
                 std::mem::swap(&mut arc.start, &mut arc.end);
             }
+            Self::Bezier(pts) => pts.swap(0, 2),
         }
         self
     }

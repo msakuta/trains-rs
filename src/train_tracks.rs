@@ -653,6 +653,45 @@ impl TrainTracks {
         }
     }
 
+    pub fn ghost_bezier(&mut self, pos: Vec2<f64>) {
+        self.ghost_path = self.compute_bezier(pos).ok();
+    }
+
+    pub fn add_bezier(
+        &mut self,
+        pos: Vec2<f64>,
+        heightmap: &HeightMap,
+        train: &mut Train,
+    ) -> Result<(), String> {
+        let path_segments = self.compute_bezier(pos)?;
+
+        if path_segments.track.iter().any(|p| heightmap.is_water(p)) {
+            return Err("Cannot build tracks through water".to_string());
+        }
+
+        self.add_segment(path_segments, train)
+    }
+
+    fn compute_bezier(&self, pos: Vec2<f64>) -> Result<PathBundle, String> {
+        let Some((prev_pos, prev_angle)) = self.selected_node() else {
+            return Err("Select a node first".to_string());
+        };
+
+        let tangent = Vec2::new(prev_angle.cos(), prev_angle.sin());
+        let normal_left = tangent.left90();
+        let p1 = prev_pos + tangent * 50.;
+        let mut points = (0..100)
+            .map(|i| {
+                let f = i as f64 / 100.;
+                let p01 = prev_pos * (1. - f) + p1 * f;
+                let p12 = p1 * (1. - f) + pos * f;
+                p01 * (1. - f) + p12 * f
+            })
+            .collect::<Vec<_>>();
+        let mut path = PathBundle::single(PathSegment::Bezier([prev_pos, p1, pos]), 0, 0);
+        Ok(path)
+    }
+
     #[allow(dead_code)]
     fn compute_tight_orient(&self, pos: Vec2<f64>, end_angle: f64) -> Result<PathBundle, String> {
         let Some((prev_pos, prev_angle)) = self.selected_node() else {
