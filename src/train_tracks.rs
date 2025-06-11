@@ -18,6 +18,7 @@ pub(crate) use self::path_bundle::{ConnectPoint, PathBundle, PathConnection};
 use serde::{Deserialize, Serialize};
 
 const MIN_RADIUS: f64 = 50.;
+const MAX_RADIUS: f64 = 10000.;
 const SEGMENT_LENGTH: f64 = 10.;
 pub(crate) const _C_POINTS: [Vec2<f64>; 11] = [
     Vec2::new(0., 0.),
@@ -541,6 +542,9 @@ impl TrainTracks {
         let radius = delta.length() / 2. / phi.sin();
         if radius.abs() < MIN_RADIUS {
             return Err("Clicked point requires tighter curvature radius than allowed".to_string());
+        }
+        if MAX_RADIUS < radius.abs() {
+            return Err("Clicked point requires too large radius".to_string());
         }
         let start = wrap_angle(prev_angle - radius.signum() * std::f64::consts::PI * 0.5);
         let end = start + phi * 2.;
