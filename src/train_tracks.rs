@@ -678,17 +678,8 @@ impl TrainTracks {
         };
 
         let tangent = Vec2::new(prev_angle.cos(), prev_angle.sin());
-        let normal_left = tangent.left90();
         let p1 = prev_pos + tangent * 50.;
-        let mut points = (0..100)
-            .map(|i| {
-                let f = i as f64 / 100.;
-                let p01 = prev_pos * (1. - f) + p1 * f;
-                let p12 = p1 * (1. - f) + pos * f;
-                p01 * (1. - f) + p12 * f
-            })
-            .collect::<Vec<_>>();
-        let mut path = PathBundle::single(PathSegment::Bezier([prev_pos, p1, pos]), 0, 0);
+        let path = PathBundle::single(PathSegment::Bezier([prev_pos, p1, pos]), 0, 0);
         Ok(path)
     }
 
