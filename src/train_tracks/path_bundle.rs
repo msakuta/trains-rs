@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 /// A path and its accompanying data. A path is a sequence of segments without a branch.
-/// `start_paths` and `end_paths` points to the paths connected to the start and end of this path, respectively.
+/// `start_node` and `end_node` are the node ids at both ends.
 pub(crate) struct PathBundle {
     /// A segment is a continuous line or curve with the same curvature
     pub(super) segments: Vec<PathSegment>,

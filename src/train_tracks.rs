@@ -193,7 +193,7 @@ impl TrainTracks {
                 if path_segments.track.iter().any(|p| heightmap.is_water(p)) {
                     return Err("Cannot build tracks through water".to_string());
                 }
-                self.add_segment(path_segments, train)?;
+                self.add_segment(path_segments, None, train)?;
             }
             Err(e) => {
                 self.ghost_path = None;
@@ -213,6 +213,7 @@ impl TrainTracks {
     fn add_segment(
         &mut self,
         mut path_bundle: PathBundle,
+        end_node_id: Option<usize>,
         train: &mut Train,
     ) -> Result<(), String> {
         let Some(selected) = self.selected_node else {
@@ -233,21 +234,26 @@ impl TrainTracks {
                 // Allocate path ids for the new paths
                 let new_path_id = self.path_id_gen;
                 self.path_id_gen += 1;
-                let new_end_node_id = self.node_id_gen;
-                self.node_id_gen += 1;
+                let new_end_node_id = end_node_id.unwrap_or_else(|| {
+                    let id = self.node_id_gen;
+                    self.node_id_gen += 1;
+                    id
+                });
 
                 start_node
                     .backward_paths
                     .push(PathConnection::new(new_path_id, ConnectPoint::Start));
 
                 // Set up the new end node
-                let mut new_end_node = TrainNode::new(path_bundle.end());
+                let new_end_node = self
+                    .nodes
+                    .entry(new_end_node_id)
+                    .or_insert_with(|| TrainNode::new(path_bundle.end()));
 
                 // Then, add a new node for the end of the new path.
                 new_end_node
                     .backward_paths
                     .push(PathConnection::new(new_path_id, ConnectPoint::End));
-                self.nodes.insert(new_end_node_id, new_end_node);
                 path_bundle.start_node = path.start_node;
                 path_bundle.end_node = new_end_node_id;
 
@@ -273,21 +279,26 @@ impl TrainTracks {
                 // Allocate path ids for the new paths
                 let new_path_id = self.path_id_gen;
                 self.path_id_gen += 1;
-                let new_end_node_id = self.node_id_gen;
-                self.node_id_gen += 1;
+                let new_end_node_id = end_node_id.unwrap_or_else(|| {
+                    let id = self.node_id_gen;
+                    self.node_id_gen += 1;
+                    id
+                });
 
                 end_node
                     .forward_paths
                     .push(PathConnection::new(new_path_id, ConnectPoint::Start));
 
                 // Set up the new start node
-                let mut new_end_node = TrainNode::new(path_bundle.end());
+                let new_end_node = self
+                    .nodes
+                    .entry(new_end_node_id)
+                    .or_insert_with(|| TrainNode::new(path_bundle.end()));
 
                 // Then, add a new node for the end of the new path.
                 new_end_node
                     .backward_paths
                     .push(PathConnection::new(new_path_id, ConnectPoint::End));
-                self.nodes.insert(new_end_node_id, new_end_node);
                 path_bundle.start_node = path.end_node;
                 path_bundle.end_node = new_end_node_id;
 
@@ -331,8 +342,11 @@ impl TrainTracks {
             self.path_id_gen += 1;
             let split_node_id = self.node_id_gen;
             self.node_id_gen += 1;
-            let new_end_node_id = self.node_id_gen;
-            self.node_id_gen += 1;
+            let new_end_node_id = end_node_id.unwrap_or_else(|| {
+                let id = self.node_id_gen;
+                self.node_id_gen += 1;
+                id
+            });
 
             // First, create a path for the segments after the selected node.
             let split_path = PathBundle::multi(
@@ -396,13 +410,15 @@ impl TrainTracks {
             self.paths.insert(split_path_id, split_path);
 
             // Set up the new end node
-            let mut new_end_node = TrainNode::new(path_bundle.end());
+            let new_end_node = self
+                .nodes
+                .entry(new_end_node_id)
+                .or_insert_with(|| TrainNode::new(path_bundle.end()));
 
             // Then, add a new node for the end of the new path.
             new_end_node
                 .backward_paths
                 .push(PathConnection::new(new_path_id, ConnectPoint::End));
-            self.nodes.insert(new_end_node_id, new_end_node);
             path_bundle.start_node = split_node_id;
             path_bundle.end_node = new_end_node_id;
             let next_pathnode = path_bundle.segments.len();
@@ -569,7 +585,7 @@ impl TrainTracks {
             return Err("Cannot build tracks through water".to_string());
         }
 
-        self.add_segment(path_segments, train)
+        self.add_segment(path_segments, None, train)
     }
 
     pub fn ghost_straight(&mut self, pos: Vec2<f64>) {
@@ -606,7 +622,7 @@ impl TrainTracks {
             return Err("Cannot build tracks through water".to_string());
         }
 
-        self.add_segment(path_segments, train)
+        self.add_segment(path_segments, None, train)
     }
 
     pub fn ghost_tight(&mut self, pos: Vec2<f64>) {
@@ -654,7 +670,7 @@ impl TrainTracks {
     }
 
     pub fn ghost_bezier(&mut self, pos: Vec2<f64>) {
-        self.ghost_path = self.compute_bezier(pos).ok();
+        self.ghost_path = self.compute_bezier(pos).ok().map(|(path, _)| path);
     }
 
     pub fn add_bezier(
@@ -663,25 +679,26 @@ impl TrainTracks {
         heightmap: &HeightMap,
         train: &mut Train,
     ) -> Result<(), String> {
-        let path_segments = self.compute_bezier(pos)?;
+        let (path_segments, node_id) = self.compute_bezier(pos)?;
 
         if path_segments.track.iter().any(|p| heightmap.is_water(p)) {
             return Err("Cannot build tracks through water".to_string());
         }
 
-        self.add_segment(path_segments, train)
+        self.add_segment(path_segments, node_id, train)
     }
 
-    fn compute_bezier(&self, mut pos: Vec2<f64>) -> Result<PathBundle, String> {
+    /// Returns a pair of PathBundle and optional end node id if it closes a loop.
+    fn compute_bezier(&self, mut pos: Vec2<f64>) -> Result<(PathBundle, Option<usize>), String> {
         let Some((prev_pos, prev_angle)) = self.selected_node() else {
             return Err("Select a node first".to_string());
         };
 
-        if let Some((node, next_angle)) = self
+        if let Some((node_id, node, next_angle)) = self
             .nodes
             .iter()
             .find(|(_, node)| (node.pos - pos).length2() < (10f64).powi(2))
-            .and_then(|(_, node)| Some((node, self.node_angle(node)?)))
+            .and_then(|(node_id, node)| Some((*node_id, node, self.node_angle(node)?)))
         {
             println!(
                 "connecting {pos:?} -> {:?}, {}",
@@ -693,14 +710,18 @@ impl TrainTracks {
             let start_tangent = Vec2::new(prev_angle.cos(), prev_angle.sin());
             let end_tangent = Vec2::new(next_angle.cos(), next_angle.sin());
             let p1 = prev_pos + start_tangent * 50.;
-            let p2 = prev_pos - end_tangent * 50.;
-            let path = PathBundle::single(PathSegment::CubicBezier([prev_pos, p1, p2, pos]), 0, 0);
-            Ok(path)
+            let p2 = pos + end_tangent * 50.;
+            let path = PathBundle::single(
+                PathSegment::CubicBezier([prev_pos, p1, p2, pos]),
+                0,
+                node_id,
+            );
+            Ok((path, Some(node_id)))
         } else {
             let tangent = Vec2::new(prev_angle.cos(), prev_angle.sin());
             let p1 = prev_pos + tangent * 50.;
             let path = PathBundle::single(PathSegment::Bezier([prev_pos, p1, pos]), 0, 0);
-            Ok(path)
+            Ok((path, None))
         }
     }
 
