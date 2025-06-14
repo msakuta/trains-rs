@@ -672,15 +672,57 @@ impl TrainTracks {
         self.add_segment(path_segments, train)
     }
 
-    fn compute_bezier(&self, pos: Vec2<f64>) -> Result<PathBundle, String> {
+    fn compute_bezier(&self, mut pos: Vec2<f64>) -> Result<PathBundle, String> {
         let Some((prev_pos, prev_angle)) = self.selected_node() else {
             return Err("Select a node first".to_string());
         };
 
-        let tangent = Vec2::new(prev_angle.cos(), prev_angle.sin());
-        let p1 = prev_pos + tangent * 50.;
-        let path = PathBundle::single(PathSegment::Bezier([prev_pos, p1, pos]), 0, 0);
-        Ok(path)
+        if let Some((node, next_angle)) = self
+            .nodes
+            .iter()
+            .find(|(_, node)| (node.pos - pos).length2() < (10f64).powi(2))
+            .and_then(|(_, node)| Some((node, self.node_angle(node)?)))
+        {
+            println!(
+                "connecting {pos:?} -> {:?}, {}",
+                node.pos,
+                next_angle * 180. / std::f64::consts::PI
+            );
+            pos = node.pos;
+
+            let start_tangent = Vec2::new(prev_angle.cos(), prev_angle.sin());
+            let end_tangent = Vec2::new(next_angle.cos(), next_angle.sin());
+            let p1 = prev_pos + start_tangent * 50.;
+            let p2 = prev_pos - end_tangent * 50.;
+            let path = PathBundle::single(PathSegment::CubicBezier([prev_pos, p1, p2, pos]), 0, 0);
+            Ok(path)
+        } else {
+            let tangent = Vec2::new(prev_angle.cos(), prev_angle.sin());
+            let p1 = prev_pos + tangent * 50.;
+            let path = PathBundle::single(PathSegment::Bezier([prev_pos, p1, pos]), 0, 0);
+            Ok(path)
+        }
+    }
+
+    /// Forward angle of a node in radians. It is not directly stored in the node, so we need to look up a path that is
+    /// connected to it.
+    /// A node should always have a connected path, but the data structure allows a node without connected paths, so
+    /// this function can return None in that case.
+    fn node_angle(&self, node: &TrainNode) -> Option<f64> {
+        let path_angle = |con: &PathConnection, path: &PathBundle| match con.connect_point {
+            ConnectPoint::Start => return Some(path.segments.first()?.start_angle()),
+            ConnectPoint::End => return Some(path.segments.last()?.end_angle()),
+        };
+        if let Some(con) = node.forward_paths.first() {
+            if let Some(path) = self.paths.get(&con.path_id) {
+                return path_angle(con, path);
+            }
+        } else if let Some(con) = node.backward_paths.first() {
+            if let Some(path) = self.paths.get(&con.path_id) {
+                return path_angle(con, path);
+            }
+        }
+        None
     }
 
     #[allow(dead_code)]
