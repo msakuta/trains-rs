@@ -222,11 +222,23 @@ impl TrainTracks {
         let Some(path) = self.paths.get_mut(&selected.path_id) else {
             return Err("Path not found; perhaps deleted".to_string());
         };
+        dbg!(end_node_id);
         // If it was the first pathnode...
         if selected.pathnode_id == 0 {
             let start_node = self.nodes.get_mut(&path.start_node).unwrap();
             // ... and it does not have any other path, just prepend a segment, ...
             if start_node.count_connections() < 2 {
+                if let Some(end_node_id) = end_node_id {
+                    path.start_node = end_node_id;
+                    self.nodes
+                        .entry(end_node_id)
+                        .or_insert_with(|| TrainNode::new(path_bundle.end()))
+                        .backward_paths
+                        .push(PathConnection::new(selected.path_id, ConnectPoint::End));
+                } else {
+                    start_node.pos = path_bundle.end();
+                }
+
                 let len = path.append(path_bundle.segments);
                 self.offset_path(selected.path_id, len as f64);
             } else {
@@ -266,6 +278,17 @@ impl TrainTracks {
             let end_node = self.nodes.get_mut(&path.end_node).unwrap();
             // ... and it does not have any other path, just extend it ...
             if end_node.count_connections() < 2 {
+                if let Some(end_node_id) = end_node_id {
+                    path.end_node = end_node_id;
+                    self.nodes
+                        .entry(end_node_id)
+                        .or_insert_with(|| TrainNode::new(path_bundle.end()))
+                        .forward_paths
+                        .push(PathConnection::new(selected.path_id, ConnectPoint::End));
+                } else {
+                    end_node.pos = path_bundle.end();
+                }
+
                 path.extend(&path_bundle.segments);
                 // Continue extending from the added segment
                 self.selected_node = Some(SelectedPathNode::new(
