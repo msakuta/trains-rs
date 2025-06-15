@@ -1,9 +1,15 @@
+//! Train and train tracks rendering logic.
+
 use eframe::{
     egui::{self, Color32, Painter, Pos2},
     epaint::PathShape,
 };
 
-use crate::{train_tracks::PathBundle, transform::PaintTransform, vec2::Vec2};
+use crate::{
+    train_tracks::{PathBundle, SegmentDirection},
+    transform::PaintTransform,
+    vec2::Vec2,
+};
 
 use super::TrainsApp;
 
@@ -271,7 +277,7 @@ impl TrainsApp {
         };
         let scale_vec = |scale: f32, vec: &[f32; 2]| [vec[0] * scale, vec[1] * scale];
 
-        let paint_train = |pos: &Vec2<f64>, heading: f64, tangent: &Vec2<f64>| {
+        let paint_car = |pos: &Vec2<f64>, heading: f64, tangent: &Vec2<f64>| {
             let base_pos = paint_transform.to_pos2(*pos).to_vec2();
             let rotation = rotation_matrix(heading as f32);
             let transform_delta =
@@ -285,10 +291,10 @@ impl TrainsApp {
             };
 
             painter.add(convert_to_poly(&[
-                [-2., -2.],
-                [6., -2.],
-                [6., 2.],
-                [-2., 2.],
+                [-4., -2.],
+                [4., -2.],
+                [4., 2.],
+                [-4., 2.],
             ]));
 
             // let paint_wheel = |ofs: &[f32; 2], rotation: &[f32; 4]| {
@@ -302,6 +308,15 @@ impl TrainsApp {
             // };
 
             // paint_wheel(&[0., 0.], &rotation);
+
+            // When the user zooms in enough, draw the direction arrow.
+            if 2. < self.transform.scale() {
+                let direction = match self.train.train_direction {
+                    SegmentDirection::Forward => egui::Vec2::from(transform_delta(&[3., 0.])),
+                    SegmentDirection::Backward => egui::Vec2::from(transform_delta(&[-3., 0.])),
+                };
+                painter.arrow(base_pos.to_pos2(), direction, (2., Color32::WHITE));
+            }
 
             if self.show_debug_slope {
                 let grad = self.heightmap.gradient(pos);
@@ -322,7 +337,7 @@ impl TrainsApp {
                 .zip(self.train.heading(i, &self.tracks.paths))
                 .zip(self.train.tangent(i, &self.tracks.paths))
             {
-                paint_train(&train_pos, train_heading, &tangent);
+                paint_car(&train_pos, train_heading, &tangent);
             }
         }
     }
