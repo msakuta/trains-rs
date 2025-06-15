@@ -211,9 +211,14 @@ impl TrainTracks {
         self.station_id_gen += 1;
     }
 
-    /// Attempt to add a segment from the selected node. If it was at the end of a path,
-    /// extend it, otherwise split the path in the middle and attach a new path.
-    /// This way we maintain that any path does not have a branch.
+    /// Attempt to add a segment from the selected node. The behavior is different in 3 cases:
+    ///
+    /// * If the node was at either end of a path, and has no other connected paths, extend it.
+    /// * If the node was at either end of a path, and has other connected paths, create a new path and connect it to
+    ///   the node.
+    /// * If the node was in the middle of a path, split the path at that point and attach a new path.
+    ///
+    /// This way we maintain the state that any path does not have a branch.
     fn add_segment(
         &mut self,
         mut path_bundle: PathBundle,
@@ -403,18 +408,9 @@ impl TrainTracks {
             split_node
                 .backward_paths
                 .push(PathConnection::new(selected.path_id, ConnectPoint::End));
-            match selected.direction {
-                SegmentDirection::Forward => {
-                    split_node
-                        .forward_paths
-                        .push(PathConnection::new(new_path_id, ConnectPoint::Start));
-                }
-                SegmentDirection::Backward => {
-                    split_node
-                        .backward_paths
-                        .push(PathConnection::new(new_path_id, ConnectPoint::Start));
-                }
-            }
+            split_node
+                .paths_in_direction_mut(selected.direction)
+                .push(PathConnection::new(new_path_id, ConnectPoint::Start));
             self.nodes.insert(split_node_id, split_node);
 
             // Next, truncate the selected path after the selected node.
@@ -452,7 +448,7 @@ impl TrainTracks {
             new_end_node
                 .backward_paths
                 .push(PathConnection::new(new_path_id, ConnectPoint::End));
-            path_bundle.start_node = NodeConnection::new(split_node_id, SegmentDirection::Forward);
+            path_bundle.start_node = NodeConnection::new(split_node_id, selected.direction);
             path_bundle.end_node =
                 NodeConnection::new(new_end_node_id.node_id, SegmentDirection::Backward);
             let next_pathnode = path_bundle.segments.len();
@@ -728,7 +724,8 @@ impl TrainTracks {
     }
 }
 
-/// The selected node and the direction. It happens to be the same as `NodeConnection`.
+/// The selected node and the direction. It happens to be the same as `NodeConnection` so we reuse the type.
+/// Note that this type cannot select a pathnode in the middle of a path, unlike `SelectedPathNode`.
 pub(crate) type SelectedNode = NodeConnection;
 
 /// A selected path node with direction. A path node is a point between segments, including both ends of the path.
