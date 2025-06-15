@@ -1,10 +1,8 @@
 mod heightmap;
 mod train;
 
-use std::rc::Rc;
-
 use eframe::{
-    egui::{self, Align2, Color32, FontId, Frame, Painter, Pos2, Rect, Ui},
+    egui::{self, Align2, Color32, FontId, Frame, Painter, Rect, Ui},
     epaint::PathShape,
 };
 use heightmap::DOWNSAMPLE;
@@ -238,22 +236,6 @@ impl TrainsApp {
 
         self.render_track(&painter, &paint_transform);
 
-        let rotation_matrix = |angle: f32| {
-            [
-                angle.cos() as f32,
-                angle.sin() as f32,
-                -angle.sin() as f32,
-                angle.cos() as f32,
-            ]
-        };
-        let rotate_vec = |rotation: &[f32; 4], ofs: &[f32; 2]| {
-            [
-                rotation[0] * ofs[0] + rotation[1] * ofs[1],
-                rotation[2] * ofs[0] + rotation[3] * ofs[1],
-            ]
-        };
-        let scale_vec = |scale: f32, vec: &[f32; 2]| [vec[0] * scale, vec[1] * scale];
-
         match self.click_mode {
             ClickMode::None => self.tracks.ghost_path = None,
             ClickMode::GentleCurve => {
@@ -365,60 +347,7 @@ impl TrainsApp {
             self.render_station(&painter, &paint_transform, &station, is_target, false);
         }
 
-        let paint_train = |pos: &Vec2<f64>, heading: f64, tangent: &Vec2<f64>| {
-            let base_pos = paint_transform.to_pos2(*pos).to_vec2();
-            let rotation = rotation_matrix(heading as f32);
-            let transform_delta =
-                |ofs: &[f32; 2]| scale_vec(self.transform.scale(), &rotate_vec(&rotation, ofs));
-            let transform_vec = |ofs: &[f32; 2]| Pos2::from(transform_delta(ofs)) + base_pos;
-            let convert_to_poly = |vertices: &[[f32; 2]]| {
-                PathShape::closed_line(
-                    vertices.into_iter().map(|ofs| transform_vec(ofs)).collect(),
-                    (1., Color32::RED),
-                )
-            };
-
-            painter.add(convert_to_poly(&[
-                [-2., -2.],
-                [6., -2.],
-                [6., 2.],
-                [-2., 2.],
-            ]));
-
-            // let paint_wheel = |ofs: &[f32; 2], rotation: &[f32; 4]| {
-            //     use eframe::emath::Vec2;
-            //     let middle = transform_vec(ofs);
-            //     let front =
-            //         middle + Vec2::from(rotate_vec(rotation, &[self.transform.scale(), 0.]));
-            //     let back = middle - Vec2::from(rotate_vec(rotation, &[self.transform.scale(), 0.]));
-
-            //     painter.line_segment([front, back], (2., Color32::BLACK));
-            // };
-
-            // paint_wheel(&[0., 0.], &rotation);
-
-            if self.show_debug_slope {
-                let grad = self.heightmap.gradient(pos);
-                let tangent = tangent.normalized();
-                let accel = -grad.dot(tangent);
-                let start = paint_transform.to_pos2(*pos);
-                let end = paint_transform.to_pos2(*pos - grad * 100.);
-                let tangent_end = paint_transform.to_pos2(*pos + tangent * accel * 100.);
-                painter.line_segment([start, end], (2., Color32::RED));
-                painter.line_segment([start, tangent_end], (2., Color32::BLUE));
-            }
-        };
-
-        for i in 0..self.train.num_cars {
-            if let Some(((train_pos, train_heading), tangent)) = self
-                .train
-                .pos(i, &self.tracks.paths)
-                .zip(self.train.heading(i, &self.tracks.paths))
-                .zip(self.train.tangent(i, &self.tracks.paths))
-            {
-                paint_train(&train_pos, train_heading, &tangent);
-            }
-        }
+        self.render_train(&painter, &paint_transform);
 
         if let Some((ref err, _)) = self.error_msg {
             painter.text(
