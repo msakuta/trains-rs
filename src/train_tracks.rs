@@ -4,11 +4,7 @@ mod path_bundle;
 mod straight;
 mod tight;
 
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    rc::{Rc, Weak},
-};
+use std::collections::HashMap;
 
 use crate::{
     path_utils::{CircleArc, PathSegment, interpolate_path, wrap_angle},
@@ -55,6 +51,7 @@ pub(crate) const PATH_SEGMENTS: [PathSegment; 5] = [
     PathSegment::Line([Vec2::new(150., 350.), Vec2::new(50., 350.)]),
 ];
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct Station {
     pub name: String,
     pub path_id: usize,
@@ -75,7 +72,7 @@ impl Station {
 pub(crate) enum TrainTask {
     #[default]
     Idle,
-    Goto(Weak<RefCell<Station>>),
+    Goto(usize),
     Wait(usize),
 }
 
@@ -141,8 +138,10 @@ pub(crate) struct TrainTracks {
     pub selected_node: Option<SelectedPathNode>,
     /// Build ghost segment, which is not actually built yet
     pub ghost_path: Option<PathBundle>,
-    #[serde(skip)]
-    pub stations: Vec<Rc<RefCell<Station>>>,
+    /// The next id of the station
+    pub station_id_gen: usize,
+    /// A collection of stations in the train track network.
+    pub stations: HashMap<usize, Station>,
 }
 
 impl TrainTracks {
@@ -168,9 +167,10 @@ impl TrainTracks {
             nodes,
             node_id_gen: 2,
             ghost_path: None,
+            station_id_gen: 2,
             stations: [Station::new("Start", 0, 10.), Station::new("Goal", 0, 70.)]
                 .into_iter()
-                .map(|s| Rc::new(RefCell::new(s)))
+                .enumerate()
                 .collect(),
         }
     }
@@ -192,11 +192,11 @@ impl TrainTracks {
         let Some((path_id, _seg_id, node_id)) = self.find_path_node(pos, thresh) else {
             return;
         };
-        self.stations.push(Rc::new(RefCell::new(Station::new(
-            name,
-            path_id,
-            node_id as f64,
-        ))));
+        self.stations.insert(
+            self.station_id_gen,
+            Station::new(name, path_id, node_id as f64),
+        );
+        self.station_id_gen += 1;
     }
 
     /// Attempt to add a segment from the selected node. If it was at the end of a path,
@@ -418,8 +418,7 @@ impl TrainTracks {
 
             // Move the stations after the split point to the split path and subtract the first half path
             let new_path_len = path.track.len() as f64;
-            for station in &self.stations {
-                let mut station = station.borrow_mut();
+            for station in self.stations.values_mut() {
                 if station.path_id == selected.path_id && new_path_len < station.s {
                     station.path_id = split_path_id;
                     station.s -= new_path_len;
@@ -512,8 +511,7 @@ impl TrainTracks {
     }
 
     fn offset_path(&mut self, path_id: usize, s: f64) {
-        for station in &mut self.stations {
-            let mut station = station.borrow_mut();
+        for station in self.stations.values_mut() {
             if station.path_id == path_id {
                 println!(
                     "Adding offset {s} to station {} at {}",
@@ -693,9 +691,7 @@ impl TrainTracks {
                 };
 
                 move_s(&mut train.path_id, &mut train.s, "train");
-                self.stations.retain(|station| {
-                    let mut station = station.borrow_mut();
-                    let station = &mut *station;
+                self.stations.retain(|i, station| {
                     if station.path_id != path_id {
                         return true;
                     }
@@ -703,8 +699,7 @@ impl TrainTracks {
                     move_s(&mut station.path_id, &mut station.s, &station_name)
                 });
             } else {
-                self.stations.retain(|station| {
-                    let station = station.borrow();
+                self.stations.retain(|i, station| {
                     if station.path_id != path_id {
                         return true;
                     }

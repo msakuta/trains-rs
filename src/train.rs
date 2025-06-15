@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, rc::Weak};
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -6,8 +6,7 @@ use crate::{
     app::HeightMap,
     path_utils::{interpolate_path, interpolate_path_heading, interpolate_path_tangent},
     train_tracks::{
-        ConnectPoint, PathBundle, PathConnection, Paths, SegmentDirection, Station, TrainTask,
-        TrainTracks,
+        ConnectPoint, PathBundle, PathConnection, Paths, SegmentDirection, TrainTask, TrainTracks,
     },
     vec2::Vec2,
 };
@@ -30,7 +29,7 @@ pub(crate) struct Train {
     #[serde(skip)]
     pub train_task: TrainTask,
     #[serde(skip)]
-    pub schedule: Vec<Weak<RefCell<Station>>>,
+    pub schedule: Vec<usize>,
     pub train_direction: SegmentDirection,
     /// The index of the direction of the path in the next branch.
     #[serde(skip)]
@@ -60,14 +59,13 @@ impl Train {
         }
         if matches!(self.train_task, TrainTask::Idle) {
             if let Some(first) = self.schedule.first().cloned() {
-                self.train_task = TrainTask::Goto(first.clone());
+                self.train_task = TrainTask::Goto(first);
                 self.schedule.remove(0);
                 self.schedule.push(first);
             }
         }
         if let TrainTask::Goto(target) = &self.train_task {
-            if let Some(target) = target.upgrade() {
-                let target = target.borrow();
+            if let Some(target) = tracks.stations.get(target) {
                 let target_s = target.s;
                 if (target_s - self.s).abs() < 1. && self.speed.abs() < TRAIN_ACCEL {
                     self.speed = 0.;

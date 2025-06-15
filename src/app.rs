@@ -195,7 +195,7 @@ impl TrainsApp {
                         let pos = paint_transform.from_pos2(pointer);
                         let next_name = (0..).find_map(|i| {
                             let cand = format!("New Station {i}");
-                            if !self.tracks.stations.iter().any(|s| s.borrow().name == cand)
+                            if !self.tracks.stations.values().any(|s| s.name == cand)
                                 && self.new_station != cand
                             {
                                 Some(cand)
@@ -348,7 +348,7 @@ impl TrainsApp {
             );
         }
 
-        for (_i, station) in self.tracks.stations.iter().enumerate() {
+        for station in self.tracks.stations.values() {
             // let i_ptr = &*station.borrow() as *const _;
             // let is_target = if let TrainTask::Goto(target) = &self.train.train_task {
             //     if let Some(rc) = target.upgrade() {
@@ -362,13 +362,7 @@ impl TrainsApp {
             //     false
             // };
             let is_target = false;
-            self.render_station(
-                &painter,
-                &paint_transform,
-                &station.borrow(),
-                is_target,
-                false,
-            );
+            self.render_station(&painter, &paint_transform, &station, is_target, false);
         }
 
         let paint_train = |pos: &Vec2<f64>, heading: f64, tangent: &Vec2<f64>| {
@@ -568,24 +562,21 @@ impl TrainsApp {
         });
         ui.group(|ui| {
             ui.label("Stations:");
-            for (i, rc_station) in self.tracks.stations.iter().enumerate() {
-                let station = rc_station.borrow();
+            for (i, station) in &self.tracks.stations {
                 ui.radio_value(
                     &mut self.selected_station,
-                    Some(i),
+                    Some(*i),
                     &format!("{} ({}, {})", station.name, station.path_id, station.s),
                 );
             }
             if ui.button("Schedule station").clicked() {
                 if let Some(target) = self.selected_station {
-                    self.train
-                        .schedule
-                        .push(Rc::downgrade(&self.tracks.stations[target]));
+                    self.train.schedule.push(target);
                 }
             }
             if ui.button("Delete station").clicked() {
                 if let Some(target) = self.selected_station {
-                    self.tracks.stations.remove(target);
+                    self.tracks.stations.remove(&target);
                 }
             }
             ui.text_edit_singleline(&mut self.new_station);
