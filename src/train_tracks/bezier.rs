@@ -1,3 +1,5 @@
+//! Methods related to Bezier paths
+
 use crate::{app::HeightMap, train::Train, vec2::Vec2};
 
 use super::{PathBundle, PathSegment, SegmentDirection, SelectedNode, TrainTracks};
