@@ -107,6 +107,18 @@ impl PathBundle {
         self.segments.last().unwrap().end()
     }
 
+    /// Length as in s space. For physical length, multiply with SEGMENT_LENGTH.
+    pub fn s_length(&self) -> f64 {
+        self.track.len() as f64
+    }
+
+    pub fn connect_node(&self, con: ConnectPoint) -> NodeConnection {
+        match con {
+            ConnectPoint::Start => self.start_node,
+            ConnectPoint::End => self.end_node,
+        }
+    }
+
     /// Returns (segment id, node id)
     pub fn find_node(&self, pos: Vec2<f64>, dist_thresh: f64) -> Option<(usize, usize)> {
         let dist2_thresh = dist_thresh.powi(2);
@@ -182,6 +194,17 @@ pub(crate) enum ConnectPoint {
     End,
 }
 
+impl std::ops::Not for ConnectPoint {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        match self {
+            ConnectPoint::Start => ConnectPoint::End,
+            ConnectPoint::End => ConnectPoint::Start,
+        }
+    }
+}
+
 /// A connection to a path. This data structure indicates only one way of the connection,
 /// but the other path should have the connection in the other way to form a bidirectional graph.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -202,7 +225,7 @@ impl PathConnection {
 
 /// A connection to a node. This is similar to [`PathConnection`], but it indicates connection from a path to a
 /// node. It is a pair of node id and a direction.
-#[derive(Clone, Copy, Serialize, Deserialize, Default)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug, Serialize, Deserialize, Default)]
 pub(crate) struct NodeConnection {
     pub node_id: usize,
     /// Which direction of the node we are connecting to. Note that the direction would be ambiguous if the same path
@@ -263,6 +286,10 @@ pub(super) fn _compute_track(control_points: &[Vec2<f64>]) -> Vec<Vec2<f64>> {
         .collect()
 }
 
+/// Computes the positions of the track points with the list of path segments.
+/// Think of path segments as the control points to determine the shape of the track, and this function
+/// returns the exact shape of the track. However, it is an approximation by sampled line segments, not an analytical
+/// form.
 pub(super) fn compute_track_ps(path_segments: &[PathSegment]) -> (Vec<Vec2<f64>>, Vec<usize>) {
     if path_segments.is_empty() {
         return (vec![], vec![]);

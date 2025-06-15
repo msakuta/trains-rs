@@ -1,3 +1,5 @@
+mod dijkstra;
+
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
@@ -34,6 +36,8 @@ pub(crate) struct Train {
     /// The index of the direction of the path in the next branch.
     #[serde(skip)]
     pub switch_path: usize,
+    #[serde(skip)]
+    pub route: Vec<PathConnection>,
 }
 
 impl Train {
@@ -47,6 +51,7 @@ impl Train {
             schedule: vec![],
             train_direction: SegmentDirection::Forward,
             switch_path: 0,
+            route: vec![],
         }
     }
 
@@ -66,27 +71,12 @@ impl Train {
         }
         if let TrainTask::Goto(target) = &self.train_task {
             if let Some(target) = tracks.stations.get(target) {
-                let target_s = target.s;
-                if (target_s - self.s).abs() < 1. && self.speed.abs() < TRAIN_ACCEL {
-                    self.speed = 0.;
-                    self.train_task = TrainTask::Wait(120);
-                } else if target_s < self.s {
-                    // speed / accel == t
-                    // speed * t / 2 == speed^2 / accel / 2 == dist
-                    // accel = sqrt(2 * dist)
-                    if self.speed < 0. && self.s - target_s < 0.5 * self.speed.powi(2) / TRAIN_ACCEL
-                    {
-                        self.speed += TRAIN_ACCEL;
-                    } else {
-                        self.speed -= TRAIN_ACCEL;
-                    }
+                println!("Goto {target:?}");
+                if target.path_id == self.path_id {
+                    self.move_to_s(target.s);
                 } else {
-                    if 0. < self.speed && target_s - self.s < 0.5 * self.speed.powi(2) / TRAIN_ACCEL
-                    {
-                        self.speed -= TRAIN_ACCEL;
-                    } else {
-                        self.speed += TRAIN_ACCEL;
-                    }
+                    self.find_path(target.path_id, tracks);
+                    self.follow_route(tracks);
                 }
             } else {
                 // The station that cease to exist should be rotated to the end of the queue.
@@ -170,6 +160,29 @@ impl Train {
             // Acquire path again because it may have changed
             let path = &tracks.paths[&self.path_id];
             self.s = (self.s + self.speed).clamp(0., path.track.len() as f64);
+        }
+    }
+
+    /// Move to a position in the same path as the train.
+    fn move_to_s(&mut self, target_s: f64) {
+        if (target_s - self.s).abs() < 1. && self.speed.abs() < TRAIN_ACCEL {
+            self.speed = 0.;
+            self.train_task = TrainTask::Wait(120);
+        } else if target_s < self.s {
+            // speed / accel == t
+            // speed * t / 2 == speed^2 / accel / 2 == dist
+            // accel = sqrt(2 * dist)
+            if self.speed < 0. && self.s - target_s < 0.5 * self.speed.powi(2) / TRAIN_ACCEL {
+                self.speed += TRAIN_ACCEL;
+            } else {
+                self.speed -= TRAIN_ACCEL;
+            }
+        } else {
+            if 0. < self.speed && target_s - self.s < 0.5 * self.speed.powi(2) / TRAIN_ACCEL {
+                self.speed -= TRAIN_ACCEL;
+            } else {
+                self.speed += TRAIN_ACCEL;
+            }
         }
     }
 

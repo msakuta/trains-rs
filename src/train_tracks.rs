@@ -12,9 +12,7 @@ use crate::{
     vec2::Vec2,
 };
 
-pub(crate) use self::path_bundle::{ConnectPoint, PathBundle, PathConnection};
-
-use self::path_bundle::NodeConnection;
+pub(crate) use self::path_bundle::{ConnectPoint, NodeConnection, PathBundle, PathConnection};
 
 use serde::{Deserialize, Serialize};
 
@@ -753,7 +751,7 @@ impl SelectedPathNode {
     }
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize, Default, Debug)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize, Default, Debug)]
 pub(crate) enum SegmentDirection {
     /// Follow the direction of the increasing s
     #[default]
