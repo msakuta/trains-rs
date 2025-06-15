@@ -650,7 +650,7 @@ impl std::ops::Drop for TrainsApp {
             TRACKS_KEY.to_string(),
             serde_json::to_value(&self.tracks).unwrap(),
         );
-        let _ = serde_json::to_writer(
+        let _ = serde_json::to_writer_pretty(
             std::io::BufWriter::new(std::fs::File::create(TRAIN_JSON).unwrap()),
             &map,
         );
