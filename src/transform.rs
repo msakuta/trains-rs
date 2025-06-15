@@ -30,6 +30,10 @@ impl Transform {
         self.offset
     }
 
+    pub(crate) fn set_offset(&mut self, offset: [f32; 2]) {
+        self.offset = offset;
+    }
+
     /// Offsets with Y flipped. Screen coordinates often have positive down direction for Y.
     pub(crate) fn offset_scr(&self) -> [f32; 2] {
         [self.offset[0], -self.offset[1]]

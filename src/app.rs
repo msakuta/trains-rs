@@ -50,6 +50,7 @@ pub(crate) struct TrainsApp {
     show_grid: bool,
     use_cached_contours: bool,
     show_debug_slope: bool,
+    focus_on_train: bool,
     click_mode: ClickMode,
     tracks: TrainTracks,
     train: Train,
@@ -106,6 +107,7 @@ impl TrainsApp {
             show_grid: false,
             use_cached_contours: true,
             show_debug_slope: false,
+            focus_on_train: true,
             click_mode: ClickMode::None,
             tracks,
             train,
@@ -125,6 +127,13 @@ impl TrainsApp {
 
     fn render(&mut self, ui: &mut Ui) {
         let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::click());
+
+        if self.focus_on_train {
+            if let Some(offset) = self.tracks.s_pos(self.train.path_id, self.train.s) {
+                self.transform
+                    .set_offset([-offset.x as f32, -offset.y as f32]);
+            }
+        }
 
         if ui.ui_contains_pointer() {
             ui.input(|i| self.transform.handle_mouse(i, half_rect(&response.rect)));
@@ -451,6 +460,7 @@ impl TrainsApp {
         ui.checkbox(&mut self.show_grid, "Show grid");
         ui.checkbox(&mut self.use_cached_contours, "Use cached contours");
         ui.checkbox(&mut self.show_debug_slope, "Show debug slope");
+        ui.checkbox(&mut self.focus_on_train, "Focus on train");
         ui.horizontal(|ui| {
             ui.label("Num cars:");
             ui.add(egui::Slider::new(
