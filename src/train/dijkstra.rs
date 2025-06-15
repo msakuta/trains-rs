@@ -2,7 +2,7 @@
 
 use std::collections::{BinaryHeap, HashMap};
 
-use crate::train_tracks::{ConnectPoint, NodeConnection, PathConnection, TrainTracks};
+use crate::train_tracks::{ConnectPoint, NodeConnection, PathBundle, PathConnection, TrainTracks};
 
 use super::Train;
 
@@ -39,28 +39,14 @@ impl Train {
             return;
         }
 
-        let Some(path_con) = self.route.last() else {
+        let Some(&path_con) = self.route.last() else {
             return;
         };
 
         if path_con.path_id == self.path_id {
             if let Some(path) = tracks.paths.get(&path_con.path_id) {
-                if let Some(node) = tracks
-                    .nodes
-                    .get(&path.connect_node(path_con.connect_point).node_id)
-                {
-                    if let Some(idx) = node
-                        .paths_in_direction(match path_con.connect_point {
-                            ConnectPoint::Start => !path.start_node.direction,
-                            ConnectPoint::End => !path.end_node.direction,
-                        })
-                        .iter()
-                        .enumerate()
-                        .find(|(_, p)| p.path_id == self.path_id)
-                    {
-                        self.switch_path = idx.0;
-                    }
-                }
+                self.choose_switch_path(path, &path_con, tracks);
+
                 match path_con.connect_point {
                     ConnectPoint::Start => {
                         self.move_to_s(0.);
@@ -72,6 +58,46 @@ impl Train {
             }
         } else {
             self.route.pop();
+        }
+    }
+
+    /// A private method to determine the switch index for the next path.
+    /// Since the switch path is an index local to the node, we need to traverse the list of connected paths and
+    /// find the desired index.
+    fn choose_switch_path(
+        &mut self,
+        path: &PathBundle,
+        path_con: &PathConnection,
+        tracks: &TrainTracks,
+    ) {
+        let Some(node) = tracks
+            .nodes
+            .get(&path.connect_node(path_con.connect_point).node_id)
+        else {
+            return;
+        };
+
+        // Obtain the next path id to select switching path
+        let next_path_id = if 1 < self.route.len() {
+            self.route[self.route.len() - 2].path_id
+        } else if let Some(station) = self.schedule.last().and_then(|s| tracks.stations.get(s)) {
+            station.path_id
+        } else {
+            return;
+        };
+
+        // Path connections to the other side
+        let path_connections = node.paths_in_direction(match path_con.connect_point {
+            ConnectPoint::Start => !path.start_node.direction,
+            ConnectPoint::End => !path.end_node.direction,
+        });
+        if let Some(idx) = path_connections
+            .iter()
+            .enumerate()
+            .find(|(_, p)| p.path_id == next_path_id)
+        {
+            println!("Switching path to {:?}", idx);
+            self.switch_path = idx.0;
         }
     }
 

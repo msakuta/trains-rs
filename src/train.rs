@@ -71,7 +71,7 @@ impl Train {
         }
         if let TrainTask::Goto(target) = &self.train_task {
             if let Some(target) = tracks.stations.get(target) {
-                println!("Goto {target:?}");
+                println!("Goto {target:?}, route: {:?}", self.route);
                 if target.path_id == self.path_id {
                     self.move_to_s(target.s);
                 } else {
