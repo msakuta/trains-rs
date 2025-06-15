@@ -233,6 +233,7 @@ impl TrainTracks {
 
                 let len = path.append(path_bundle.segments);
                 self.offset_path(selected.path_id, len as f64);
+                train.offset(selected.path_id, len as f64);
             } else {
                 // ... unless there are already connected paths in which case we can't just extend.
                 // Allocate path ids for the new paths
