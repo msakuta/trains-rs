@@ -231,7 +231,7 @@ impl TrainTracks {
                     start_node.pos = path_bundle.end();
                 }
 
-                let len = path.append(path_bundle.segments);
+                let len = path.prepend(path_bundle.segments);
                 self.offset_path(selected.path_id, len as f64);
                 train.offset(selected.path_id, len as f64);
             } else {
