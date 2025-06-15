@@ -6,6 +6,8 @@ use crate::{
 
 use super::SEGMENT_LENGTH;
 
+use eframe::epaint::tessellator::path;
+use ordered_float::NotNan;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -278,31 +280,93 @@ pub(super) fn compute_track_ps(path_segments: &[PathSegment]) -> (Vec<Vec2<f64>>
     let num_nodes = (total_length / SEGMENT_LENGTH) as usize + 1;
     let mut last_idx = None;
     let mut track_ranges = vec![];
-    let path_segments: Vec<_> = (0..=num_nodes)
+
+    let lookup_segment = |fidx: f64| {
+        let seg_idx = cumulative_lengths
+            .iter()
+            .enumerate()
+            .find(|(_i, l)| fidx < **l)
+            .map(|(i, _)| i)
+            .unwrap_or_else(|| cumulative_lengths.len() - 1);
+        let (frem, _cum_len) = if seg_idx == 0 {
+            (fidx, 0.)
+        } else {
+            let cum_len = cumulative_lengths[seg_idx - 1];
+            (fidx - cum_len, cum_len)
+        };
+        (seg_idx, frem)
+    };
+
+    let path_nodes: Vec<_> = (0..=num_nodes)
         .filter_map(|i| {
-            let fidx = i as f64 * SEGMENT_LENGTH;
-            let seg_idx = cumulative_lengths
-                .iter()
-                .enumerate()
-                .find(|(_i, l)| fidx < **l)
-                .map(|(i, _)| i)
-                .unwrap_or_else(|| cumulative_lengths.len() - 1);
-            let (frem, _cum_len) = if seg_idx == 0 {
-                (fidx, 0.)
-            } else {
-                let cum_len = cumulative_lengths[seg_idx - 1];
-                (fidx - cum_len, cum_len)
-            };
-            let seg_len = segment_lengths[seg_idx];
+            let (seg_idx, frem) = lookup_segment(i as f64 * SEGMENT_LENGTH);
             if last_idx.is_some_and(|idx| idx != seg_idx) {
                 track_ranges.push(i);
             }
             last_idx = Some(seg_idx);
+            let seg_len = segment_lengths[seg_idx];
             path_segments[seg_idx].interp((frem / seg_len).clamp(0., 1.))
         })
         .collect();
-    if last_idx != Some(path_segments.len()) {
-        track_ranges.push(path_segments.len());
+
+    // Build the measured cumulative lengths of path segments, not an heuristic estimation.
+    // It makes a lot of difference in Bezier curves.
+    let mut acc = 0.;
+    let cumulative_lengths = path_nodes
+        .iter()
+        .zip(path_nodes.iter().skip(1))
+        .enumerate()
+        .map(|(_i, (node, next))| {
+            let dist = (*next - *node).length();
+            // println!("[{i}]: {dist}, {acc}");
+            acc += dist;
+            NotNan::new(acc).unwrap()
+        })
+        .collect::<Vec<_>>();
+
+    // Reverse map from distance to s value
+    let lookup = |dist: f64| -> f64 {
+        let dist = NotNan::new(dist).unwrap();
+        match cumulative_lengths.binary_search(&dist) {
+            Ok(i) => i as f64,
+            Err(i) => {
+                if i == 0 {
+                    i as f64
+                } else if let Some(prev_length) = cumulative_lengths.get(i - 1) {
+                    let next_length = cumulative_lengths[i];
+                    let segment_length = next_length - *prev_length;
+                    i as f64 + ((dist - *prev_length) / segment_length).into_inner()
+                } else {
+                    i as f64
+                }
+            }
+        }
+    };
+
+    let num_nodes = cumulative_lengths
+        .last()
+        .map_or(0, |&x| (x.into_inner() / SEGMENT_LENGTH) as usize);
+    let resampled_nodes: Vec<_> = (0..=num_nodes)
+        .filter_map(|i| {
+            let fidx = lookup(i as f64 * SEGMENT_LENGTH) * SEGMENT_LENGTH;
+            let (seg_idx, frem) = lookup_segment(fidx);
+            let seg_len = segment_lengths[seg_idx];
+            path_segments[seg_idx].interp((frem / seg_len).clamp(0., 1.))
+        })
+        .collect();
+
+    // Recheck uniform distance
+    // for (i, (node, next)) in resampled_nodes
+    //     .iter()
+    //     .zip(resampled_nodes.iter().skip(1))
+    //     .enumerate()
+    // {
+    //     let dist = (*next - *node).length();
+    //     println!("re[{i}]: {dist}");
+    // }
+
+    if last_idx != Some(path_nodes.len()) {
+        track_ranges.push(path_nodes.len());
     }
-    (path_segments, track_ranges)
+    (resampled_nodes, track_ranges)
 }
