@@ -1,5 +1,6 @@
 use crate::{
     path_utils::{_bezier_interp, _bezier_length, PathSegment},
+    train_tracks::SegmentDirection,
     vec2::Vec2,
 };
 
@@ -17,13 +18,17 @@ pub(crate) struct PathBundle {
     pub track: Vec<Vec2<f64>>,
     pub(super) track_ranges: Vec<usize>,
     /// A node id of the starting node.
-    pub(crate) start_node: usize,
+    pub(crate) start_node: NodeConnection,
     /// A node id of the end node.
-    pub(crate) end_node: usize,
+    pub(crate) end_node: NodeConnection,
 }
 
 impl PathBundle {
-    pub(super) fn single(path_segment: PathSegment, start_node: usize, end_node: usize) -> Self {
+    pub(super) fn single(
+        path_segment: PathSegment,
+        start_node: NodeConnection,
+        end_node: NodeConnection,
+    ) -> Self {
         let (track, track_ranges) = compute_track_ps(&[path_segment]);
         PathBundle {
             segments: vec![path_segment],
@@ -36,8 +41,8 @@ impl PathBundle {
 
     pub(super) fn multi(
         path_segments: impl Into<Vec<PathSegment>>,
-        start_node: usize,
-        end_node: usize,
+        start_node: NodeConnection,
+        end_node: NodeConnection,
     ) -> Self {
         let path_segments = path_segments.into();
         let (track, track_ranges) = compute_track_ps(&path_segments);
@@ -132,14 +137,15 @@ impl PathBundle {
 
     /// Deletes a segment, optionally splitting the path that contains the segment.
     ///
-    /// Returns a tuple of a new path created by splitting this one and the node length
+    /// Returns a new path created by splitting this one, if the segment was in the middle of a path.
+    /// `add_node` parameter is called when adding a node becomes necessary by the splitting.
     ///
     /// Note that deleting a node by isolation doesn't make sense, because a node is a interpolated cached position
     /// from a segment parameters.
     pub(super) fn delete_segment(
         &mut self,
         seg: usize,
-        mut add_node: impl FnMut(Vec2<f64>) -> usize,
+        mut add_node: impl FnMut(Vec2<f64>) -> NodeConnection,
     ) -> Option<PathBundle> {
         let mut new_path = vec![];
         let prev_end_node = self.end_node;
@@ -167,15 +173,16 @@ impl PathBundle {
     }
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, Default)]
 pub(crate) enum ConnectPoint {
+    #[default]
     Start,
     End,
 }
 
 /// A connection to a path. This data structure indicates only one way of the connection,
 /// but the other path should have the connection in the other way to form a bidirectional graph.
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) struct PathConnection {
     pub path_id: usize,
     /// Where does this path connects to the other path
@@ -188,6 +195,22 @@ impl PathConnection {
             path_id,
             connect_point,
         }
+    }
+}
+
+/// A connection to a node. This is similar to [`PathConnection`], but it indicates connection from a path to a
+/// node. It is a pair of node id and a direction.
+#[derive(Clone, Copy, Serialize, Deserialize, Default)]
+pub(crate) struct NodeConnection {
+    pub node_id: usize,
+    /// Which direction of the node we are connecting to. Note that the direction would be ambiguous if the same path
+    /// connects to the same node at both ends, if we didn't put this information here.
+    pub direction: SegmentDirection,
+}
+
+impl NodeConnection {
+    pub fn new(node_id: usize, direction: SegmentDirection) -> Self {
+        Self { node_id, direction }
     }
 }
 

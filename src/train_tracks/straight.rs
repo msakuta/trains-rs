@@ -2,7 +2,7 @@
 
 use crate::{app::HeightMap, path_utils::PathSegment, train::Train, vec2::Vec2};
 
-use super::{PathBundle, TrainTracks};
+use super::{NodeConnection, PathBundle, TrainTracks};
 
 impl TrainTracks {
     pub fn add_straight(
@@ -39,6 +39,10 @@ impl TrainTracks {
         }
         let perpendicular_foot = prev_pos + tangent * dot;
         let path_segment = PathSegment::Line([prev_pos, perpendicular_foot]);
-        Ok(PathBundle::single(path_segment, 0, 0))
+        Ok(PathBundle::single(
+            path_segment,
+            NodeConnection::default(),
+            NodeConnection::default(),
+        ))
     }
 }

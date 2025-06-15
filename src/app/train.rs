@@ -125,57 +125,39 @@ impl TrainsApp {
     ) {
         let ofs = RAIL_HALFWIDTH * 2.;
 
-        let is_start_node_switching = self.tracks.nodes.get(&path.start_node).is_some_and(|node| {
-            node.backward_paths
-                .iter()
-                .any(|p| p.path_id == self.train.path_id)
-                && node
-                    .forward_paths
-                    .get(
-                        self.train
-                            .switch_path
-                            .min(node.forward_paths.len().saturating_sub(1)),
-                    )
-                    .is_some_and(|p| p.path_id == path_id)
-                || node
-                    .forward_paths
-                    .iter()
-                    .any(|p| p.path_id == self.train.path_id)
-                    && node
-                        .backward_paths
-                        .get(
-                            self.train
-                                .switch_path
-                                .min(node.backward_paths.len().saturating_sub(1)),
-                        )
-                        .is_some_and(|p| p.path_id == path_id)
-        });
+        let is_start_node_switching =
+            self.tracks
+                .nodes
+                .get(&path.start_node.node_id)
+                .is_some_and(|node| {
+                    let prev_paths = node.paths_in_direction(!path.start_node.direction);
+                    let cur_paths = node.paths_in_direction(path.start_node.direction);
+                    prev_paths.iter().any(|p| p.path_id == self.train.path_id)
+                        && cur_paths
+                            .get(
+                                self.train
+                                    .switch_path
+                                    .min(cur_paths.len().saturating_sub(1)),
+                            )
+                            .is_some_and(|p| p.path_id == path_id)
+                });
 
-        let is_end_node_switching = self.tracks.nodes.get(&path.end_node).is_some_and(|node| {
-            node.backward_paths
-                .iter()
-                .any(|p| p.path_id == self.train.path_id)
-                && node
-                    .forward_paths
-                    .get(
-                        self.train
-                            .switch_path
-                            .min(node.forward_paths.len().saturating_sub(1)),
-                    )
-                    .is_some_and(|p| p.path_id == path_id)
-                || node
-                    .forward_paths
-                    .iter()
-                    .any(|p| p.path_id == self.train.path_id)
-                    && node
-                        .backward_paths
-                        .get(
-                            self.train
-                                .switch_path
-                                .min(node.backward_paths.len().saturating_sub(1)),
-                        )
-                        .is_some_and(|p| p.path_id == path_id)
-        });
+        let is_end_node_switching =
+            self.tracks
+                .nodes
+                .get(&path.end_node.node_id)
+                .is_some_and(|node| {
+                    let next_paths = node.paths_in_direction(!path.end_node.direction);
+                    let cur_paths = node.paths_in_direction(path.end_node.direction);
+                    next_paths.iter().any(|p| p.path_id == self.train.path_id)
+                        && cur_paths
+                            .get(
+                                self.train
+                                    .switch_path
+                                    .min(cur_paths.len().saturating_sub(1)),
+                            )
+                            .is_some_and(|p| p.path_id == path_id)
+                });
 
         let track = &path.track;
 

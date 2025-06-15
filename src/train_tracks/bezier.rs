@@ -2,7 +2,7 @@
 
 use crate::{app::HeightMap, train::Train, vec2::Vec2};
 
-use super::{PathBundle, PathSegment, SegmentDirection, SelectedNode, TrainTracks};
+use super::{NodeConnection, PathBundle, PathSegment, SegmentDirection, SelectedNode, TrainTracks};
 
 impl TrainTracks {
     pub fn ghost_bezier(&mut self, pos: Vec2<f64>) {
@@ -58,16 +58,21 @@ impl TrainTracks {
             let start_tangent = Vec2::new(prev_angle.cos(), prev_angle.sin());
             let p1 = prev_pos + start_tangent * 50.;
             let p2 = pos + end_tangent * sign * 50.;
+            let node_connection = NodeConnection::new(node_id, direction);
             let path = PathBundle::single(
                 PathSegment::CubicBezier([prev_pos, p1, p2, pos]),
-                0,
-                node_id,
+                NodeConnection::default(),
+                node_connection,
             );
-            Ok((path, Some(SelectedNode { node_id, direction })))
+            Ok((path, Some(node_connection)))
         } else {
             let tangent = Vec2::new(prev_angle.cos(), prev_angle.sin());
             let p1 = prev_pos + tangent * 50.;
-            let path = PathBundle::single(PathSegment::Bezier([prev_pos, p1, pos]), 0, 0);
+            let path = PathBundle::single(
+                PathSegment::Bezier([prev_pos, p1, pos]),
+                NodeConnection::default(),
+                NodeConnection::default(),
+            );
             Ok((path, None))
         }
     }

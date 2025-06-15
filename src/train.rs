@@ -113,14 +113,12 @@ impl Train {
 
         if let Some(path) = tracks.paths.get(&self.path_id) {
             if self.s == 0. && self.speed < 0. {
-                let prev_path = tracks.nodes.get(&path.start_node).and_then(|node| {
-                    let forward = node.forward_paths.iter().any(|p| p.path_id == self.path_id);
+                let prev_path = tracks.nodes.get(&path.start_node.node_id).and_then(|node| {
                     // If we came from forward, we should continue on backward
-                    let path_con = if forward {
-                        get_clamped(&node.backward_paths, self.switch_path)
-                    } else {
-                        get_clamped(&node.forward_paths, self.switch_path)
-                    }?;
+                    let path_con = get_clamped(
+                        node.paths_in_direction(!path.start_node.direction),
+                        self.switch_path,
+                    )?;
                     let path_ref = tracks.paths.get(&path_con.path_id)?;
                     Some((path_con, path_ref))
                 });
@@ -144,14 +142,12 @@ impl Train {
             }
 
             if path.track.len() as f64 <= self.s && 0. < self.speed {
-                if let Some(next_path) = tracks.nodes.get(&path.end_node).and_then(|node| {
-                    let forward = node.forward_paths.iter().any(|p| p.path_id == self.path_id);
+                if let Some(next_path) = tracks.nodes.get(&path.end_node.node_id).and_then(|node| {
                     // If we came from forward, we should continue on backward
-                    if forward {
-                        get_clamped(&node.backward_paths, self.switch_path)
-                    } else {
-                        get_clamped(&node.forward_paths, self.switch_path)
-                    }
+                    get_clamped(
+                        &node.paths_in_direction(!path.end_node.direction),
+                        self.switch_path,
+                    )
                 }) {
                     match next_path.connect_point {
                         ConnectPoint::Start => {

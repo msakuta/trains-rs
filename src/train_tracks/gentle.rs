@@ -2,7 +2,9 @@
 
 use crate::{app::HeightMap, path_utils::wrap_angle, train::Train};
 
-use super::{CircleArc, MAX_RADIUS, MIN_RADIUS, PathBundle, PathSegment, TrainTracks, Vec2};
+use super::{
+    CircleArc, MAX_RADIUS, MIN_RADIUS, NodeConnection, PathBundle, PathSegment, TrainTracks, Vec2,
+};
 
 impl TrainTracks {
     pub fn add_gentle(
@@ -54,6 +56,10 @@ impl TrainTracks {
             start,
             end,
         ));
-        Ok(PathBundle::single(path_segment, 0, 0))
+        Ok(PathBundle::single(
+            path_segment,
+            NodeConnection::default(),
+            NodeConnection::default(),
+        ))
     }
 }

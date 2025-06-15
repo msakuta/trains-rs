@@ -7,7 +7,7 @@ use crate::{
     vec2::Vec2,
 };
 
-use super::{MIN_RADIUS, PathBundle, PathSegment, TrainTracks};
+use super::{MIN_RADIUS, NodeConnection, PathBundle, PathSegment, TrainTracks};
 
 impl TrainTracks {
     pub fn add_tight(
@@ -63,7 +63,11 @@ impl TrainTracks {
                 PathSegment::Arc(CircleArc::new(a, MIN_RADIUS, start_angle, end_angle)),
                 PathSegment::Line([tangent_pos, pos]),
             ];
-            Ok(PathBundle::multi(path_segments, 0, 0))
+            Ok(PathBundle::multi(
+                path_segments,
+                NodeConnection::default(),
+                NodeConnection::default(),
+            ))
         } else {
             Err("Clicked point requires tighter curvature radius than allowed".to_string())
         }
@@ -111,7 +115,11 @@ impl TrainTracks {
                 PathSegment::Arc(CircleArc::new(a, MIN_RADIUS, start_angle, end_angle)),
                 PathSegment::Line([tangent_pos, pos]),
             ];
-            Ok(PathBundle::multi(path_segments, 0, 0))
+            Ok(PathBundle::multi(
+                path_segments,
+                NodeConnection::default(),
+                NodeConnection::default(),
+            ))
         } else {
             Err("Clicked point requires tighter curvature radius than allowed".to_string())
         }
