@@ -69,7 +69,6 @@ impl TrainTracks {
         }
     }
 
-
     #[allow(dead_code, unused_variables)]
     fn compute_tight_orient(&self, pos: Vec2<f64>, end_angle: f64) -> Result<PathBundle, String> {
         let Some((prev_pos, prev_angle)) = self.selected_node() else {
