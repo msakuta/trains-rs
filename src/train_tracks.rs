@@ -100,6 +100,20 @@ impl TrainNode {
     fn count_connections(&self) -> usize {
         self.forward_paths.len() + self.backward_paths.len()
     }
+
+    fn paths_in_direction(&self, direction: SegmentDirection) -> &[PathConnection] {
+        match direction {
+            SegmentDirection::Forward => &self.forward_paths,
+            SegmentDirection::Backward => &self.backward_paths,
+        }
+    }
+
+    fn paths_in_direction_mut(&mut self, direction: SegmentDirection) -> &mut Vec<PathConnection> {
+        match direction {
+            SegmentDirection::Forward => &mut self.forward_paths,
+            SegmentDirection::Backward => &mut self.backward_paths,
+        }
+    }
 }
 
 pub(crate) type Paths = HashMap<usize, PathBundle>;
@@ -230,15 +244,11 @@ impl TrainTracks {
             if start_node.count_connections() < 2 {
                 if let Some(end_node_sel) = end_node_sel {
                     path.start_node = end_node_sel.node_id;
-                    let entry = self
-                        .nodes
+                    self.nodes
                         .entry(end_node_sel.node_id)
-                        .or_insert_with(|| TrainNode::new(path_bundle.end()));
-                    match end_node_sel.direction {
-                        SegmentDirection::Forward => &mut entry.forward_paths,
-                        SegmentDirection::Backward => &mut entry.backward_paths,
-                    }
-                    .push(PathConnection::new(selected.path_id, ConnectPoint::End));
+                        .or_insert_with(|| TrainNode::new(path_bundle.end()))
+                        .paths_in_direction_mut(end_node_sel.direction)
+                        .push(PathConnection::new(selected.path_id, ConnectPoint::End));
                 } else {
                     start_node.pos = path_bundle.end();
                 }
@@ -270,11 +280,9 @@ impl TrainTracks {
                     .or_insert_with(|| TrainNode::new(path_bundle.end()));
 
                 // Then, add a new node for the end of the new path.
-                match new_end_node_id.direction {
-                    SegmentDirection::Forward => &mut new_end_node.forward_paths,
-                    SegmentDirection::Backward => &mut new_end_node.backward_paths,
-                }
-                .push(PathConnection::new(new_path_id, ConnectPoint::End));
+                new_end_node
+                    .paths_in_direction_mut(new_end_node_id.direction)
+                    .push(PathConnection::new(new_path_id, ConnectPoint::End));
                 path_bundle.start_node = path.start_node;
                 path_bundle.end_node = new_end_node_id.node_id;
 
@@ -289,15 +297,11 @@ impl TrainTracks {
             if end_node.count_connections() < 2 {
                 if let Some(node_sel) = end_node_sel {
                     path.end_node = node_sel.node_id;
-                    let entry = self
-                        .nodes
+                    self.nodes
                         .entry(node_sel.node_id)
-                        .or_insert_with(|| TrainNode::new(path_bundle.end()));
-                    match node_sel.direction {
-                        SegmentDirection::Forward => &mut entry.forward_paths,
-                        SegmentDirection::Backward => &mut entry.backward_paths,
-                    }
-                    .push(PathConnection::new(selected.path_id, ConnectPoint::End));
+                        .or_insert_with(|| TrainNode::new(path_bundle.end()))
+                        .paths_in_direction_mut(node_sel.direction)
+                        .push(PathConnection::new(selected.path_id, ConnectPoint::End));
                 } else {
                     end_node.pos = path_bundle.end();
                 }
@@ -335,11 +339,9 @@ impl TrainTracks {
                     .or_insert_with(|| TrainNode::new(path_bundle.end()));
 
                 // Then, add a new node for the end of the new path.
-                match new_end_node_id.direction {
-                    SegmentDirection::Forward => &mut new_end_node.forward_paths,
-                    SegmentDirection::Backward => &mut new_end_node.backward_paths,
-                }
-                .push(PathConnection::new(new_path_id, ConnectPoint::End));
+                new_end_node
+                    .paths_in_direction_mut(new_end_node_id.direction)
+                    .push(PathConnection::new(new_path_id, ConnectPoint::End));
                 path_bundle.start_node = path.end_node;
                 path_bundle.end_node = new_end_node_id.node_id;
 
@@ -755,10 +757,10 @@ impl TrainTracks {
             let delta = pos - node.pos;
             let end_tangent = Vec2::new(next_angle.cos(), next_angle.sin());
             let dot = delta.dot(end_tangent);
-            let (direction, sign) = if dot > 0. {
-                (SegmentDirection::Backward, -1.)
+            let (direction, sign) = if dot < 0. {
+                (SegmentDirection::Forward, -1.)
             } else {
-                (SegmentDirection::Forward, 1.)
+                (SegmentDirection::Backward, 1.)
             };
 
             pos = node.pos;
@@ -795,7 +797,7 @@ impl TrainTracks {
             }
         } else if let Some(con) = node.backward_paths.first() {
             if let Some(path) = self.paths.get(&con.path_id) {
-                return path_angle(con, path);
+                return path_angle(con, path).map(|angle| wrap_angle(angle + std::f64::consts::PI));
             }
         }
         None
