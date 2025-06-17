@@ -129,7 +129,7 @@ impl TrainsApp {
         let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::click());
 
         if self.focus_on_train {
-            if let Some(offset) = self.tracks.s_pos(self.train.path_id, self.train.s) {
+            if let Some(offset) = self.tracks.s_pos(self.train.path_id(), self.train.s()) {
                 self.transform
                     .set_offset([-offset.x as f32, -offset.y as f32]);
             }
@@ -464,7 +464,7 @@ impl TrainsApp {
         ui.horizontal(|ui| {
             ui.label("Num cars:");
             ui.add(egui::Slider::new(
-                &mut self.train.num_cars,
+                &mut self.train.cars.len(),
                 1..=MAX_NUM_CARS,
             ));
         });
@@ -552,8 +552,8 @@ impl eframe::App for TrainsApp {
         ctx.input(|input| {
             for key in input.keys_down.iter() {
                 match key {
-                    egui::Key::W => thrust += self.train.train_direction.signum(),
-                    egui::Key::S => thrust -= self.train.train_direction.signum(),
+                    egui::Key::W => thrust += self.train.direction().signum(),
+                    egui::Key::S => thrust -= self.train.direction().signum(),
                     _ => {}
                 }
             }

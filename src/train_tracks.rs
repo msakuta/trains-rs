@@ -428,10 +428,7 @@ impl TrainTracks {
                     station.s -= new_path_len;
                 }
             }
-            if train.path_id == selected.path_id && new_path_len < train.s {
-                train.path_id = split_path_id;
-                train.s -= new_path_len;
-            }
+            train.transfer_path(selected.path_id, new_path_len);
 
             // Add the split path after the selected path is modified, in order to avoid the borrow checker.
             self.paths.insert(split_path_id, split_path);
@@ -658,7 +655,7 @@ impl TrainTracks {
             Some((id, path, seg))
         });
         if let Some((&path_id, path, seg)) = found_node {
-            if path_id == train.path_id && seg == path.find_seg_by_s(train.s as usize) {
+            if train.in_path_segment(path_id, path, seg) {
                 return Err("You can't delete a segment while a train is on it".to_string());
             }
             let delete_begin = if 0 < seg {
@@ -695,7 +692,9 @@ impl TrainTracks {
                     }
                 };
 
-                move_s(&mut train.path_id, &mut train.s, "train");
+                train.for_each_car(|car| {
+                    move_s(&mut car.path_id, &mut car.s, "train");
+                });
                 self.stations.retain(|_i, station| {
                     if station.path_id != path_id {
                         return true;

@@ -138,7 +138,7 @@ impl TrainsApp {
                 .is_some_and(|node| {
                     let prev_paths = node.paths_in_direction(!path.start_node.direction);
                     let cur_paths = node.paths_in_direction(path.start_node.direction);
-                    prev_paths.iter().any(|p| p.path_id == self.train.path_id)
+                    prev_paths.iter().any(|p| p.path_id == self.train.path_id())
                         && cur_paths
                             .get(
                                 self.train
@@ -155,7 +155,7 @@ impl TrainsApp {
                 .is_some_and(|node| {
                     let next_paths = node.paths_in_direction(!path.end_node.direction);
                     let cur_paths = node.paths_in_direction(path.end_node.direction);
-                    next_paths.iter().any(|p| p.path_id == self.train.path_id)
+                    next_paths.iter().any(|p| p.path_id == self.train.path_id())
                         && cur_paths
                             .get(
                                 self.train
@@ -311,7 +311,7 @@ impl TrainsApp {
 
             // When the user zooms in enough, draw the direction arrow.
             if 2. < self.transform.scale() {
-                let direction = match self.train.train_direction {
+                let direction = match self.train.direction() {
                     SegmentDirection::Forward => egui::Vec2::from(transform_delta(&[3., 0.])),
                     SegmentDirection::Backward => egui::Vec2::from(transform_delta(&[-3., 0.])),
                 };
@@ -330,10 +330,9 @@ impl TrainsApp {
             }
         };
 
-        for i in 0..self.train.num_cars {
-            if let Some(((train_pos, train_heading), tangent)) = self
-                .train
-                .pos(i, &self.tracks.paths)
+        for (i, car) in self.train.cars.iter().enumerate() {
+            if let Some(((train_pos, train_heading), tangent)) = car
+                .pos(&self.tracks.paths)
                 .zip(self.train.heading(i, &self.tracks.paths))
                 .zip(self.train.tangent(i, &self.tracks.paths))
             {

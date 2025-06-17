@@ -43,7 +43,7 @@ impl Train {
             return;
         };
 
-        if path_con.path_id == self.path_id {
+        if path_con.path_id == self.path_id() {
             if let Some(path) = tracks.paths.get(&path_con.path_id) {
                 self.choose_switch_path(path, &path_con, tracks);
 
@@ -106,26 +106,28 @@ impl Train {
             return;
         }
 
-        let Some(self_path) = tracks.paths.get(&self.path_id) else {
+        let self_path_id = self.path_id();
+
+        let Some(self_path) = tracks.paths.get(&self_path_id) else {
             return;
         };
 
         let start_node = SearchNode {
             node_con: self_path.start_node,
             came_from: Some(PathConnection {
-                path_id: self.path_id,
+                path_id: self_path_id,
                 connect_point: ConnectPoint::Start,
             }),
-            cost: self.s,
+            cost: self.s(),
         };
 
         let end_node = SearchNode {
             node_con: self_path.end_node,
             came_from: Some(PathConnection {
-                path_id: self.path_id,
+                path_id: self_path_id,
                 connect_point: ConnectPoint::End,
             }),
-            cost: self_path.s_length() - self.s,
+            cost: self_path.s_length() - self.s(),
         };
 
         let mut closed: HashMap<NodeConnection, SearchNode> = HashMap::new();
@@ -136,7 +138,7 @@ impl Train {
         queue.push(start_node);
         queue.push(end_node);
 
-        println!("Starting search from path {:?}", self.path_id);
+        println!("Starting search from path {:?}", self_path_id);
 
         while let Some(current) = queue.pop() {
             let Some(node) = tracks.nodes.get(&current.node_con.node_id) else {
@@ -155,7 +157,7 @@ impl Train {
                             break;
                         };
                         nodes.push(came_from);
-                        if came_from.path_id == self.path_id {
+                        if came_from.path_id == self_path_id {
                             break;
                         }
                         let Some(path) = tracks.paths.get(&came_from.path_id) else {

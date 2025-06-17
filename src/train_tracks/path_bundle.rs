@@ -6,7 +6,6 @@ use crate::{
 
 use super::SEGMENT_LENGTH;
 
-use eframe::epaint::tessellator::path;
 use ordered_float::NotNan;
 use serde::{Deserialize, Serialize};
 
@@ -83,7 +82,7 @@ impl PathBundle {
         }
     }
 
-    pub fn segments(&self) -> impl Iterator<Item = &PathSegment> {
+    pub fn _segments(&self) -> impl Iterator<Item = &PathSegment> {
         self.segments.iter()
     }
 
