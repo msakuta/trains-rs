@@ -174,6 +174,7 @@ impl HeightMap {
 
         let persistence_seeds = gen_seeds(&mut rng, params.persistence_octaves);
         let seeds = gen_seeds(&mut rng, params.noise_octaves);
+        let bridge_seeds = gen_seeds(&mut rng, params.noise_octaves);
         let map: Vec<_> = (0..params.width * params.height)
             .map(|i| {
                 let ix = (i % params.width) as f64;
@@ -204,7 +205,20 @@ impl HeightMap {
                     }
                 };
                 if params.abs_wrap {
-                    val = val.abs();
+                    const BRIDGE_HEIGHT: f64 = 0.1;
+                    let bridge_pos = pos * 0.5;
+                    let bridge = BRIDGE_HEIGHT
+                        - perlin_noise_pixel(
+                            bridge_pos.x,
+                            bridge_pos.y,
+                            params.noise_octaves,
+                            &bridge_seeds,
+                            persistence_sample,
+                        )
+                        .abs()
+                        .min(BRIDGE_HEIGHT);
+
+                    val = softmax(val.abs(), bridge);
                 }
                 val as f32 * params.height_scale as f32
             })
@@ -533,4 +547,9 @@ fn render_grid(
             (1., Color32::GRAY),
         );
     }
+}
+
+fn softmax(a: f64, b: f64) -> f64 {
+    let denom = a + b;
+    (a * a + b * b) / denom
 }
