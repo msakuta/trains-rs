@@ -379,6 +379,7 @@ pub(super) fn compute_track_ps(path_segments: &[PathSegment]) -> (Vec<Vec2<f64>>
             let seg_len = segment_lengths[seg_idx];
             path_segments[seg_idx].interp((frem / seg_len).clamp(0., 1.))
         })
+        .chain(std::iter::once(path_segments.last().unwrap().end()))
         .collect();
 
     // Recheck uniform distance
