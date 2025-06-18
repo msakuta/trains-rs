@@ -520,6 +520,15 @@ impl TrainsApp {
             }
             ui.text_edit_singleline(&mut self.new_station);
         });
+        ui.group(|ui| {
+            ui.label("Trains:");
+            for (i, car) in self.train.cars.iter().enumerate() {
+                ui.label(&format!(
+                    "[{i}] {:.03}, {:.03}, {:.03}, {:?}",
+                    car.path_id, car.s, car.speed, car.direction
+                ));
+            }
+        });
     }
 }
 
@@ -557,11 +566,13 @@ impl eframe::App for TrainsApp {
                     _ => {}
                 }
             }
-            if input.key_pressed(egui::Key::A) {
-                self.train.switch_path = self.train.switch_path.saturating_add(1)
-            }
-            if input.key_pressed(egui::Key::D) {
-                self.train.switch_path = self.train.switch_path.saturating_sub(1)
+            if self.train.can_switch() {
+                if input.key_pressed(egui::Key::A) {
+                    self.train.switch_path = self.train.switch_path.saturating_add(1)
+                }
+                if input.key_pressed(egui::Key::D) {
+                    self.train.switch_path = self.train.switch_path.saturating_sub(1)
+                }
             }
         });
         self.train.update(thrust, &self.heightmap, &self.tracks);

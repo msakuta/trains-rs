@@ -1,7 +1,5 @@
 mod dijkstra;
 
-use std::collections::HashMap;
-
 use eframe::egui::ahash::HashSet;
 use serde::{Deserialize, Serialize};
 
@@ -22,8 +20,6 @@ const GRAD_ACCEL: f64 = 0.0002;
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Train {
-    /// Speed along s
-    pub speed: f64,
     pub cars: Vec<TrainCar>,
     #[serde(skip)]
     pub train_task: TrainTask,
@@ -42,11 +38,11 @@ impl Train {
             .map(|i| TrainCar {
                 path_id: 0,
                 s: i as f64 * CAR_LENGTH,
+                speed: 0.,
                 direction: SegmentDirection::Forward,
             })
             .collect();
         Self {
-            speed: 0.,
             cars,
             train_task: TrainTask::Idle,
             schedule: vec![],
@@ -84,25 +80,31 @@ impl Train {
                 self.train_task = TrainTask::Idle;
             }
         }
-        self.speed = (self.speed + thrust * THRUST_ACCEL).clamp(-MAX_SPEED, MAX_SPEED);
 
         // Acceleration from terrain slope
-        for (i, car) in self.cars.iter().enumerate() {
-            if let Some((tangent, pos)) = self
-                .tangent(i, &tracks.paths)
-                .zip(self.pos(i, &tracks.paths))
-            {
+        let num_cars = self.cars.len() as f64;
+        for car in &mut self.cars {
+            car.speed = (car.speed + thrust * THRUST_ACCEL).clamp(-MAX_SPEED, MAX_SPEED);
+            if let Some((tangent, pos)) = car.tangent(&tracks.paths).zip(car.pos(&tracks.paths)) {
                 let grad = heightmap.gradient(&pos);
-                self.speed -= grad.dot(tangent) * GRAD_ACCEL / self.cars.len() as f64;
+                car.speed -= grad.dot(tangent) * GRAD_ACCEL / num_cars;
             }
         }
 
-        for (i, car) in self.cars.iter_mut().enumerate() {
-            let mut speed = self.speed;
-            car.update(&mut speed, self.switch_path, tracks);
-            if i == 0 {
-                self.speed = speed;
-            }
+        for car in &self.cars {
+            car.update_speed(self.switch_path, tracks);
+        }
+
+        for car in &mut self.cars {
+            car.update_pos(self.switch_path, tracks);
+        }
+
+        for i in 0..self.cars.len() - 1 {
+            let (first, last) = self.cars.split_at_mut(i + 1);
+            first
+                .last_mut()
+                .unwrap()
+                .adjust_connected_cars(last.first_mut().unwrap());
         }
     }
 
@@ -138,24 +140,21 @@ impl Train {
 
     /// Move to a position in the same path as the train.
     fn move_to_s(&mut self, target_s: f64) {
-        if (target_s - self.s()).abs() < 1. && self.speed.abs() < TRAIN_ACCEL {
-            self.speed = 0.;
+        let mut desired_speed = self.cars[0].speed;
+        if (target_s - self.s()).abs() < 1. && self.cars[0].speed.abs() < TRAIN_ACCEL {
+            desired_speed = 0.;
             self.train_task = TrainTask::Wait(120);
         } else if target_s < self.s() {
             // speed / accel == t
             // speed * t / 2 == speed^2 / accel / 2 == dist
             // accel = sqrt(2 * dist)
-            if self.speed < 0. && self.s() - target_s < 0.5 * self.speed.powi(2) / TRAIN_ACCEL {
-                self.speed += TRAIN_ACCEL;
-            } else {
-                self.speed -= TRAIN_ACCEL;
-            }
+            desired_speed = -(2. * (self.s() - target_s) * TRAIN_ACCEL).sqrt();
         } else {
-            if 0. < self.speed && target_s - self.s() < 0.5 * self.speed.powi(2) / TRAIN_ACCEL {
-                self.speed -= TRAIN_ACCEL;
-            } else {
-                self.speed += TRAIN_ACCEL;
-            }
+            desired_speed = (2. * (target_s - self.s()) * TRAIN_ACCEL).sqrt();
+        }
+
+        for car in &mut self.cars {
+            car.speed = approach(car.speed, desired_speed, TRAIN_ACCEL);
         }
     }
 
@@ -189,6 +188,16 @@ impl Train {
             }
         }
     }
+
+    /// Whether we can switch the track direction for this train.
+    /// We can't switch if a car is spanning over a switch point.
+    /// In reality we could, but it would derail the train.
+    pub(crate) fn can_switch(&self) -> bool {
+        let Some((first, rest)) = self.cars.split_first() else {
+            return true;
+        };
+        rest.iter().all(|car| car.path_id == first.path_id)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -197,6 +206,8 @@ pub(crate) struct TrainCar {
     pub path_id: usize,
     /// Position along the track
     pub s: f64,
+    /// Speed along s
+    pub speed: f64,
     pub direction: SegmentDirection,
 }
 
@@ -213,9 +224,13 @@ impl TrainCar {
         interpolate_path_heading(&paths.get(&self.path_id)?.track, self.s)
     }
 
-    fn update(&mut self, speed: &mut f64, switch_path: usize, tracks: &TrainTracks) {
+    /// Attempt to update the speed and new path and position.
+    /// Returns the new car state and modify the speed if it would reach the end of a path.
+    fn update_speed(&self, switch_path: usize, tracks: &TrainTracks) -> TrainCar {
+        let mut ret = *self;
+
         if let Some(path) = tracks.paths.get(&self.path_id) {
-            if self.s == 0. && *speed < 0. {
+            if self.s <= 0. && self.speed < 0. {
                 let prev_path = tracks.nodes.get(&path.start_node.node_id).and_then(|node| {
                     // If we came from forward, we should continue on backward
                     let path_con = get_clamped(
@@ -228,23 +243,24 @@ impl TrainCar {
                 if let Some((prev_path, prev_path_ref)) = prev_path {
                     match prev_path.connect_point {
                         ConnectPoint::Start => {
-                            self.path_id = prev_path.path_id;
-                            self.s = 0.;
-                            *speed *= -1.;
+                            ret.path_id = prev_path.path_id;
+                            ret.s = 0.;
+                            println!("inverting speed {}", ret.speed);
+                            ret.speed *= -1.;
                             // Invert the direction if the track direction reversed
-                            self.direction = !self.direction;
+                            ret.direction = !self.direction;
                         }
                         ConnectPoint::End => {
-                            self.path_id = prev_path.path_id;
-                            self.s = prev_path_ref.track.len() as f64;
+                            ret.path_id = prev_path.path_id;
+                            ret.s = prev_path_ref.track.len() as f64;
                         }
                     }
                 } else {
-                    *speed = 0.;
+                    ret.speed = 0.;
                 }
             }
 
-            if path.track.len() as f64 <= self.s && 0. < *speed {
+            if path.track.len() as f64 <= self.s && 0. < ret.speed {
                 if let Some(next_path) = tracks.nodes.get(&path.end_node.node_id).and_then(|node| {
                     // If we came from forward, we should continue on backward
                     get_clamped(
@@ -254,29 +270,59 @@ impl TrainCar {
                 }) {
                     match next_path.connect_point {
                         ConnectPoint::Start => {
-                            self.path_id = next_path.path_id;
-                            self.s = 0.;
+                            ret.path_id = next_path.path_id;
+                            ret.s = 0.;
                         }
                         ConnectPoint::End => {
-                            self.path_id = next_path.path_id;
-                            self.s = path.track.len() as f64;
-                            *speed *= -1.;
+                            ret.path_id = next_path.path_id;
+                            ret.s = path.track.len() as f64;
+                            ret.speed *= -1.;
                             // Invert the direction if the track direction reversed
-                            self.direction = !self.direction;
+                            ret.direction = !self.direction;
                         }
                     }
                 } else {
-                    *speed = 0.;
+                    ret.speed = 0.;
                 }
             }
         }
 
+        ret
+    }
+
+    // pub fn preview_pos(&self, speed: f64, tracks: &TrainTracks) -> f64 {
+    //     let path = &tracks.paths[&self.path_id];
+    //     interpolate_path(&path.track, (self.s + speed).clamp(0., path.track.len() as f64))
+    //         .unwrap_or_default()
+    // }
+
+    pub fn update_pos(&mut self, switch_path: usize, tracks: &TrainTracks) {
         // Acquire path again because it may have changed
+        *self = self.update_speed(switch_path, tracks);
         let path = &tracks.paths[&self.path_id];
-        self.s = (self.s + *speed).clamp(0., path.track.len() as f64);
+        self.s = (self.s + self.speed).clamp(0., path.track.len() as f64);
+    }
+
+    fn adjust_connected_cars(&mut self, other: &mut TrainCar) {
+        if self.path_id == other.path_id {
+            let delta = self.s - other.s;
+            let avg_speed = (self.speed + other.speed) * 0.5;
+            self.s -= (delta - CAR_LENGTH) * 0.5;
+            other.s += (delta - CAR_LENGTH) * 0.5;
+            self.speed = avg_speed;
+            other.speed = avg_speed;
+        }
     }
 }
 
 fn get_clamped(v: &[PathConnection], i: usize) -> Option<&PathConnection> {
     v.get(i.clamp(0, v.len().saturating_sub(1)))
+}
+
+fn approach(src: f64, dst: f64, delta: f64) -> f64 {
+    if src < dst {
+        (src + delta).min(dst)
+    } else {
+        (src - delta).max(dst)
+    }
 }
