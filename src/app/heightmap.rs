@@ -208,17 +208,19 @@ impl HeightMap {
                     const BRIDGE_HEIGHT: f64 = 0.1;
                     let bridge_pos = pos * 0.5;
                     let bridge = BRIDGE_HEIGHT
-                        - perlin_noise_pixel(
-                            bridge_pos.x,
-                            bridge_pos.y,
-                            params.noise_octaves,
-                            &bridge_seeds,
-                            persistence_sample,
+                        - softabs(
+                            perlin_noise_pixel(
+                                bridge_pos.x,
+                                bridge_pos.y,
+                                params.noise_octaves,
+                                &bridge_seeds,
+                                persistence_sample,
+                            ),
+                            BRIDGE_HEIGHT,
                         )
-                        .abs()
                         .min(BRIDGE_HEIGHT);
 
-                    val = softmax(val.abs(), bridge);
+                    val = softmax(softabs(val, BRIDGE_HEIGHT), bridge);
                 }
                 val as f32 * params.height_scale as f32
             })
@@ -549,7 +551,20 @@ fn render_grid(
     }
 }
 
+/// A function that converges to max(a, b) when the ratio of a and b are great,
+/// but acts as a smooth interpolation between them when they are similar.
+/// No, it doesn't help to avoid sharp edges, but it helps to blend 2 heightmaps without clear gaps.
 fn softmax(a: f64, b: f64) -> f64 {
     let denom = a + b;
     (a * a + b * b) / denom
+}
+
+/// A function that acts like abs in a great input, but wraps smoothly around 0 using quadratic function.
+/// The offset is subtracted to make C1 continuity.
+fn softabs(a: f64, rounding: f64) -> f64 {
+    if a.abs() < rounding {
+        (a * a / rounding) / 2.
+    } else {
+        a.abs() - rounding / 2.
+    }
 }
