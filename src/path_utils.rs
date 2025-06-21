@@ -1,4 +1,4 @@
-use crate::vec2::Vec2;
+use crate::{train_tracks::SEGMENT_LENGTH, vec2::Vec2};
 
 use serde::{Deserialize, Serialize};
 
@@ -83,7 +83,13 @@ pub(crate) fn interpolate_path(path: &[Vec2<f64>], s: f64) -> Option<Vec2<f64>> 
         return Some(path[0]);
     }
     if (path.len() - 1) as f64 <= s {
-        return Some(path[path.len() - 1]);
+        if let Some(last_seg) = path.last_chunk::<2>() {
+            // Extrapolate the last segment
+            let length = SEGMENT_LENGTH * (s - (path.len() - 1) as f64);
+            return Some(path[path.len() - 1] + (last_seg[1] - last_seg[0]).normalized() * length);
+        } else {
+            return Some(path[path.len() - 1]);
+        }
     }
     let i = s as usize;
     let (prev, next) = (path[i], path[i + 1]);

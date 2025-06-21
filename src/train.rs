@@ -7,7 +7,8 @@ use crate::{
     app::HeightMap,
     path_utils::{interpolate_path, interpolate_path_heading, interpolate_path_tangent},
     train_tracks::{
-        ConnectPoint, PathBundle, PathConnection, Paths, SegmentDirection, TrainTask, TrainTracks,
+        ConnectPoint, NodeConnection, PathBundle, PathConnection, Paths, SegmentDirection,
+        TrainTask, TrainTracks,
     },
     vec2::Vec2,
 };
@@ -260,7 +261,7 @@ impl TrainCar {
                 }
             }
 
-            if path.track.len() as f64 <= self.s && 0. < ret.speed {
+            if path.s_length <= ret.s && 0. < ret.speed {
                 if let Some(next_path) = tracks.nodes.get(&path.end_node.node_id).and_then(|node| {
                     // If we came from forward, we should continue on backward
                     get_clamped(
@@ -268,20 +269,28 @@ impl TrainCar {
                         switch_path,
                     )
                 }) {
+                    let next_path_len = tracks
+                        .paths
+                        .get(&next_path.path_id)
+                        .map_or(0., |path| path.s_length);
                     match next_path.connect_point {
                         ConnectPoint::Start => {
                             ret.path_id = next_path.path_id;
-                            ret.s = 0.;
+                            ret.s = (ret.s - path.s_length).clamp(0., next_path_len);
+                            println!("Transitioning end to start");
                         }
                         ConnectPoint::End => {
                             ret.path_id = next_path.path_id;
-                            ret.s = path.track.len() as f64;
+                            ret.s =
+                                (next_path_len - (ret.s - path.s_length)).clamp(0., next_path_len);
+                            println!("Transitioning end to end");
                             ret.speed *= -1.;
                             // Invert the direction if the track direction reversed
-                            ret.direction = !self.direction;
+                            ret.direction = !ret.direction;
                         }
                     }
                 } else {
+                    ret.s = path.s_length;
                     ret.speed = 0.;
                 }
             }
@@ -294,7 +303,7 @@ impl TrainCar {
         // Acquire path again because it may have changed
         *self = self.update_speed(switch_path, tracks);
         let path = &tracks.paths[&self.path_id];
-        self.s = (self.s + self.speed).clamp(0., path.track.len() as f64);
+        self.s = (self.s + self.speed).clamp(0., path.s_length);
     }
 
     fn adjust_connected_cars(&mut self, other: &mut TrainCar, tracks: &TrainTracks) {

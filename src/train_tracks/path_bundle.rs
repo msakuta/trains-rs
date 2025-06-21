@@ -17,6 +17,8 @@ pub(crate) struct PathBundle {
     pub(super) segments: Vec<PathSegment>,
     /// Interpolated points along the track in the interval SEGMENT_LENGTH
     pub track: Vec<Vec2<f64>>,
+    /// S length is the same as track.len(), but it has fractional parts.
+    pub s_length: f64,
     pub(super) track_ranges: Vec<usize>,
     /// A node id of the starting node.
     pub(crate) start_node: NodeConnection,
@@ -30,10 +32,11 @@ impl PathBundle {
         start_node: NodeConnection,
         end_node: NodeConnection,
     ) -> Self {
-        let (track, track_ranges) = compute_track_ps(&[path_segment]);
+        let (track, s_length, track_ranges) = compute_track_ps(&[path_segment]);
         PathBundle {
             segments: vec![path_segment],
             track,
+            s_length,
             track_ranges,
             start_node,
             end_node,
@@ -46,10 +49,11 @@ impl PathBundle {
         end_node: NodeConnection,
     ) -> Self {
         let path_segments = path_segments.into();
-        let (track, track_ranges) = compute_track_ps(&path_segments);
+        let (track, s_length, track_ranges) = compute_track_ps(&path_segments);
         PathBundle {
             segments: path_segments,
             track,
+            s_length,
             track_ranges,
             start_node,
             end_node,
@@ -65,20 +69,20 @@ impl PathBundle {
             println!("appending segment: {segment:?}");
             self.segments.insert(0, segment.reverse());
         }
-        (self.track, self.track_ranges) = compute_track_ps(&self.segments);
+        (self.track, self.s_length, self.track_ranges) = compute_track_ps(&self.segments);
         self.track.len() - prev_track_len
     }
 
     pub fn extend(&mut self, path_segments: &[PathSegment]) {
         self.segments.extend_from_slice(path_segments);
-        (self.track, self.track_ranges) = compute_track_ps(&self.segments);
+        (self.track, self.s_length, self.track_ranges) = compute_track_ps(&self.segments);
     }
 
     /// Modifies the path and update track nodes
     pub fn truncate(&mut self, node: usize) {
         if node < self.segments.len() {
             self.segments.truncate(node);
-            (self.track, self.track_ranges) = compute_track_ps(&self.segments);
+            (self.track, self.s_length, self.track_ranges) = compute_track_ps(&self.segments);
         }
     }
 
@@ -176,7 +180,7 @@ impl PathBundle {
                 self.end_node = add_node(last_seg.end());
             }
         }
-        (self.track, self.track_ranges) = compute_track_ps(&self.segments);
+        (self.track, self.s_length, self.track_ranges) = compute_track_ps(&self.segments);
         if !new_path.is_empty() {
             let prev_node = new_path.first().map(|seg| add_node(seg.start()));
             prev_node.map(|prev_node| Self::multi(new_path, prev_node, prev_end_node))
@@ -186,7 +190,7 @@ impl PathBundle {
     }
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub(crate) enum ConnectPoint {
     #[default]
     Start,
@@ -289,9 +293,9 @@ pub(super) fn _compute_track(control_points: &[Vec2<f64>]) -> Vec<Vec2<f64>> {
 /// Think of path segments as the control points to determine the shape of the track, and this function
 /// returns the exact shape of the track. However, it is an approximation by sampled line segments, not an analytical
 /// form.
-pub(super) fn compute_track_ps(path_segments: &[PathSegment]) -> (Vec<Vec2<f64>>, Vec<usize>) {
+pub(super) fn compute_track_ps(path_segments: &[PathSegment]) -> (Vec<Vec2<f64>>, f64, Vec<usize>) {
     if path_segments.is_empty() {
-        return (vec![], vec![]);
+        return (vec![], 0., vec![]);
     }
     let segment_lengths: Vec<_> = path_segments.iter().map(|seg| seg.length()).collect();
     let cumulative_lengths: Vec<f64> = segment_lengths.iter().fold(vec![], |mut acc, cur| {
@@ -395,5 +399,13 @@ pub(super) fn compute_track_ps(path_segments: &[PathSegment]) -> (Vec<Vec2<f64>>
     if last_idx != Some(path_nodes.len()) {
         track_ranges.push(path_nodes.len());
     }
-    (resampled_nodes, track_ranges)
+    (
+        resampled_nodes,
+        cumulative_lengths
+            .last()
+            .map(|v| v.into_inner())
+            .unwrap_or(0.)
+            / SEGMENT_LENGTH,
+        track_ranges,
+    )
 }

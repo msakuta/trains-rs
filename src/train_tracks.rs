@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 
 const MIN_RADIUS: f64 = 50.;
 const MAX_RADIUS: f64 = 10000.;
-const SEGMENT_LENGTH: f64 = 10.;
+pub(crate) const SEGMENT_LENGTH: f64 = 10.;
 pub(crate) const _C_POINTS: [Vec2<f64>; 11] = [
     Vec2::new(0., 0.),
     Vec2::new(50., 0.),
