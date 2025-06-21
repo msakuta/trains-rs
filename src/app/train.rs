@@ -1,7 +1,7 @@
 //! Train and train tracks rendering logic.
 
 use eframe::{
-    egui::{self, Color32, Painter, Pos2},
+    egui::{self, Align2, Color32, FontId, Painter, Pos2},
     epaint::PathShape,
 };
 
@@ -278,7 +278,7 @@ impl TrainsApp {
         };
         let scale_vec = |scale: f32, vec: &[f32; 2]| [vec[0] * scale, vec[1] * scale];
 
-        let paint_car = |car: &TrainCar| {
+        let paint_car = |(i, car): (usize, &TrainCar)| {
             let pos = car.pos(&self.tracks.paths)?;
             let heading = car.heading(&self.tracks.paths)?;
             let tangent = car.tangent(&self.tracks.paths)?;
@@ -288,8 +288,9 @@ impl TrainsApp {
                 |ofs: &[f32; 2]| scale_vec(self.transform.scale(), &rotate_vec(&rotation, ofs));
             let transform_vec = |ofs: &[f32; 2]| Pos2::from(transform_delta(ofs)) + base_pos;
             let convert_to_poly = |vertices: &[[f32; 2]]| {
-                PathShape::closed_line(
+                PathShape::convex_polygon(
                     vertices.into_iter().map(|ofs| transform_vec(ofs)).collect(),
+                    Color32::GRAY,
                     (1., Color32::RED),
                 )
             };
@@ -322,6 +323,16 @@ impl TrainsApp {
                 painter.arrow(base_pos.to_pos2(), direction, (2., Color32::WHITE));
             }
 
+            if 1. < self.transform.scale() {
+                painter.text(
+                    paint_transform.to_pos2(pos),
+                    Align2::CENTER_CENTER,
+                    &format!("{i}"),
+                    FontId::default(),
+                    Color32::BLUE,
+                );
+            }
+
             if self.show_debug_slope {
                 let grad = self.heightmap.gradient(&pos);
                 let tangent = tangent.normalized();
@@ -336,7 +347,7 @@ impl TrainsApp {
             Some(())
         };
 
-        for car in &self.train.cars {
+        for car in self.train.cars.iter().enumerate() {
             paint_car(car);
         }
     }
