@@ -10,6 +10,8 @@ use nom::{
     sequence::{delimited, pair, terminated},
 };
 
+use crate::app::heightmap::noise_expr::FnContext;
+
 use super::noise_expr::Expr;
 
 type Span<'a> = &'a str;
@@ -75,7 +77,7 @@ fn func_invoke(i: Span) -> IResult<Span, Expr> {
         multispace0,
     )
     .parse(r)?;
-    Ok((r, Expr::FnInvoke(ident.to_string(), args)))
+    Ok((r, Expr::FnInvoke(ident.to_string(), args, FnContext::new())))
 }
 
 fn primary_expression(i: Span) -> IResult<Span, Expr> {

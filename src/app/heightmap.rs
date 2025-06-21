@@ -16,7 +16,7 @@ use crate::{
 use super::{AREA_HEIGHT, AREA_WIDTH, TrainsApp};
 
 use self::{
-    noise_expr::{EvalContext, Value, eval},
+    noise_expr::{Value, eval, precompute},
     parser::parse,
 };
 
@@ -93,8 +93,8 @@ impl HeightMapParams {
             water_level: DEFAULT_WATER_LEVEL,
             abs_wrap: true,
             noise_expr: format!(
-                "softclamp(softabs(perlin_noise(x), {}), {})",
-                BRIDGE_HEIGHT, BRIDGE_HEIGHT
+                "softclamp(softabs(perlin_noise(x, {}, perlin_noise(x, {}, 0.5)), {}), {})",
+                DEFAULT_NOISE_OCTAVES, DEFAULT_PERSISTENCE_OCTAVES, BRIDGE_HEIGHT, BRIDGE_HEIGHT
             ),
         }
     }
@@ -191,23 +191,12 @@ impl HeightMap {
     pub(super) fn new(params: &HeightMapParams) -> Result<Self, String> {
         let mut rng = Xorshift64Star::new(params.seed);
 
-        let ast = parse(&params.noise_expr)?;
-        // Expr::FnInvoke(
-        //     "softclamp".to_string(),
-        //     Box::new(Expr::FnInvoke(
-        //         "perlin_noise".to_string(),
-        //         Box::new(Expr::Variable("x".to_string())),
-        //     )),
-        // );
+        let mut ast = parse(&params.noise_expr)?;
+        precompute(&mut ast, &mut rng)?;
 
         let persistence_seeds = gen_seeds(&mut rng, params.persistence_octaves);
         let seeds = gen_seeds(&mut rng, params.noise_octaves);
         let bridge_seeds = gen_seeds(&mut rng, params.noise_octaves);
-        let context = EvalContext {
-            octaves: params.noise_octaves,
-            seeds: bridge_seeds,
-            persistence: params.min_persistence,
-        };
         let map: Vec<_> = (0..params.width * params.height)
             .map(|i| {
                 let ix = (i % params.width) as f64;
@@ -239,7 +228,7 @@ impl HeightMap {
                 };
                 if params.abs_wrap {
                     let bridge_pos = pos * 0.5;
-                    let Value::Scalar(eval_res) = eval(&ast, &bridge_pos, &context)? else {
+                    let Value::Scalar(eval_res) = eval(&ast, &bridge_pos)? else {
                         return Err("Eval result was not a scalar".to_string());
                     };
                     let bridge = BRIDGE_HEIGHT - eval_res;
