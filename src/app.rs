@@ -27,6 +27,7 @@ const MAX_CONTOURS_GRID_STEP: usize = 100;
 const TRAIN_JSON: &str = "train.json";
 const TRAIN_KEY: &str = "train";
 const TRACKS_KEY: &str = "train_tracks";
+const HEIGHTMAP_KEY: &str = "heightmap";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ClickMode {
@@ -61,13 +62,9 @@ pub(crate) struct TrainsApp {
 
 impl TrainsApp {
     pub fn new() -> Self {
-        let heightmap_params = HeightMapParams::new();
-        let heightmap = HeightMap::new(&heightmap_params).unwrap();
         let contour_grid_step = DOWNSAMPLE;
 
-        let contours_cache = heightmap.cache_contours(contour_grid_step);
-
-        let (train, tracks) = std::fs::File::open(TRAIN_JSON)
+        let (train, tracks, heightmap_params) = std::fs::File::open(TRAIN_JSON)
             .and_then(|train_json| {
                 let mut value: serde_json::Value =
                     serde_json::from_reader(std::io::BufReader::new(train_json))
@@ -90,12 +87,33 @@ impl TrainsApp {
 
                 let tracks: TrainTracks = serde_json::from_value(tracks_value)
                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-                Ok((train, tracks))
+
+                let heightmap_value = value
+                    .get_mut(HEIGHTMAP_KEY)
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("{HEIGHTMAP_KEY}  doesn't exist"),
+                        )
+                    })?
+                    .take();
+
+                let heightmap: HeightMapParams = serde_json::from_value(heightmap_value)
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                Ok((train, tracks, heightmap))
             })
             .unwrap_or_else(|e| {
                 eprintln!("Failed to load train data, falling back to default: {e}");
-                (Train::new(), TrainTracks::new())
+                (Train::new(), TrainTracks::new(), HeightMapParams::new())
             });
+
+        // Fall back to the default params if the heightmap failed to generate with the params
+        let heightmap = HeightMap::new(&heightmap_params)
+            .or_else(|_| HeightMap::new(&HeightMapParams::new()))
+            .unwrap();
+
+        let contours_cache = heightmap.cache_contours(contour_grid_step);
+
         Self {
             transform: Transform::new(1.),
             heightmap,
@@ -590,6 +608,10 @@ impl std::ops::Drop for TrainsApp {
         map.insert(
             TRACKS_KEY.to_string(),
             serde_json::to_value(&self.tracks).unwrap(),
+        );
+        map.insert(
+            HEIGHTMAP_KEY.to_string(),
+            serde_json::to_value(&self.heightmap_params).unwrap(),
         );
         let _ = serde_json::to_writer_pretty(
             std::io::BufWriter::new(std::fs::File::create(TRAIN_JSON).unwrap()),

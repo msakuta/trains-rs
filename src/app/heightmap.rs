@@ -4,6 +4,7 @@ mod parser;
 use std::collections::HashMap;
 
 use eframe::egui::{self, Color32, ColorImage, Painter, Pos2, Ui, pos2};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     marching_squares::{
@@ -49,12 +50,13 @@ const BRIDGE_HEIGHT: f64 = 0.1;
 
 pub(super) const DOWNSAMPLE: usize = 16;
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum NoiseType {
     White,
     Perlin,
 }
 
+#[derive(Serialize, Deserialize)]
 pub(crate) struct HeightMapParams {
     pub noise_type: NoiseType,
     pub width: usize,
