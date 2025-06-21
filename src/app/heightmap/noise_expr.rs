@@ -1,5 +1,5 @@
 use crate::{
-    perlin_noise::{Xorshift64Star, gen_seeds, perlin_noise_pixel},
+    perlin_noise::{Xorshift64Star, gen_seeds, perlin_noise_pixel, white_fractal_noise},
     vec2::Vec2,
 };
 
@@ -39,13 +39,13 @@ impl FnContext {
 /// Theoretically, we could fold constants like general purpose languages.
 pub(super) fn precompute(expr: &mut Expr, rng: &mut Xorshift64Star) -> Result<(), String> {
     match expr {
-        Expr::FnInvoke(fname, args, ctx) if fname == "perlin_noise" => {
+        Expr::FnInvoke(fname, args, ctx) if fname == "perlin_noise" || fname == "fractal_noise" => {
             let Some([x, octaves]) = args.get_mut(..2) else {
-                return Err("perlin_noise requires at least 2 arguments".to_string());
+                return Err(format!("{fname} requires at least 2 arguments"));
             };
             precompute(x, rng)?;
             let Expr::Literal(octaves) = octaves else {
-                return Err("octaves for perlin_noise must be a constant".to_string());
+                return Err(format!("octaves for {fname} must be a constant"));
             };
             ctx.seeds = gen_seeds(rng, *octaves as u32);
             for arg in &mut args[2..] {
@@ -97,7 +97,7 @@ pub(super) fn eval(expr: &Expr, x: &Vec2<f64>) -> Result<Value, String> {
                         return Err("softabs only supports 2 scalar arguments".to_string());
                     }
                 }
-                "perlin_noise" => {
+                "perlin_noise" | "fractal_noise" => {
                     if let Some(
                         [
                             Value::Vec2(val),
@@ -106,13 +106,17 @@ pub(super) fn eval(expr: &Expr, x: &Vec2<f64>) -> Result<Value, String> {
                         ],
                     ) = val.get(..3)
                     {
-                        Value::Scalar(perlin_noise_pixel(
-                            val.x,
-                            val.y,
-                            *octaves as u32,
-                            &fn_ctx.seeds,
-                            *persistence,
-                        ))
+                        Value::Scalar(if name == "perlin_noise" {
+                            perlin_noise_pixel(
+                                val.x,
+                                val.y,
+                                *octaves as u32,
+                                &fn_ctx.seeds,
+                                *persistence,
+                            )
+                        } else {
+                            white_fractal_noise(val.x, val.y, &fn_ctx.seeds, *persistence)
+                        })
                     } else {
                         return Err(
                             "perlin_nosie only supports (vector, scalar, scalar) arguments"

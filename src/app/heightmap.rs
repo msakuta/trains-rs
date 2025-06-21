@@ -232,8 +232,8 @@ impl HeightMap {
                     }
                 };
                 if params.abs_wrap {
-                    let bridge_pos = pos * 0.5;
-                    let Value::Scalar(eval_res) = eval(&ast, &bridge_pos)? else {
+                    // let bridge_pos = pos * 0.5;
+                    let Value::Scalar(eval_res) = eval(&ast, &pos)? else {
                         return Err("Eval result was not a scalar".to_string());
                     };
                     // let bridge = BRIDGE_HEIGHT - eval_res;
