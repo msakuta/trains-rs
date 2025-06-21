@@ -1,3 +1,5 @@
+mod parser;
+
 use std::collections::HashMap;
 
 use eframe::egui::{self, Color32, ColorImage, Painter, Pos2, Ui, pos2};
@@ -11,6 +13,8 @@ use crate::{
 };
 
 use super::{AREA_HEIGHT, AREA_WIDTH, TrainsApp};
+
+use self::parser::parse;
 
 const MAX_PERSISTENCE_OCTAVES: u32 = 10;
 const DEFAULT_PERSISTENCE_OCTAVES: u32 = 3;
@@ -84,7 +88,7 @@ impl HeightMapParams {
             height_scale: DEFAULT_HEIGHT_SCALE,
             water_level: DEFAULT_WATER_LEVEL,
             abs_wrap: true,
-            noise_expr: "".to_string(),
+            noise_expr: "softclamp(perlin_noise(x))".to_string(),
         }
     }
 
@@ -173,7 +177,7 @@ impl HeightMapParams {
 enum Expr {
     Literal(f64),
     Variable(String),
-    FnInvoke(String, Box<Expr>),
+    FnInvoke(String, Vec<Expr>),
 }
 
 enum Value {
@@ -197,18 +201,21 @@ fn eval(expr: &Expr, x: &Vec2<f64>, context: &EvalContext) -> Result<Value, Stri
                 return Err(format!("Variable {name} was not supported yet"));
             }
         }
-        Expr::FnInvoke(name, ex) => {
-            let val = eval(ex, x, context)?;
+        Expr::FnInvoke(name, args) => {
+            let val = args
+                .iter()
+                .map(|arg| eval(arg, x, context))
+                .collect::<Result<Vec<_>, _>>()?;
             match name as &str {
                 "softclamp" => {
-                    if let Value::Scalar(val) = val {
-                        Value::Scalar(softclamp(val, BRIDGE_HEIGHT))
+                    if let Some(Value::Scalar(val)) = val.get(0) {
+                        Value::Scalar(softclamp(*val, BRIDGE_HEIGHT))
                     } else {
                         return Err("softclamp only supports scalar argument".to_string());
                     }
                 }
                 "perlin_noise" => {
-                    if let Value::Vec2(val) = val {
+                    if let Some(Value::Vec2(val)) = val.get(0) {
                         Value::Scalar(perlin_noise_pixel(
                             val.x,
                             val.y,
@@ -236,13 +243,14 @@ impl HeightMap {
     pub(super) fn new(params: &HeightMapParams) -> Result<Self, String> {
         let mut rng = Xorshift64Star::new(params.seed);
 
-        let ast = Expr::FnInvoke(
-            "softclamp".to_string(),
-            Box::new(Expr::FnInvoke(
-                "perlin_noise".to_string(),
-                Box::new(Expr::Variable("x".to_string())),
-            )),
-        );
+        let ast = parse(&params.noise_expr)?;
+        // Expr::FnInvoke(
+        //     "softclamp".to_string(),
+        //     Box::new(Expr::FnInvoke(
+        //         "perlin_noise".to_string(),
+        //         Box::new(Expr::Variable("x".to_string())),
+        //     )),
+        // );
 
         let persistence_seeds = gen_seeds(&mut rng, params.persistence_octaves);
         let seeds = gen_seeds(&mut rng, params.noise_octaves);
