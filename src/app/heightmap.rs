@@ -208,17 +208,19 @@ impl HeightMap {
                     const BRIDGE_HEIGHT: f64 = 0.1;
                     let bridge_pos = pos * 0.5;
                     let bridge = BRIDGE_HEIGHT
-                        - softabs(
-                            perlin_noise_pixel(
-                                bridge_pos.x,
-                                bridge_pos.y,
-                                params.noise_octaves,
-                                &bridge_seeds,
-                                persistence_sample,
+                        - softclamp(
+                            softabs(
+                                perlin_noise_pixel(
+                                    bridge_pos.x,
+                                    bridge_pos.y,
+                                    params.noise_octaves,
+                                    &bridge_seeds,
+                                    persistence_sample,
+                                ),
+                                BRIDGE_HEIGHT,
                             ),
                             BRIDGE_HEIGHT,
-                        )
-                        .min(BRIDGE_HEIGHT);
+                        );
 
                     val = softmax(softabs(val, BRIDGE_HEIGHT), bridge);
                 }
@@ -567,4 +569,8 @@ fn softabs(a: f64, rounding: f64) -> f64 {
     } else {
         a.abs() - rounding / 2.
     }
+}
+
+fn softclamp(x: f64, max: f64) -> f64 {
+    (x / max).tanh() * max
 }

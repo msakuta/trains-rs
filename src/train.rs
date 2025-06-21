@@ -104,7 +104,7 @@ impl Train {
             first
                 .last_mut()
                 .unwrap()
-                .adjust_connected_cars(last.first_mut().unwrap());
+                .adjust_connected_cars(last.first_mut().unwrap(), tracks);
         }
     }
 
@@ -290,12 +290,6 @@ impl TrainCar {
         ret
     }
 
-    // pub fn preview_pos(&self, speed: f64, tracks: &TrainTracks) -> f64 {
-    //     let path = &tracks.paths[&self.path_id];
-    //     interpolate_path(&path.track, (self.s + speed).clamp(0., path.track.len() as f64))
-    //         .unwrap_or_default()
-    // }
-
     pub fn update_pos(&mut self, switch_path: usize, tracks: &TrainTracks) {
         // Acquire path again because it may have changed
         *self = self.update_speed(switch_path, tracks);
@@ -303,7 +297,7 @@ impl TrainCar {
         self.s = (self.s + self.speed).clamp(0., path.track.len() as f64);
     }
 
-    fn adjust_connected_cars(&mut self, other: &mut TrainCar) {
+    fn adjust_connected_cars(&mut self, other: &mut TrainCar, tracks: &TrainTracks) {
         if self.path_id == other.path_id {
             let delta = self.s - other.s;
             let avg_speed = (self.speed + other.speed) * 0.5;
