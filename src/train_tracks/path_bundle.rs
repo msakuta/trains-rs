@@ -240,6 +240,13 @@ impl NodeConnection {
     pub fn new(node_id: usize, direction: SegmentDirection) -> Self {
         Self { node_id, direction }
     }
+
+    pub fn reversed(&self) -> Self {
+        Self {
+            node_id: self.node_id,
+            direction: !self.direction,
+        }
+    }
 }
 
 pub(super) fn _compute_track(control_points: &[Vec2<f64>]) -> Vec<Vec2<f64>> {

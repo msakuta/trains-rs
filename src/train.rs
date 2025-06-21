@@ -102,10 +102,13 @@ impl Train {
 
         for i in 0..self.cars.len() - 1 {
             let (first, last) = self.cars.split_at_mut(i + 1);
-            first
-                .last_mut()
-                .unwrap()
-                .adjust_connected_cars(last.first_mut().unwrap(), tracks);
+            let first = first.last_mut().unwrap();
+            let last = last.first_mut().unwrap();
+            if first.direction == SegmentDirection::Forward {
+                first.adjust_connected_cars(last, tracks);
+            } else {
+                last.adjust_connected_cars(first, tracks);
+            }
         }
     }
 

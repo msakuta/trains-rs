@@ -263,7 +263,7 @@ impl TrainTracks {
                 });
 
                 start_node
-                    .backward_paths
+                    .paths_in_direction_mut(!path.start_node.direction)
                     .push(PathConnection::new(new_path_id, ConnectPoint::Start));
 
                 // Set up the new end node
@@ -276,7 +276,7 @@ impl TrainTracks {
                 new_end_node
                     .paths_in_direction_mut(new_end_node_id.direction)
                     .push(PathConnection::new(new_path_id, ConnectPoint::End));
-                path_bundle.start_node = path.start_node;
+                path_bundle.start_node = path.start_node.reversed();
                 path_bundle.end_node = new_end_node_id;
 
                 // Lastly, add the new path for the new segment.
@@ -307,9 +307,9 @@ impl TrainTracks {
                     selected.direction,
                 ));
             } else {
-                // ... unless there are already connected paths in which case we can't just extend.
+                // ... unless there are already connected paths in which case we need to insert a new path.
 
-                // Allocate path ids for the new paths
+                // Allocate a path id for the new path
                 let new_path_id = self.path_id_gen;
                 self.path_id_gen += 1;
                 let new_end_node_id = end_node_sel.unwrap_or_else(|| {
@@ -322,10 +322,10 @@ impl TrainTracks {
                 });
 
                 end_node
-                    .forward_paths
+                    .paths_in_direction_mut(!path.end_node.direction)
                     .push(PathConnection::new(new_path_id, ConnectPoint::Start));
 
-                // Set up the new start node
+                // Set up the new end node
                 let new_end_node = self
                     .nodes
                     .entry(new_end_node_id.node_id)
@@ -335,7 +335,7 @@ impl TrainTracks {
                 new_end_node
                     .paths_in_direction_mut(new_end_node_id.direction)
                     .push(PathConnection::new(new_path_id, ConnectPoint::End));
-                path_bundle.start_node = path.end_node;
+                path_bundle.start_node = path.end_node.reversed();
                 path_bundle.end_node = new_end_node_id;
 
                 // Lastly, add the new path for the new segment.
@@ -729,7 +729,7 @@ pub(crate) type SelectedNode = NodeConnection;
 /// 0th and nth pathnodes are at the ends, where n is the number of segments.
 ///
 /// This type is used to store the position and the direction of a segment to add.
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) struct SelectedPathNode {
     /// The path id, an index into HashMap
     pub path_id: usize,
