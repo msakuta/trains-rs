@@ -57,6 +57,10 @@ pub(super) fn precompute(expr: &mut Expr, rng: &mut Xorshift64Star) -> Result<()
                 precompute(arg, rng)?;
             }
         }
+        Expr::Add(lhs, rhs) | Expr::Sub(lhs, rhs) | Expr::Mul(lhs, rhs) | Expr::Div(lhs, rhs) => {
+            precompute(lhs, rng)?;
+            precompute(rhs, rng)?;
+        }
         _ => {}
     }
     Ok(())

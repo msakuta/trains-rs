@@ -93,8 +93,12 @@ impl HeightMapParams {
             water_level: DEFAULT_WATER_LEVEL,
             abs_wrap: true,
             noise_expr: format!(
-                "softclamp(softabs(perlin_noise(x * 0.5, {}, perlin_noise(x, {}, 0.5)), {}), {})",
-                DEFAULT_NOISE_OCTAVES, DEFAULT_PERSISTENCE_OCTAVES, BRIDGE_HEIGHT, BRIDGE_HEIGHT
+                "{} - softclamp(softabs(perlin_noise(x * 0.5, {}, perlin_noise(x, {}, 0.5)), {}), {})",
+                BRIDGE_HEIGHT,
+                DEFAULT_NOISE_OCTAVES,
+                DEFAULT_PERSISTENCE_OCTAVES,
+                BRIDGE_HEIGHT,
+                BRIDGE_HEIGHT
             ),
         }
     }
@@ -196,7 +200,6 @@ impl HeightMap {
 
         let persistence_seeds = gen_seeds(&mut rng, params.persistence_octaves);
         let seeds = gen_seeds(&mut rng, params.noise_octaves);
-        let bridge_seeds = gen_seeds(&mut rng, params.noise_octaves);
         let map: Vec<_> = (0..params.width * params.height)
             .map(|i| {
                 let ix = (i % params.width) as f64;
@@ -231,7 +234,7 @@ impl HeightMap {
                     let Value::Scalar(eval_res) = eval(&ast, &bridge_pos)? else {
                         return Err("Eval result was not a scalar".to_string());
                     };
-                    let bridge = BRIDGE_HEIGHT - eval_res;
+                    // let bridge = BRIDGE_HEIGHT - eval_res;
                     // softclamp(
                     //     softabs(
                     //         perlin_noise_pixel(
@@ -246,7 +249,7 @@ impl HeightMap {
                     //     BRIDGE_HEIGHT,
                     // );
 
-                    val = softmax(softabs(val, BRIDGE_HEIGHT), bridge);
+                    val = softmax(softabs(val, BRIDGE_HEIGHT), eval_res);
                 }
                 Ok(val as f32 * params.height_scale as f32)
             })
