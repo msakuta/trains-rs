@@ -93,7 +93,7 @@ impl HeightMapParams {
             water_level: DEFAULT_WATER_LEVEL,
             abs_wrap: true,
             noise_expr: format!(
-                "softclamp(softabs(perlin_noise(x, {}, perlin_noise(x, {}, 0.5)), {}), {})",
+                "softclamp(softabs(perlin_noise(x * 0.5, {}, perlin_noise(x, {}, 0.5)), {}), {})",
                 DEFAULT_NOISE_OCTAVES, DEFAULT_PERSISTENCE_OCTAVES, BRIDGE_HEIGHT, BRIDGE_HEIGHT
             ),
         }

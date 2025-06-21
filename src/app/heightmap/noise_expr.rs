@@ -5,10 +5,15 @@ use crate::{
 
 use super::softclamp;
 
+#[derive(Clone)]
 pub(super) enum Expr {
     Literal(f64),
     Variable(String),
     FnInvoke(String, Vec<Expr>, FnContext),
+    Add(Box<Expr>, Box<Expr>),
+    Sub(Box<Expr>, Box<Expr>),
+    Mul(Box<Expr>, Box<Expr>),
+    Div(Box<Expr>, Box<Expr>),
 }
 
 pub(super) enum Value {
@@ -16,6 +21,7 @@ pub(super) enum Value {
     Vec2(Vec2<f64>),
 }
 
+#[derive(Clone)]
 pub(super) struct FnContext {
     seeds: Vec<u64>,
 }
@@ -57,6 +63,7 @@ pub(super) fn precompute(expr: &mut Expr, rng: &mut Xorshift64Star) -> Result<()
 }
 
 pub(super) fn eval(expr: &Expr, x: &Vec2<f64>) -> Result<Value, String> {
+    use Value::{Scalar, Vec2 as Vector};
     Ok(match expr {
         Expr::Literal(val) => Value::Scalar(*val),
         Expr::Variable(name) => {
@@ -112,5 +119,45 @@ pub(super) fn eval(expr: &Expr, x: &Vec2<f64>) -> Result<Value, String> {
                 _ => return Err(format!("Function {name} is not defined")),
             }
         }
+        Expr::Add(lhs, rhs) => bin_op(
+            eval(lhs, x)?,
+            eval(rhs, x)?,
+            |lhs, rhs| lhs + rhs,
+            |lhs, rhs| lhs + rhs,
+        ),
+        Expr::Sub(lhs, rhs) => bin_op(
+            eval(lhs, x)?,
+            eval(rhs, x)?,
+            |lhs, rhs| lhs - rhs,
+            |lhs, rhs| lhs - rhs,
+        ),
+        Expr::Mul(lhs, rhs) => match (eval(lhs, x)?, eval(rhs, x)?) {
+            (Scalar(lhs), Scalar(rhs)) => Scalar(lhs + rhs),
+            (Scalar(lhs), Vector(rhs)) => Vector(rhs * lhs),
+            (Vector(lhs), Scalar(rhs)) => Vector(lhs * rhs),
+            (Vector(_), Vector(_)) => {
+                return Err("Multiplying vectors are not supported".to_string());
+            }
+        },
+        Expr::Div(lhs, rhs) => match (eval(lhs, x)?, eval(rhs, x)?) {
+            (Scalar(lhs), Scalar(rhs)) => Scalar(lhs / rhs),
+            (Vector(lhs), Scalar(rhs)) => Vector(lhs / rhs),
+            (_, Vector(_)) => return Err("Division by a vector is not supported".to_string()),
+        },
     })
+}
+
+fn bin_op(
+    lhs: Value,
+    rhs: Value,
+    scalar_op: impl Fn(f64, f64) -> f64,
+    vector_op: impl Fn(Vec2<f64>, Vec2<f64>) -> Vec2<f64>,
+) -> Value {
+    use Value::{Scalar, Vec2 as Vector};
+    match (lhs, rhs) {
+        (Scalar(lhs), Scalar(rhs)) => Scalar(scalar_op(lhs, rhs)),
+        (Scalar(lhs), Vector(rhs)) => Vector(vector_op(Vec2::splat(lhs), rhs)),
+        (Vector(lhs), Scalar(rhs)) => Vector(vector_op(lhs, Vec2::splat(rhs))),
+        (Vector(lhs), Vector(rhs)) => Vector(vector_op(lhs, rhs)),
+    }
 }
