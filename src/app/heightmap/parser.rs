@@ -10,7 +10,7 @@ use nom::{
     sequence::{delimited, pair, terminated},
 };
 
-use super::Expr;
+use super::noise_expr::Expr;
 
 type Span<'a> = &'a str;
 

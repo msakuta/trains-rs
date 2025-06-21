@@ -1,3 +1,4 @@
+mod noise_expr;
 mod parser;
 
 use std::collections::HashMap;
@@ -14,7 +15,10 @@ use crate::{
 
 use super::{AREA_HEIGHT, AREA_WIDTH, TrainsApp};
 
-use self::parser::parse;
+use self::{
+    noise_expr::{EvalContext, Value, eval},
+    parser::parse,
+};
 
 const MAX_PERSISTENCE_OCTAVES: u32 = 10;
 const DEFAULT_PERSISTENCE_OCTAVES: u32 = 3;
@@ -88,7 +92,7 @@ impl HeightMapParams {
             height_scale: DEFAULT_HEIGHT_SCALE,
             water_level: DEFAULT_WATER_LEVEL,
             abs_wrap: true,
-            noise_expr: "softclamp(perlin_noise(x))".to_string(),
+            noise_expr: format!("softclamp(perlin_noise(x), {})", BRIDGE_HEIGHT),
         }
     }
 
@@ -172,65 +176,6 @@ impl HeightMapParams {
             ui.text_edit_singleline(&mut self.noise_expr);
         });
     }
-}
-
-enum Expr {
-    Literal(f64),
-    Variable(String),
-    FnInvoke(String, Vec<Expr>),
-}
-
-enum Value {
-    Scalar(f64),
-    Vec2(Vec2<f64>),
-}
-
-struct EvalContext {
-    octaves: u32,
-    seeds: Vec<u64>,
-    persistence: f64,
-}
-
-fn eval(expr: &Expr, x: &Vec2<f64>, context: &EvalContext) -> Result<Value, String> {
-    Ok(match expr {
-        Expr::Literal(val) => Value::Scalar(*val),
-        Expr::Variable(name) => {
-            if name == "x" {
-                Value::Vec2(*x)
-            } else {
-                return Err(format!("Variable {name} was not supported yet"));
-            }
-        }
-        Expr::FnInvoke(name, args) => {
-            let val = args
-                .iter()
-                .map(|arg| eval(arg, x, context))
-                .collect::<Result<Vec<_>, _>>()?;
-            match name as &str {
-                "softclamp" => {
-                    if let Some(Value::Scalar(val)) = val.get(0) {
-                        Value::Scalar(softclamp(*val, BRIDGE_HEIGHT))
-                    } else {
-                        return Err("softclamp only supports scalar argument".to_string());
-                    }
-                }
-                "perlin_noise" => {
-                    if let Some(Value::Vec2(val)) = val.get(0) {
-                        Value::Scalar(perlin_noise_pixel(
-                            val.x,
-                            val.y,
-                            context.octaves,
-                            &context.seeds,
-                            context.persistence,
-                        ))
-                    } else {
-                        return Err("perlin_nosie only supports vector argument".to_string());
-                    }
-                }
-                _ => return Err(format!("Function {name} is not defined")),
-            }
-        }
-    })
 }
 
 pub(crate) struct HeightMap {
