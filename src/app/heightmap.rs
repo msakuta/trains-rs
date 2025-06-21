@@ -37,6 +37,8 @@ const MAX_HEIGHT_SCALE: f64 = 50.;
 
 const DEFAULT_WATER_LEVEL: f32 = 0.05;
 
+const BRIDGE_HEIGHT: f64 = 0.1;
+
 pub(super) const DOWNSAMPLE: usize = 16;
 
 #[derive(PartialEq, Eq)]
@@ -60,6 +62,7 @@ pub(crate) struct HeightMapParams {
     pub height_scale: f64,
     pub water_level: f32,
     pub abs_wrap: bool,
+    pub noise_expr: String,
 }
 
 impl HeightMapParams {
@@ -81,6 +84,7 @@ impl HeightMapParams {
             height_scale: DEFAULT_HEIGHT_SCALE,
             water_level: DEFAULT_WATER_LEVEL,
             abs_wrap: true,
+            noise_expr: "".to_string(),
         }
     }
 
@@ -159,7 +163,67 @@ impl HeightMapParams {
             ui.add(egui::Slider::new(&mut self.water_level, (0.)..=1.));
         });
         ui.checkbox(&mut self.abs_wrap, "Absolute wrap");
+        ui.horizontal(|ui| {
+            ui.label("Noise expression:");
+            ui.text_edit_singleline(&mut self.noise_expr);
+        });
     }
+}
+
+enum Expr {
+    Literal(f64),
+    Variable(String),
+    FnInvoke(String, Box<Expr>),
+}
+
+enum Value {
+    Scalar(f64),
+    Vec2(Vec2<f64>),
+}
+
+struct EvalContext {
+    octaves: u32,
+    seeds: Vec<u64>,
+    persistence: f64,
+}
+
+fn eval(expr: &Expr, x: &Vec2<f64>, context: &EvalContext) -> Result<Value, String> {
+    Ok(match expr {
+        Expr::Literal(val) => Value::Scalar(*val),
+        Expr::Variable(name) => {
+            if name == "x" {
+                Value::Vec2(*x)
+            } else {
+                return Err(format!("Variable {name} was not supported yet"));
+            }
+        }
+        Expr::FnInvoke(name, ex) => {
+            let val = eval(ex, x, context)?;
+            match name as &str {
+                "softclamp" => {
+                    if let Value::Scalar(val) = val {
+                        Value::Scalar(softclamp(val, BRIDGE_HEIGHT))
+                    } else {
+                        return Err("softclamp only supports scalar argument".to_string());
+                    }
+                }
+                "perlin_noise" => {
+                    if let Value::Vec2(val) = val {
+                        Value::Scalar(perlin_noise_pixel(
+                            val.x,
+                            val.y,
+                            context.octaves,
+                            &context.seeds,
+                            context.persistence,
+                        ))
+                    } else {
+                        return Err("perlin_nosie only supports vector argument".to_string());
+                    }
+                }
+                _ => return Err(format!("Function {name} is not defined")),
+            }
+        }
+    })
 }
 
 pub(crate) struct HeightMap {
@@ -172,9 +236,22 @@ impl HeightMap {
     pub(super) fn new(params: &HeightMapParams) -> Result<Self, String> {
         let mut rng = Xorshift64Star::new(params.seed);
 
+        let ast = Expr::FnInvoke(
+            "softclamp".to_string(),
+            Box::new(Expr::FnInvoke(
+                "perlin_noise".to_string(),
+                Box::new(Expr::Variable("x".to_string())),
+            )),
+        );
+
         let persistence_seeds = gen_seeds(&mut rng, params.persistence_octaves);
         let seeds = gen_seeds(&mut rng, params.noise_octaves);
         let bridge_seeds = gen_seeds(&mut rng, params.noise_octaves);
+        let context = EvalContext {
+            octaves: params.noise_octaves,
+            seeds: bridge_seeds,
+            persistence: params.min_persistence,
+        };
         let map: Vec<_> = (0..params.width * params.height)
             .map(|i| {
                 let ix = (i % params.width) as f64;
@@ -205,28 +282,30 @@ impl HeightMap {
                     }
                 };
                 if params.abs_wrap {
-                    const BRIDGE_HEIGHT: f64 = 0.1;
                     let bridge_pos = pos * 0.5;
-                    let bridge = BRIDGE_HEIGHT
-                        - softclamp(
-                            softabs(
-                                perlin_noise_pixel(
-                                    bridge_pos.x,
-                                    bridge_pos.y,
-                                    params.noise_octaves,
-                                    &bridge_seeds,
-                                    persistence_sample,
-                                ),
-                                BRIDGE_HEIGHT,
-                            ),
-                            BRIDGE_HEIGHT,
-                        );
+                    let Value::Scalar(eval_res) = eval(&ast, &bridge_pos, &context)? else {
+                        return Err("Eval result was not a scalar".to_string());
+                    };
+                    let bridge = BRIDGE_HEIGHT - eval_res;
+                    // softclamp(
+                    //     softabs(
+                    //         perlin_noise_pixel(
+                    //             bridge_pos.x,
+                    //             bridge_pos.y,
+                    //             params.noise_octaves,
+                    //             &bridge_seeds,
+                    //             persistence_sample,
+                    //         ),
+                    //         BRIDGE_HEIGHT,
+                    //     ),
+                    //     BRIDGE_HEIGHT,
+                    // );
 
                     val = softmax(softabs(val, BRIDGE_HEIGHT), bridge);
                 }
-                val as f32 * params.height_scale as f32
+                Ok(val as f32 * params.height_scale as f32)
             })
-            .collect();
+            .collect::<Result<_, _>>()?;
 
         let min_p = map
             .iter()
