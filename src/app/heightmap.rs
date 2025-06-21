@@ -92,7 +92,10 @@ impl HeightMapParams {
             height_scale: DEFAULT_HEIGHT_SCALE,
             water_level: DEFAULT_WATER_LEVEL,
             abs_wrap: true,
-            noise_expr: format!("softclamp(perlin_noise(x), {})", BRIDGE_HEIGHT),
+            noise_expr: format!(
+                "softclamp(softabs(perlin_noise(x), {}), {})",
+                BRIDGE_HEIGHT, BRIDGE_HEIGHT
+            ),
         }
     }
 
@@ -173,7 +176,7 @@ impl HeightMapParams {
         ui.checkbox(&mut self.abs_wrap, "Absolute wrap");
         ui.horizontal(|ui| {
             ui.label("Noise expression:");
-            ui.text_edit_singleline(&mut self.noise_expr);
+            ui.text_edit_multiline(&mut self.noise_expr);
         });
     }
 }

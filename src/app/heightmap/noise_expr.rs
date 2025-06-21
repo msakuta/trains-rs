@@ -42,6 +42,13 @@ pub(super) fn eval(expr: &Expr, x: &Vec2<f64>, context: &EvalContext) -> Result<
                         return Err("softclamp only supports 2 scalar arguments".to_string());
                     }
                 }
+                "softabs" => {
+                    if let Some([Value::Scalar(val), Value::Scalar(rounding)]) = val.get(..2) {
+                        Value::Scalar(softclamp(*val, *rounding))
+                    } else {
+                        return Err("softabs only supports 2 scalar arguments".to_string());
+                    }
+                }
                 "perlin_noise" => {
                     if let Some(Value::Vec2(val)) = val.get(0) {
                         Value::Scalar(perlin_noise_pixel(
