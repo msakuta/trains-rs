@@ -6,6 +6,7 @@ use eframe::{
 };
 
 use crate::{
+    train::TrainCar,
     train_tracks::{PathBundle, SegmentDirection},
     transform::PaintTransform,
     vec2::Vec2,
@@ -277,8 +278,11 @@ impl TrainsApp {
         };
         let scale_vec = |scale: f32, vec: &[f32; 2]| [vec[0] * scale, vec[1] * scale];
 
-        let paint_car = |pos: &Vec2<f64>, heading: f64, tangent: &Vec2<f64>| {
-            let base_pos = paint_transform.to_pos2(*pos).to_vec2();
+        let paint_car = |car: &TrainCar| {
+            let pos = car.pos(&self.tracks.paths)?;
+            let heading = car.heading(&self.tracks.paths)?;
+            let tangent = car.tangent(&self.tracks.paths)?;
+            let base_pos = paint_transform.to_pos2(pos).to_vec2();
             let rotation = rotation_matrix(heading as f32);
             let transform_delta =
                 |ofs: &[f32; 2]| scale_vec(self.transform.scale(), &rotate_vec(&rotation, ofs));
@@ -311,7 +315,7 @@ impl TrainsApp {
 
             // When the user zooms in enough, draw the direction arrow.
             if 2. < self.transform.scale() {
-                let direction = match self.train.direction() {
+                let direction = match car.direction {
                     SegmentDirection::Forward => egui::Vec2::from(transform_delta(&[3., 0.])),
                     SegmentDirection::Backward => egui::Vec2::from(transform_delta(&[-3., 0.])),
                 };
@@ -319,25 +323,21 @@ impl TrainsApp {
             }
 
             if self.show_debug_slope {
-                let grad = self.heightmap.gradient(pos);
+                let grad = self.heightmap.gradient(&pos);
                 let tangent = tangent.normalized();
                 let accel = -grad.dot(tangent);
-                let start = paint_transform.to_pos2(*pos);
-                let end = paint_transform.to_pos2(*pos - grad * 100.);
-                let tangent_end = paint_transform.to_pos2(*pos + tangent * accel * 100.);
+                let start = paint_transform.to_pos2(pos);
+                let end = paint_transform.to_pos2(pos - grad * 100.);
+                let tangent_end = paint_transform.to_pos2(pos + tangent * accel * 100.);
                 painter.line_segment([start, end], (2., Color32::RED));
                 painter.line_segment([start, tangent_end], (2., Color32::BLUE));
             }
+
+            Some(())
         };
 
-        for (i, car) in self.train.cars.iter().enumerate() {
-            if let Some(((train_pos, train_heading), tangent)) = car
-                .pos(&self.tracks.paths)
-                .zip(self.train.heading(i, &self.tracks.paths))
-                .zip(self.train.tangent(i, &self.tracks.paths))
-            {
-                paint_car(&train_pos, train_heading, &tangent);
-            }
+        for car in &self.train.cars {
+            paint_car(car);
         }
     }
 }
