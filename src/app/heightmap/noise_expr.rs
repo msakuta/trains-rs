@@ -214,6 +214,27 @@ fn eval(expr: &Expr, x: &Vec2<f64>, variables: &HashMap<String, Value>) -> Resul
 
 fn eval_fn(name: &str, args: &[Value], fn_ctx: Option<&FnContext>) -> Result<Value, String> {
     Ok(match name as &str {
+        "vec2" => {
+            if let Some([Value::Scalar(x), Value::Scalar(y)]) = args.get(..2) {
+                Value::Vec2(Vec2::new(*x, *y))
+            } else {
+                return Err("vec2 only supports 2 scalar arguments".to_string());
+            }
+        }
+        "x" => {
+            if let Some(Value::Vec2(vec)) = args.get(0) {
+                Value::Scalar(vec.x)
+            } else {
+                return Err("x only supports 1 vector argument".to_string());
+            }
+        }
+        "y" => {
+            if let Some(Value::Vec2(vec)) = args.get(0) {
+                Value::Scalar(vec.y)
+            } else {
+                return Err("y only supports 1 vector argument".to_string());
+            }
+        }
         "softclamp" => {
             if let Some([Value::Scalar(val), Value::Scalar(max)]) = args.get(..2) {
                 Value::Scalar(softclamp(*val, *max))
