@@ -17,22 +17,11 @@ use crate::{
 use super::{AREA_HEIGHT, AREA_WIDTH, TrainsApp};
 
 use self::{
-    noise_expr::{Value, eval, precompute},
+    noise_expr::{Value, precompute, run},
     parser::parse,
 };
 
-const MAX_PERSISTENCE_OCTAVES: u32 = 10;
 const DEFAULT_PERSISTENCE_OCTAVES: u32 = 3;
-
-const MAX_PERSISTENCE_SCALE: f64 = 2.;
-/// Meaning the default value for the minimum of persistence value.
-const DEFAULT_MIN_PERSISTENCE: f64 = 0.1;
-const DEFAULT_PERSISTENCE_SCALE: f64 = 1.;
-const MAX_MIN_PERSISTENCE: f64 = 1.;
-
-const MAX_PERSISTENCE_NOISE_SCALE: f64 = 0.5;
-const MIN_PERSISTENCE_NOISE_SCALE: f64 = 0.01;
-const DEFAULT_PERSISTENCE_NOISE_SCALE: f64 = 0.01;
 
 const MAX_NOISE_OCTAVES: u32 = 10;
 const DEFAULT_NOISE_OCTAVES: u32 = 4;
@@ -63,10 +52,6 @@ pub(crate) struct HeightMapParams {
     pub height: usize,
     pub seed: u64,
     seed_buf: String,
-    pub persistence_octaves: u32,
-    pub persistence_noise_scale: f64,
-    pub persistence_scale: f64,
-    pub min_persistence: f64,
     pub noise_octaves: u32,
     pub noise_scale: f64,
     pub height_scale: f64,
@@ -85,26 +70,30 @@ impl HeightMapParams {
             height: AREA_HEIGHT,
             seed,
             seed_buf,
-            persistence_octaves: DEFAULT_PERSISTENCE_OCTAVES,
-            persistence_noise_scale: DEFAULT_PERSISTENCE_NOISE_SCALE,
-            persistence_scale: DEFAULT_PERSISTENCE_SCALE,
-            min_persistence: DEFAULT_MIN_PERSISTENCE,
             noise_octaves: DEFAULT_NOISE_OCTAVES,
             noise_scale: DEFAULT_NOISE_SCALE,
             height_scale: DEFAULT_HEIGHT_SCALE,
             water_level: DEFAULT_WATER_LEVEL,
             abs_wrap: true,
             noise_expr: format!(
-                "softmax(
+                "octaves = {};
+abs_rounding = 0.1;
+pers = perlin_noise(x, {}, 0.5);
+
+softmax(
   softabs(
-    perlin_noise(x, 4, perlin_noise(x, 3, 0.5)),
-    0.1),
-    {} - softclamp(softabs(perlin_noise(x * 0.5, {}, perlin_noise(x, {}, 0.5)), {}), {}))",
-                BRIDGE_HEIGHT,
-                DEFAULT_NOISE_OCTAVES,
-                DEFAULT_PERSISTENCE_OCTAVES,
-                BRIDGE_HEIGHT,
-                BRIDGE_HEIGHT
+    perlin_noise(x, octaves, pers),
+    abs_rounding
+  ),
+  {} - softclamp(
+    softabs(
+      perlin_noise(x * 0.5, octaves, pers),
+      abs_rounding
+    ),
+    abs_rounding
+  )
+)",
+                DEFAULT_NOISE_OCTAVES, DEFAULT_PERSISTENCE_OCTAVES, BRIDGE_HEIGHT
             ),
         }
     }
@@ -129,34 +118,6 @@ impl HeightMapParams {
                     self.seed = val;
                 }
             }
-        });
-        ui.horizontal(|ui| {
-            ui.label("Persistence noise octaves:");
-            ui.add(egui::Slider::new(
-                &mut self.persistence_octaves,
-                1..=MAX_PERSISTENCE_OCTAVES,
-            ));
-        });
-        ui.horizontal(|ui| {
-            ui.label("Persistence noise scale:");
-            ui.add(egui::Slider::new(
-                &mut self.persistence_noise_scale,
-                MIN_PERSISTENCE_NOISE_SCALE..=MAX_PERSISTENCE_NOISE_SCALE,
-            ));
-        });
-        ui.horizontal(|ui| {
-            ui.label("Persistence scale:");
-            ui.add(egui::Slider::new(
-                &mut self.persistence_scale,
-                (0.)..=MAX_PERSISTENCE_SCALE,
-            ));
-        });
-        ui.horizontal(|ui| {
-            ui.label("Min persistence:");
-            ui.add(egui::Slider::new(
-                &mut self.min_persistence,
-                (0.)..=MAX_MIN_PERSISTENCE,
-            ));
         });
         ui.horizontal(|ui| {
             ui.label("Noise octaves:");
@@ -184,10 +145,8 @@ impl HeightMapParams {
             ui.add(egui::Slider::new(&mut self.water_level, (0.)..=1.));
         });
         ui.checkbox(&mut self.abs_wrap, "Absolute wrap");
-        ui.horizontal(|ui| {
-            ui.label("Noise expression:");
-            ui.text_edit_multiline(&mut self.noise_expr);
-        });
+        ui.label("Noise expression:");
+        ui.text_edit_multiline(&mut self.noise_expr);
     }
 }
 
@@ -209,7 +168,7 @@ impl HeightMap {
                 let ix = (i % params.width) as f64;
                 let iy = (i / params.width) as f64;
                 let pos = crate::vec2::Vec2::new(ix as f64, iy as f64) * params.noise_scale;
-                let Value::Scalar(eval_res) = eval(&ast, &pos)? else {
+                let Value::Scalar(eval_res) = run(&ast, &pos)? else {
                     return Err("Eval result was not a scalar".to_string());
                 };
                 let val = eval_res;

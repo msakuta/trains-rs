@@ -5,14 +5,14 @@ use nom::{
     character::complete::{alpha1, alphanumeric1, char, multispace0},
     combinator::{opt, recognize},
     error::ParseError,
-    multi::{fold_many0, many0, separated_list0},
+    multi::{fold_many0, fold_many1, many0, separated_list0},
     number::complete::float,
     sequence::{delimited, pair, terminated},
 };
 
 use crate::app::heightmap::noise_expr::FnContext;
 
-use super::noise_expr::Expr;
+use super::noise_expr::{Ast, Expr, Stmt};
 
 type Span<'a> = &'a str;
 
@@ -63,18 +63,24 @@ fn parens(i: Span) -> IResult<Span, Expr> {
 
 fn func_invoke(i: Span) -> IResult<Span, Expr> {
     let (r, ident) = ws(identifier).parse(i)?;
-    // println!("func_invoke ident: {}", ident);
-    let (r, args) = delimited(
-        multispace0,
-        delimited(
-            char('('),
-            terminated(separated_list0(ws(char(',')), expr), opt(ws(char(',')))),
-            char(')'),
-        ),
-        multispace0,
-    )
-    .parse(r)?;
-    Ok((r, Expr::FnInvoke(ident.to_string(), args, FnContext::new())))
+    func_args(ident)(r)
+}
+
+fn func_args<'a>(name: Span<'a>) -> impl Fn(Span<'a>) -> IResult<Span<'a>, Expr> {
+    |i| {
+        // println!("func_invoke ident: {}", ident);
+        let (r, args) = delimited(
+            multispace0,
+            delimited(
+                char('('),
+                terminated(separated_list0(ws(char(',')), expr), opt(ws(char(',')))),
+                char(')'),
+            ),
+            multispace0,
+        )
+        .parse(i)?;
+        Ok((r, Expr::FnInvoke(name.to_string(), args, FnContext::new())))
+    }
 }
 
 fn primary_expression(i: Span) -> IResult<Span, Expr> {
@@ -103,7 +109,10 @@ fn term(i: Span) -> IResult<Span, Expr> {
 
 fn expr(i: Span) -> IResult<Span, Expr> {
     let (r, init) = term(i)?;
+    expr_rest(r, init)
+}
 
+fn expr_rest(i: Span, init: Expr) -> IResult<Span, Expr> {
     fold_many0(
         pair(alt((char('+'), char('-'))), term),
         move || init.clone(),
@@ -115,9 +124,58 @@ fn expr(i: Span) -> IResult<Span, Expr> {
             }
         },
     )
+    .parse(i)
+}
+
+/// Parses an assignment statement, e.g. "a = 1;". Note that the semicolon is required.
+fn assign_stmt<'a>(name: Span<'a>) -> impl Fn(Span<'a>) -> IResult<Span<'a>, Stmt> {
+    move |i| {
+        let (r, _) = ws(tag("=")).parse(i)?;
+        let (r, init) = expr(r)?;
+        let (r, _) = ws(tag(";")).parse(r)?;
+        Ok((r, Stmt::VarDef(name.to_string(), init)))
+    }
+}
+
+fn stmt(i: Span) -> IResult<Span, Stmt> {
+    let (r, name) = ident_space(i)?;
+
+    // We use partial application (curried functions) of parsers to avoid backtracking duplicate parsing
+    // for ambiguous syntax. e.g. "a = 1;" and "a(1)" are a statement and a function call expression, respectively,
+    // but it is not decided yet at the point just after the identifier "a" is parsed.
+    alt((
+        assign_stmt(name),
+        expr_to_stmt(func_args(name)),
+        expr_to_stmt(|i| expr_rest(i, Expr::Variable(name.to_string()))),
+        expr_to_stmt(expr),
+    ))
     .parse(r)
 }
 
-pub(crate) fn parse(i: Span) -> Result<Expr, String> {
-    Ok(expr(i).finish().map_err(|e| e.to_string())?.1)
+/// A combinator that takes a parser `inner` and produces a parser that produces an expression statement instead.
+fn expr_to_stmt<'a, F: 'a, E: ParseError<Span<'a>>>(
+    mut inner: F,
+) -> impl Parser<&'a str, Output = Stmt, Error = E>
+where
+    F: Parser<Span<'a>, Output = Expr, Error = E>,
+{
+    move |i| {
+        let (r, ex) = inner.parse(i)?;
+        Ok((r, Stmt::Expr(ex)))
+    }
+}
+
+pub(crate) fn parse(i: Span) -> Result<Ast, String> {
+    Ok(fold_many1(
+        stmt,
+        || vec![],
+        |mut acc, cur| {
+            acc.push(cur);
+            acc
+        },
+    )
+    .parse(i)
+    .finish()
+    .map_err(|e| e.to_string())?
+    .1)
 }
