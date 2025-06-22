@@ -10,7 +10,7 @@ use crate::{
     marching_squares::{
         Idx, Shape, border_pixel, cell_border_interpolated, pick_bits, pick_values,
     },
-    perlin_noise::{Xorshift64Star, gen_seeds, perlin_noise_pixel, white_fractal_noise},
+    perlin_noise::Xorshift64Star,
     vec2::Vec2,
 };
 
@@ -95,7 +95,11 @@ impl HeightMapParams {
             water_level: DEFAULT_WATER_LEVEL,
             abs_wrap: true,
             noise_expr: format!(
-                "{} - softclamp(softabs(perlin_noise(x * 0.5, {}, perlin_noise(x, {}, 0.5)), {}), {})",
+                "softmax(
+  softabs(
+    perlin_noise(x, 4, perlin_noise(x, 3, 0.5)),
+    0.1),
+    {} - softclamp(softabs(perlin_noise(x * 0.5, {}, perlin_noise(x, {}, 0.5)), {}), {}))",
                 BRIDGE_HEIGHT,
                 DEFAULT_NOISE_OCTAVES,
                 DEFAULT_PERSISTENCE_OCTAVES,
@@ -200,59 +204,15 @@ impl HeightMap {
         let mut ast = parse(&params.noise_expr)?;
         precompute(&mut ast, &mut rng)?;
 
-        let persistence_seeds = gen_seeds(&mut rng, params.persistence_octaves);
-        let seeds = gen_seeds(&mut rng, params.noise_octaves);
         let map: Vec<_> = (0..params.width * params.height)
             .map(|i| {
                 let ix = (i % params.width) as f64;
                 let iy = (i / params.width) as f64;
-                let p_pos =
-                    crate::vec2::Vec2::new(ix as f64, iy as f64) * params.persistence_noise_scale;
-                let persistence_sample = perlin_noise_pixel(
-                    p_pos.x,
-                    p_pos.y,
-                    params.persistence_octaves,
-                    &persistence_seeds,
-                    0.5,
-                )
-                .abs()
-                    * params.persistence_scale
-                    + params.min_persistence;
                 let pos = crate::vec2::Vec2::new(ix as f64, iy as f64) * params.noise_scale;
-                let mut val = match params.noise_type {
-                    NoiseType::Perlin => perlin_noise_pixel(
-                        pos.x,
-                        pos.y,
-                        params.noise_octaves,
-                        &seeds,
-                        persistence_sample,
-                    ),
-                    NoiseType::White => {
-                        white_fractal_noise(pos.x, pos.y, &seeds, persistence_sample)
-                    }
+                let Value::Scalar(eval_res) = eval(&ast, &pos)? else {
+                    return Err("Eval result was not a scalar".to_string());
                 };
-                if params.abs_wrap {
-                    // let bridge_pos = pos * 0.5;
-                    let Value::Scalar(eval_res) = eval(&ast, &pos)? else {
-                        return Err("Eval result was not a scalar".to_string());
-                    };
-                    // let bridge = BRIDGE_HEIGHT - eval_res;
-                    // softclamp(
-                    //     softabs(
-                    //         perlin_noise_pixel(
-                    //             bridge_pos.x,
-                    //             bridge_pos.y,
-                    //             params.noise_octaves,
-                    //             &bridge_seeds,
-                    //             persistence_sample,
-                    //         ),
-                    //         BRIDGE_HEIGHT,
-                    //     ),
-                    //     BRIDGE_HEIGHT,
-                    // );
-
-                    val = softmax(softabs(val, BRIDGE_HEIGHT), eval_res);
-                }
+                let val = eval_res;
                 Ok(val as f32 * params.height_scale as f32)
             })
             .collect::<Result<_, _>>()?;

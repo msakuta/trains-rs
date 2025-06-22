@@ -3,7 +3,7 @@ use crate::{
     vec2::Vec2,
 };
 
-use super::softclamp;
+use super::{softabs, softclamp, softmax};
 
 #[derive(Clone)]
 pub(super) enum Expr {
@@ -92,9 +92,16 @@ pub(super) fn eval(expr: &Expr, x: &Vec2<f64>) -> Result<Value, String> {
                 }
                 "softabs" => {
                     if let Some([Value::Scalar(val), Value::Scalar(rounding)]) = val.get(..2) {
-                        Value::Scalar(softclamp(*val, *rounding))
+                        Value::Scalar(softabs(*val, *rounding))
                     } else {
                         return Err("softabs only supports 2 scalar arguments".to_string());
+                    }
+                }
+                "softmax" => {
+                    if let Some([Value::Scalar(lhs), Value::Scalar(rhs)]) = val.get(..2) {
+                        Value::Scalar(softmax(*lhs, *rhs))
+                    } else {
+                        return Err("softmax only supports 2 scalar arguments".to_string());
                     }
                 }
                 "perlin_noise" | "fractal_noise" => {
