@@ -137,7 +137,7 @@ fn assign_stmt<'a>(name: Span<'a>) -> impl Fn(Span<'a>) -> IResult<Span<'a>, Stm
     }
 }
 
-fn stmt(i: Span) -> IResult<Span, Stmt> {
+fn ident_stmt(i: Span) -> IResult<Span, Stmt> {
     let (r, name) = ident_space(i)?;
 
     // We use partial application (curried functions) of parsers to avoid backtracking duplicate parsing
@@ -145,11 +145,14 @@ fn stmt(i: Span) -> IResult<Span, Stmt> {
     // but it is not decided yet at the point just after the identifier "a" is parsed.
     alt((
         assign_stmt(name),
-        expr_to_stmt(func_args(name)),
-        expr_to_stmt(|i| expr_rest(i, Expr::Variable(name.to_string()))),
-        expr_to_stmt(expr),
+        // expr_to_stmt(func_args(name)),
+        // expr_to_stmt(|i| expr_rest(i, Expr::Variable(name.to_string()))),
     ))
     .parse(r)
+}
+
+fn stmt(i: Span) -> IResult<Span, Stmt> {
+    alt((ident_stmt, expr_to_stmt(expr))).parse(i)
 }
 
 /// A combinator that takes a parser `inner` and produces a parser that produces an expression statement instead.
@@ -178,4 +181,46 @@ pub(crate) fn parse(i: Span) -> Result<Ast, String> {
     .finish()
     .map_err(|e| e.to_string())?
     .1)
+}
+
+#[test]
+fn test_primary() {
+    let src = "a(1)";
+    let ast = parse(src).unwrap();
+    assert_eq!(
+        ast,
+        vec![Stmt::Expr(Expr::FnInvoke(
+            "a".to_string(),
+            vec![Expr::Literal(1.)],
+            FnContext::new()
+        ))]
+    );
+
+    let src = "a(1) * 10";
+    let ast = parse(src).unwrap();
+    assert_eq!(
+        ast,
+        vec![Stmt::Expr(Expr::Mul(
+            Box::new(Expr::FnInvoke(
+                "a".to_string(),
+                vec![Expr::Literal(1.)],
+                FnContext::new()
+            )),
+            Box::new(Expr::Literal(10.))
+        ),)]
+    );
+
+    let src = "a(1) / 10";
+    let ast = parse(src).unwrap();
+    assert_eq!(
+        ast,
+        vec![Stmt::Expr(Expr::Div(
+            Box::new(Expr::FnInvoke(
+                "a".to_string(),
+                vec![Expr::Literal(1.)],
+                FnContext::new()
+            )),
+            Box::new(Expr::Literal(10.))
+        ),)]
+    );
 }

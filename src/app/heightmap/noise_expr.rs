@@ -7,7 +7,7 @@ use crate::{
 
 use super::{softabs, softclamp, softmax};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) enum Expr {
     Literal(f64),
     Variable(String),
@@ -18,6 +18,7 @@ pub(super) enum Expr {
     Div(Box<Expr>, Box<Expr>),
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub(super) enum Stmt {
     VarDef(String, Expr),
     Expr(Expr),
@@ -31,7 +32,7 @@ pub(super) enum Value {
     Vec2(Vec2<f64>),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct FnContext {
     seeds: Vec<u64>,
 }
@@ -128,7 +129,6 @@ fn precompute_expr(
                 (_, Vector(_)) => return Err("Division by a vector is not supported".to_string()),
             })
         })?,
-        _ => None,
     })
 }
 
@@ -197,7 +197,7 @@ fn eval(expr: &Expr, x: &Vec2<f64>, variables: &HashMap<String, Value>) -> Resul
             |lhs, rhs| lhs - rhs,
         ),
         Expr::Mul(lhs, rhs) => match (eval(lhs, x, variables)?, eval(rhs, x, variables)?) {
-            (Scalar(lhs), Scalar(rhs)) => Scalar(lhs + rhs),
+            (Scalar(lhs), Scalar(rhs)) => Scalar(lhs * rhs),
             (Scalar(lhs), Vector(rhs)) => Vector(rhs * lhs),
             (Vector(lhs), Scalar(rhs)) => Vector(lhs * rhs),
             (Vector(_), Vector(_)) => {

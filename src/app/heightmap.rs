@@ -23,15 +23,7 @@ use self::{
 
 const DEFAULT_PERSISTENCE_OCTAVES: u32 = 3;
 
-const MAX_NOISE_OCTAVES: u32 = 10;
 const DEFAULT_NOISE_OCTAVES: u32 = 4;
-
-const MAX_NOISE_SCALE: f64 = 1.;
-const MIN_NOISE_SCALE: f64 = 0.01;
-const DEFAULT_NOISE_SCALE: f64 = 0.05;
-
-const DEFAULT_HEIGHT_SCALE: f64 = 10.;
-const MAX_HEIGHT_SCALE: f64 = 50.;
 
 const DEFAULT_WATER_LEVEL: f32 = 0.05;
 
@@ -52,11 +44,7 @@ pub(crate) struct HeightMapParams {
     pub height: usize,
     pub seed: u64,
     seed_buf: String,
-    pub noise_octaves: u32,
-    pub noise_scale: f64,
-    pub height_scale: f64,
     pub water_level: f32,
-    pub abs_wrap: bool,
     pub noise_expr: String,
 }
 
@@ -70,29 +58,27 @@ impl HeightMapParams {
             height: AREA_HEIGHT,
             seed,
             seed_buf,
-            noise_octaves: DEFAULT_NOISE_OCTAVES,
-            noise_scale: DEFAULT_NOISE_SCALE,
-            height_scale: DEFAULT_HEIGHT_SCALE,
             water_level: DEFAULT_WATER_LEVEL,
-            abs_wrap: true,
             noise_expr: format!(
-                "octaves = {};
+                "scaled_x = x * 0.05;
+octaves = {};
 abs_rounding = 0.1;
-pers = perlin_noise(x, {}, 0.5);
+height_scale = 10;
+pers = perlin_noise(scaled_x, {}, 0.5);
 
 softmax(
   softabs(
-    perlin_noise(x, octaves, pers),
+    perlin_noise(scaled_x, octaves, pers),
     abs_rounding
   ),
   {} - softclamp(
     softabs(
-      perlin_noise(x * 0.5, octaves, pers),
+      perlin_noise(scaled_x * 0.5, octaves, pers),
       abs_rounding
     ),
     abs_rounding
   )
-)",
+) * height_scale",
                 DEFAULT_NOISE_OCTAVES, DEFAULT_PERSISTENCE_OCTAVES, BRIDGE_HEIGHT
             ),
         }
@@ -120,31 +106,9 @@ softmax(
             }
         });
         ui.horizontal(|ui| {
-            ui.label("Noise octaves:");
-            ui.add(egui::Slider::new(
-                &mut self.noise_octaves,
-                1..=MAX_NOISE_OCTAVES,
-            ));
-        });
-        ui.horizontal(|ui| {
-            ui.label("Noise scale:");
-            ui.add(egui::Slider::new(
-                &mut self.noise_scale,
-                MIN_NOISE_SCALE..=MAX_NOISE_SCALE,
-            ));
-        });
-        ui.horizontal(|ui| {
-            ui.label("Height scale:");
-            ui.add(egui::Slider::new(
-                &mut self.height_scale,
-                (0.)..=MAX_HEIGHT_SCALE,
-            ));
-        });
-        ui.horizontal(|ui| {
             ui.label("Water level:");
             ui.add(egui::Slider::new(&mut self.water_level, (0.)..=1.));
         });
-        ui.checkbox(&mut self.abs_wrap, "Absolute wrap");
         ui.label("Noise expression:");
         ui.text_edit_multiline(&mut self.noise_expr);
     }
@@ -167,12 +131,12 @@ impl HeightMap {
             .map(|i| {
                 let ix = (i % params.width) as f64;
                 let iy = (i / params.width) as f64;
-                let pos = crate::vec2::Vec2::new(ix as f64, iy as f64) * params.noise_scale;
+                let pos = crate::vec2::Vec2::new(ix as f64, iy as f64);
                 let Value::Scalar(eval_res) = run(&ast, &pos)? else {
                     return Err("Eval result was not a scalar".to_string());
                 };
                 let val = eval_res;
-                Ok(val as f32 * params.height_scale as f32)
+                Ok(val as f32)
             })
             .collect::<Result<_, _>>()?;
 
