@@ -149,15 +149,17 @@ fn ident_stmt(i: Span) -> IResult<Span, Stmt> {
     let (r, name) = ident_space(i)?;
 
     // We use partial application (curried functions) of parsers to avoid backtracking duplicate parsing
-    // for ambiguous syntax. e.g. "a = 1;" and "a(1)" are a statement and a function call expression, respectively,
-    // but it is not decided yet at the point just after the identifier "a" is parsed.
+    // for ambiguous syntax. e.g. "a = 1;", "a(1)" and "a + 1" are a variable definition statement, a function call
+    // expression and addition expression, respectively, but whether it is a statement or an expression is not decided
+    // at the point just after the identifier "a" is parsed.
+    // We could also error out as a statement and backtrack with expression, but it would require duplicate work.
     alt((
         assign_stmt(name),
         expr_to_stmt(|i| {
             let (r, init) = func_args(name)(i)?;
             expr_prime(r, &init)
         }),
-        // expr_to_stmt(|i| expr_rest(i, Expr::Variable(name.to_string()))),
+        expr_to_stmt(|i| expr_prime(i, &Expr::Variable(name.to_string()))),
     ))
     .parse(r)
 }
@@ -245,6 +247,33 @@ fn test_primary() {
                 vec![Expr::Literal(1.)],
                 FnContext::new()
             )),
+            Box::new(Expr::Literal(10.))
+        ),)]
+    );
+}
+
+#[test]
+fn test_primary_variable() {
+    let src = "a";
+    let ast = parse(src).unwrap();
+    assert_eq!(ast, vec![Stmt::Expr(Expr::Variable("a".to_string()))]);
+
+    let src = "a * 10";
+    let ast = parse(src).unwrap();
+    assert_eq!(
+        ast,
+        vec![Stmt::Expr(Expr::Mul(
+            Box::new(Expr::Variable("a".to_string())),
+            Box::new(Expr::Literal(10.))
+        ),)]
+    );
+
+    let src = "a + 10";
+    let ast = parse(src).unwrap();
+    assert_eq!(
+        ast,
+        vec![Stmt::Expr(Expr::Add(
+            Box::new(Expr::Variable("a".to_string())),
             Box::new(Expr::Literal(10.))
         ),)]
     );
