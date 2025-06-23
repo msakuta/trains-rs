@@ -27,23 +27,25 @@ Notable features:
 An example of a noise expression is like below.
 
 ```
+scaled_x = x * 0.05;
 octaves = 4;
 abs_rounding = 0.1;
-pers = perlin_noise(x, 3, 0.5);
+height_scale = 10;
+pers = perlin_noise(scaled_x, 3, 0.5);
 
 softmax(
   softabs(
-    perlin_noise(x, octaves, pers),
+    perlin_noise(scaled_x, octaves, pers),
     abs_rounding
   ),
   0.1 - softclamp(
     softabs(
-      perlin_noise(x * 0.5, octaves, pers),
+      perlin_noise(scaled_x * 0.5, octaves, pers),
       abs_rounding
     ),
     abs_rounding
   )
-)
+) * height_scale
 ```
 
 It is called noise _expression_, but it can have variables and constants defined in statements.
@@ -100,4 +102,6 @@ You can use one of the following built-in functions.
 * `softabs(x, rounding)` - a function that acts like the `abs` function in a great `x`, but acts like a quadratic function in a smaller `x` than `rounding`.
 * `softmax(a, b)` - a function that acts like `max` if either `a` or `b` is much greater than the other, but behaves like an average when their values are similar.
 * `perlin_noise(x, octaves, persistence)` - A [Perlin noise](https://en.wikipedia.org/wiki/Perlin_noise) with [fractal Brownian motion](https://en.wikipedia.org/wiki/Fractional_Brownian_motion) compositions. It is relatively expensive operation, so the composition of multiple octaves are implemented in the runtime. `x` is the input value of type `Vec2`, `octaves` is the number of octaves to add in fBm noise whose fractional part is truncated and casted to an integer, and `persistence` is the factor multiplied to each successive octave. One notable thing about this function is that `octaves` has to be a constant expression, because it caches the state variables to generate many values from different `x`.
-* `white_noise(x, octaves, persistence)` - A noise function similar to `perlin_noise`, but uses uniform noise as the base noise instead of Perlin noise. It can still show locality and natural looking features if you use many octaves.
+* `fractal_noise(x, octaves, persistence)` - A noise function similar to `perlin_noise`, but uses uniform noise as the base noise instead of Perlin noise. It is less smooth and
+  has less computational cost than Perlin noise.
+  It can still show locality and natural looking features if you use many octaves.
