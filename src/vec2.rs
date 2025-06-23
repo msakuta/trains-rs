@@ -17,6 +17,13 @@ impl<T> Vec2<T> {
     pub const fn new(x: T, y: T) -> Self {
         Self { x, y }
     }
+
+    pub const fn splat(x: T) -> Self
+    where
+        T: Copy,
+    {
+        Self { x, y: x }
+    }
 }
 
 impl<T: Copy> Vec2<T> {

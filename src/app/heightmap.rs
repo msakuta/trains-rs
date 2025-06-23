@@ -1,65 +1,51 @@
+mod noise_expr;
+mod parser;
+
 use std::collections::HashMap;
 
 use eframe::egui::{self, Color32, ColorImage, Painter, Pos2, Ui, pos2};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     marching_squares::{
         Idx, Shape, border_pixel, cell_border_interpolated, pick_bits, pick_values,
     },
-    perlin_noise::{Xorshift64Star, gen_seeds, perlin_noise_pixel, white_fractal_noise},
+    perlin_noise::Xorshift64Star,
     vec2::Vec2,
 };
 
 use super::{AREA_HEIGHT, AREA_WIDTH, TrainsApp};
 
-const MAX_PERSISTENCE_OCTAVES: u32 = 10;
+use self::{
+    noise_expr::{Value, precompute, run},
+    parser::parse,
+};
+
 const DEFAULT_PERSISTENCE_OCTAVES: u32 = 3;
 
-const MAX_PERSISTENCE_SCALE: f64 = 2.;
-/// Meaning the default value for the minimum of persistence value.
-const DEFAULT_MIN_PERSISTENCE: f64 = 0.1;
-const DEFAULT_PERSISTENCE_SCALE: f64 = 1.;
-const MAX_MIN_PERSISTENCE: f64 = 1.;
-
-const MAX_PERSISTENCE_NOISE_SCALE: f64 = 0.5;
-const MIN_PERSISTENCE_NOISE_SCALE: f64 = 0.01;
-const DEFAULT_PERSISTENCE_NOISE_SCALE: f64 = 0.01;
-
-const MAX_NOISE_OCTAVES: u32 = 10;
 const DEFAULT_NOISE_OCTAVES: u32 = 4;
-
-const MAX_NOISE_SCALE: f64 = 1.;
-const MIN_NOISE_SCALE: f64 = 0.01;
-const DEFAULT_NOISE_SCALE: f64 = 0.05;
-
-const DEFAULT_HEIGHT_SCALE: f64 = 10.;
-const MAX_HEIGHT_SCALE: f64 = 50.;
 
 const DEFAULT_WATER_LEVEL: f32 = 0.05;
 
+const BRIDGE_HEIGHT: f64 = 0.1;
+
 pub(super) const DOWNSAMPLE: usize = 16;
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum NoiseType {
     White,
     Perlin,
 }
 
+#[derive(Serialize, Deserialize)]
 pub(crate) struct HeightMapParams {
     pub noise_type: NoiseType,
     pub width: usize,
     pub height: usize,
     pub seed: u64,
     seed_buf: String,
-    pub persistence_octaves: u32,
-    pub persistence_noise_scale: f64,
-    pub persistence_scale: f64,
-    pub min_persistence: f64,
-    pub noise_octaves: u32,
-    pub noise_scale: f64,
-    pub height_scale: f64,
     pub water_level: f32,
-    pub abs_wrap: bool,
+    pub noise_expr: String,
 }
 
 impl HeightMapParams {
@@ -72,15 +58,29 @@ impl HeightMapParams {
             height: AREA_HEIGHT,
             seed,
             seed_buf,
-            persistence_octaves: DEFAULT_PERSISTENCE_OCTAVES,
-            persistence_noise_scale: DEFAULT_PERSISTENCE_NOISE_SCALE,
-            persistence_scale: DEFAULT_PERSISTENCE_SCALE,
-            min_persistence: DEFAULT_MIN_PERSISTENCE,
-            noise_octaves: DEFAULT_NOISE_OCTAVES,
-            noise_scale: DEFAULT_NOISE_SCALE,
-            height_scale: DEFAULT_HEIGHT_SCALE,
             water_level: DEFAULT_WATER_LEVEL,
-            abs_wrap: true,
+            noise_expr: format!(
+                "scaled_x = x * 0.05;
+octaves = {};
+abs_rounding = 0.1;
+height_scale = 10;
+pers = perlin_noise(scaled_x, {}, 0.5);
+
+softmax(
+  softabs(
+    perlin_noise(scaled_x, octaves, pers),
+    abs_rounding
+  ),
+  {} - softclamp(
+    softabs(
+      perlin_noise(scaled_x * 0.5, octaves, pers),
+      abs_rounding
+    ),
+    abs_rounding
+  )
+) * height_scale",
+                DEFAULT_NOISE_OCTAVES, DEFAULT_PERSISTENCE_OCTAVES, BRIDGE_HEIGHT
+            ),
         }
     }
 
@@ -106,59 +106,18 @@ impl HeightMapParams {
             }
         });
         ui.horizontal(|ui| {
-            ui.label("Persistence noise octaves:");
-            ui.add(egui::Slider::new(
-                &mut self.persistence_octaves,
-                1..=MAX_PERSISTENCE_OCTAVES,
-            ));
-        });
-        ui.horizontal(|ui| {
-            ui.label("Persistence noise scale:");
-            ui.add(egui::Slider::new(
-                &mut self.persistence_noise_scale,
-                MIN_PERSISTENCE_NOISE_SCALE..=MAX_PERSISTENCE_NOISE_SCALE,
-            ));
-        });
-        ui.horizontal(|ui| {
-            ui.label("Persistence scale:");
-            ui.add(egui::Slider::new(
-                &mut self.persistence_scale,
-                (0.)..=MAX_PERSISTENCE_SCALE,
-            ));
-        });
-        ui.horizontal(|ui| {
-            ui.label("Min persistence:");
-            ui.add(egui::Slider::new(
-                &mut self.min_persistence,
-                (0.)..=MAX_MIN_PERSISTENCE,
-            ));
-        });
-        ui.horizontal(|ui| {
-            ui.label("Noise octaves:");
-            ui.add(egui::Slider::new(
-                &mut self.noise_octaves,
-                1..=MAX_NOISE_OCTAVES,
-            ));
-        });
-        ui.horizontal(|ui| {
-            ui.label("Noise scale:");
-            ui.add(egui::Slider::new(
-                &mut self.noise_scale,
-                MIN_NOISE_SCALE..=MAX_NOISE_SCALE,
-            ));
-        });
-        ui.horizontal(|ui| {
-            ui.label("Height scale:");
-            ui.add(egui::Slider::new(
-                &mut self.height_scale,
-                (0.)..=MAX_HEIGHT_SCALE,
-            ));
-        });
-        ui.horizontal(|ui| {
             ui.label("Water level:");
             ui.add(egui::Slider::new(&mut self.water_level, (0.)..=1.));
         });
-        ui.checkbox(&mut self.abs_wrap, "Absolute wrap");
+        ui.label("Noise expression:");
+        ui.add(
+            egui::TextEdit::multiline(&mut self.noise_expr)
+                .font(egui::TextStyle::Monospace)
+                .code_editor()
+                .desired_rows(10)
+                .lock_focus(true)
+                .desired_width(f32::INFINITY),
+        );
     }
 }
 
@@ -172,61 +131,21 @@ impl HeightMap {
     pub(super) fn new(params: &HeightMapParams) -> Result<Self, String> {
         let mut rng = Xorshift64Star::new(params.seed);
 
-        let persistence_seeds = gen_seeds(&mut rng, params.persistence_octaves);
-        let seeds = gen_seeds(&mut rng, params.noise_octaves);
-        let bridge_seeds = gen_seeds(&mut rng, params.noise_octaves);
+        let mut ast = parse(&params.noise_expr)?;
+        precompute(&mut ast, &mut rng)?;
+
         let map: Vec<_> = (0..params.width * params.height)
             .map(|i| {
                 let ix = (i % params.width) as f64;
                 let iy = (i / params.width) as f64;
-                let p_pos =
-                    crate::vec2::Vec2::new(ix as f64, iy as f64) * params.persistence_noise_scale;
-                let persistence_sample = perlin_noise_pixel(
-                    p_pos.x,
-                    p_pos.y,
-                    params.persistence_octaves,
-                    &persistence_seeds,
-                    0.5,
-                )
-                .abs()
-                    * params.persistence_scale
-                    + params.min_persistence;
-                let pos = crate::vec2::Vec2::new(ix as f64, iy as f64) * params.noise_scale;
-                let mut val = match params.noise_type {
-                    NoiseType::Perlin => perlin_noise_pixel(
-                        pos.x,
-                        pos.y,
-                        params.noise_octaves,
-                        &seeds,
-                        persistence_sample,
-                    ),
-                    NoiseType::White => {
-                        white_fractal_noise(pos.x, pos.y, &seeds, persistence_sample)
-                    }
+                let pos = crate::vec2::Vec2::new(ix as f64, iy as f64);
+                let Value::Scalar(eval_res) = run(&ast, &pos)? else {
+                    return Err("Eval result was not a scalar".to_string());
                 };
-                if params.abs_wrap {
-                    const BRIDGE_HEIGHT: f64 = 0.1;
-                    let bridge_pos = pos * 0.5;
-                    let bridge = BRIDGE_HEIGHT
-                        - softclamp(
-                            softabs(
-                                perlin_noise_pixel(
-                                    bridge_pos.x,
-                                    bridge_pos.y,
-                                    params.noise_octaves,
-                                    &bridge_seeds,
-                                    persistence_sample,
-                                ),
-                                BRIDGE_HEIGHT,
-                            ),
-                            BRIDGE_HEIGHT,
-                        );
-
-                    val = softmax(softabs(val, BRIDGE_HEIGHT), bridge);
-                }
-                val as f32 * params.height_scale as f32
+                let val = eval_res;
+                Ok(val as f32)
             })
-            .collect();
+            .collect::<Result<_, _>>()?;
 
         let min_p = map
             .iter()
