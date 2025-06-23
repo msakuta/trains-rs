@@ -110,7 +110,14 @@ softmax(
             ui.add(egui::Slider::new(&mut self.water_level, (0.)..=1.));
         });
         ui.label("Noise expression:");
-        ui.text_edit_multiline(&mut self.noise_expr);
+        ui.add(
+            egui::TextEdit::multiline(&mut self.noise_expr)
+                .font(egui::TextStyle::Monospace)
+                .code_editor()
+                .desired_rows(10)
+                .lock_focus(true)
+                .desired_width(f32::INFINITY),
+        );
     }
 }
 
