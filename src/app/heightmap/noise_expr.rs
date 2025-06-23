@@ -16,6 +16,7 @@ pub(super) enum Expr {
     Sub(Box<Expr>, Box<Expr>),
     Mul(Box<Expr>, Box<Expr>),
     Div(Box<Expr>, Box<Expr>),
+    Neg(Box<Expr>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -129,6 +130,7 @@ fn precompute_expr(
                 (_, Vector(_)) => return Err("Division by a vector is not supported".to_string()),
             })
         })?,
+        Expr::Neg(ex) => precompute_expr(ex, constants, rng)?,
     })
 }
 
@@ -208,6 +210,10 @@ fn eval(expr: &Expr, x: &Vec2<f64>, variables: &HashMap<String, Value>) -> Resul
             (Scalar(lhs), Scalar(rhs)) => Scalar(lhs / rhs),
             (Vector(lhs), Scalar(rhs)) => Vector(lhs / rhs),
             (_, Vector(_)) => return Err("Division by a vector is not supported".to_string()),
+        },
+        Expr::Neg(ex) => match eval(ex, x, variables)? {
+            Scalar(val) => Scalar(-val),
+            Vector(vec) => Vector(-vec),
         },
     })
 }

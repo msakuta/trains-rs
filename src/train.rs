@@ -7,8 +7,7 @@ use crate::{
     app::HeightMap,
     path_utils::{interpolate_path, interpolate_path_heading, interpolate_path_tangent},
     train_tracks::{
-        ConnectPoint, NodeConnection, PathBundle, PathConnection, Paths, SegmentDirection,
-        TrainTask, TrainTracks,
+        ConnectPoint, PathBundle, PathConnection, Paths, SegmentDirection, TrainTask, TrainTracks,
     },
     vec2::Vec2,
 };

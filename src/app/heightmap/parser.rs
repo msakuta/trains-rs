@@ -87,17 +87,30 @@ fn primary_expression(i: Span) -> IResult<Span, Expr> {
     alt((func_invoke, numeric_literal_expression, var_ref, parens)).parse(i)
 }
 
+fn not(i: Span) -> IResult<Span, Expr> {
+    let (r, sign) = opt(ws(tag("-"))).parse(i)?;
+    let (r, prim) = primary_expression(r)?;
+    Ok((
+        r,
+        if sign.is_some() {
+            Expr::Neg(Box::new(prim))
+        } else {
+            prim
+        },
+    ))
+}
+
 // We read an initial factor and for each time we find
 // a * or / operator followed by another factor, we do
 // the math by folding everything
 fn term(i: Span) -> IResult<Span, Expr> {
-    let (r, init) = primary_expression(i)?;
+    let (r, init) = not(i)?;
     term_rest(r, &init)
 }
 
 fn term_rest<'a>(i: Span<'a>, init: &Expr) -> IResult<Span<'a>, Expr> {
     fold_many0(
-        pair(alt((char('*'), char('/'))), primary_expression),
+        pair(alt((char('*'), char('/'))), not),
         move || init.clone(),
         move |acc, (op, val): (char, Expr)| {
             if op == '*' {

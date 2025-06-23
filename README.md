@@ -86,6 +86,12 @@ For example, the string below is an expression.
 ((a + 1) * b) - f(2)
 ```
 
+You can put unary minus for negation.
+
+```
+-(a + b)
+```
+
 Any expression that does not depend on the value of `x` is a constant expression.
 The distinction of constant expression is important for `perlin_noise` and `white_noise`
 functions.
