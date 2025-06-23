@@ -2,6 +2,8 @@
 
 A train logistics simulator with terrain in Rust
 
+Try it now on your browser! https://msakuta.github.io/trains-rs/
+
 ![screenshot](images/screenshot00.jpg)
 
 ## How to run
