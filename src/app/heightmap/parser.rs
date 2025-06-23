@@ -92,7 +92,10 @@ fn primary_expression(i: Span) -> IResult<Span, Expr> {
 // the math by folding everything
 fn term(i: Span) -> IResult<Span, Expr> {
     let (r, init) = primary_expression(i)?;
+    term_rest(r, &init)
+}
 
+fn term_rest<'a>(i: Span<'a>, init: &Expr) -> IResult<Span<'a>, Expr> {
     fold_many0(
         pair(alt((char('*'), char('/'))), primary_expression),
         move || init.clone(),
@@ -104,15 +107,20 @@ fn term(i: Span) -> IResult<Span, Expr> {
             }
         },
     )
-    .parse(r)
+    .parse(i)
 }
 
 fn expr(i: Span) -> IResult<Span, Expr> {
     let (r, init) = term(i)?;
-    expr_rest(r, init)
+    expr_rest(r, &init)
 }
 
-fn expr_rest(i: Span, init: Expr) -> IResult<Span, Expr> {
+fn expr_prime<'a>(i: Span<'a>, init: &Expr) -> IResult<Span<'a>, Expr> {
+    let (r, init) = term_rest(i, init)?;
+    expr_rest(r, &init)
+}
+
+fn expr_rest<'a>(i: Span<'a>, init: &Expr) -> IResult<Span<'a>, Expr> {
     fold_many0(
         pair(alt((char('+'), char('-'))), term),
         move || init.clone(),
@@ -145,7 +153,10 @@ fn ident_stmt(i: Span) -> IResult<Span, Stmt> {
     // but it is not decided yet at the point just after the identifier "a" is parsed.
     alt((
         assign_stmt(name),
-        // expr_to_stmt(func_args(name)),
+        expr_to_stmt(|i| {
+            let (r, init) = func_args(name)(i)?;
+            expr_prime(r, &init)
+        }),
         // expr_to_stmt(|i| expr_rest(i, Expr::Variable(name.to_string()))),
     ))
     .parse(r)
@@ -215,6 +226,20 @@ fn test_primary() {
     assert_eq!(
         ast,
         vec![Stmt::Expr(Expr::Div(
+            Box::new(Expr::FnInvoke(
+                "a".to_string(),
+                vec![Expr::Literal(1.)],
+                FnContext::new()
+            )),
+            Box::new(Expr::Literal(10.))
+        ),)]
+    );
+
+    let src = "a(1) + 10";
+    let ast = parse(src).unwrap();
+    assert_eq!(
+        ast,
+        vec![Stmt::Expr(Expr::Add(
             Box::new(Expr::FnInvoke(
                 "a".to_string(),
                 vec![Expr::Literal(1.)],
