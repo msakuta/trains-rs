@@ -13,7 +13,7 @@ use self::heightmap::{ContoursCache, HeightMapParams};
 use crate::{
     bg_image::BgImage,
     train::Train,
-    train_tracks::{SelectedPathNode, Station, TrainTracks},
+    train_tracks::{SelectedPathNode, Station, StationType, TrainTracks},
     transform::{PaintTransform, Transform, half_rect},
     vec2::Vec2,
 };
@@ -57,6 +57,7 @@ pub(crate) struct TrainsApp {
     train: Train,
     selected_station: Option<usize>,
     new_station: String,
+    station_type: StationType,
     error_msg: Option<(String, f64)>,
 }
 
@@ -131,6 +132,7 @@ impl TrainsApp {
             train,
             selected_station: None,
             new_station: "New Station".to_string(),
+            station_type: StationType::Loading,
             error_msg: None,
         }
     }
@@ -233,6 +235,7 @@ impl TrainsApp {
                                 std::mem::replace(&mut self.new_station, name),
                                 pos,
                                 thresh,
+                                self.station_type,
                             );
                         }
                     }
@@ -319,8 +322,12 @@ impl TrainsApp {
                 if let Some(pointer) = response.hover_pos() {
                     let pos = paint_transform.from_pos2(pointer);
                     if let Some((path_id, _, node_id)) = self.tracks.find_path_node(pos, thresh) {
-                        let station =
-                            Station::new(self.new_station.clone(), path_id, node_id as f64);
+                        let station = Station::new(
+                            self.new_station.clone(),
+                            path_id,
+                            node_id as f64,
+                            self.station_type,
+                        );
                         self.render_station(&painter, &paint_transform, &station, false, true);
                     }
                 }
@@ -523,7 +530,10 @@ impl TrainsApp {
                 ui.radio_value(
                     &mut self.selected_station,
                     Some(*i),
-                    &format!("{} ({}, {})", station.name, station.path_id, station.s),
+                    &format!(
+                        "{} ({}, {}) {:?}",
+                        station.name, station.path_id, station.s, station.ty
+                    ),
                 );
             }
             if ui.button("Schedule station").clicked() {
@@ -537,6 +547,11 @@ impl TrainsApp {
                 }
             }
             ui.text_edit_singleline(&mut self.new_station);
+            ui.group(|ui| {
+                ui.label("Station type:");
+                ui.radio_value(&mut self.station_type, StationType::Loading, "Loading");
+                ui.radio_value(&mut self.station_type, StationType::Unloading, "Unloading");
+            });
         });
         ui.group(|ui| {
             ui.label("Trains:");

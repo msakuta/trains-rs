@@ -7,12 +7,14 @@ use crate::{
     app::HeightMap,
     path_utils::{interpolate_path, interpolate_path_heading, interpolate_path_tangent},
     train_tracks::{
-        ConnectPoint, PathBundle, PathConnection, Paths, SegmentDirection, TrainTask, TrainTracks,
+        ConnectPoint, PathBundle, PathConnection, Paths, SegmentDirection, StationId, StationType,
+        TrainTask, TrainTracks,
     },
     vec2::Vec2,
 };
 
 const CAR_LENGTH: f64 = 1.;
+pub(crate) const CAR_CAPACITY: u32 = 100;
 const TRAIN_ACCEL: f64 = 0.001;
 const MAX_SPEED: f64 = 1.;
 const THRUST_ACCEL: f64 = 0.001;
@@ -40,6 +42,12 @@ impl Train {
                 s: i as f64 * CAR_LENGTH,
                 speed: 0.,
                 direction: SegmentDirection::Forward,
+                ty: if i == 0 {
+                    CarType::Locomotive
+                } else {
+                    CarType::Freight
+                },
+                iron: 0,
             })
             .collect();
         Self {
@@ -52,11 +60,38 @@ impl Train {
     }
 
     pub fn update(&mut self, thrust: f64, heightmap: &HeightMap, tracks: &TrainTracks) {
-        if let TrainTask::Wait(timer) = &mut self.train_task {
+        let mut brake = false;
+        if let TrainTask::Wait(timer, station) = &mut self.train_task {
+            let mut wait_finished = true;
+            if let Some(station) = tracks.stations.get(station) {
+                match station.ty {
+                    StationType::Loading => {
+                        for car in &mut self.cars {
+                            if matches!(car.ty, CarType::Freight) {
+                                car.iron = (car.iron + 1).min(CAR_CAPACITY);
+                                if car.iron < CAR_CAPACITY {
+                                    wait_finished = false;
+                                }
+                            }
+                        }
+                    }
+                    StationType::Unloading => {
+                        for car in &mut self.cars {
+                            if matches!(car.ty, CarType::Freight) {
+                                car.iron = car.iron.saturating_sub(1);
+                                if 0 < car.iron {
+                                    wait_finished = false;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             *timer -= 1;
-            if *timer <= 1 {
+            if *timer <= 1 || wait_finished {
                 self.train_task = TrainTask::Idle;
             }
+            brake = true;
         }
         if matches!(self.train_task, TrainTask::Idle) {
             if let Some(first) = self.schedule.first().cloned() {
@@ -65,11 +100,11 @@ impl Train {
                 self.schedule.push(first);
             }
         }
-        if let TrainTask::Goto(target) = &self.train_task {
-            if let Some(target) = tracks.stations.get(target) {
+        if let TrainTask::Goto(target_id) = &self.train_task {
+            if let Some(target) = tracks.stations.get(target_id) {
                 println!("Goto {target:?}, route: {:?}", self.route);
                 if target.path_id == self.path_id() {
-                    self.move_to_s(target.s);
+                    self.move_to_s(target.s, Some(*target_id));
                 } else {
                     self.find_path(target.path_id, tracks);
                     self.follow_route(tracks);
@@ -85,6 +120,9 @@ impl Train {
         let num_cars = self.cars.len() as f64;
         for car in &mut self.cars {
             car.speed = (car.speed + thrust * THRUST_ACCEL).clamp(-MAX_SPEED, MAX_SPEED);
+            if brake {
+                car.speed = approach(car.speed, 0., THRUST_ACCEL);
+            }
             if let Some((tangent, pos)) = car.tangent(&tracks.paths).zip(car.pos(&tracks.paths)) {
                 let grad = heightmap.gradient(&pos);
                 car.speed -= grad.dot(tangent) * GRAD_ACCEL / num_cars;
@@ -142,11 +180,13 @@ impl Train {
     }
 
     /// Move to a position in the same path as the train.
-    fn move_to_s(&mut self, target_s: f64) {
-        let mut desired_speed = self.cars[0].speed;
+    fn move_to_s(&mut self, target_s: f64, target: Option<StationId>) {
+        let desired_speed;
         if (target_s - self.s()).abs() < 1. && self.cars[0].speed.abs() < TRAIN_ACCEL {
             desired_speed = 0.;
-            self.train_task = TrainTask::Wait(120);
+            if let Some(target) = target {
+                self.train_task = TrainTask::Wait(120, target);
+            }
         } else if target_s < self.s() {
             // speed / accel == t
             // speed * t / 2 == speed^2 / accel / 2 == dist
@@ -212,6 +252,8 @@ pub(crate) struct TrainCar {
     /// Speed along s
     pub speed: f64,
     pub direction: SegmentDirection,
+    pub ty: CarType,
+    pub iron: u32,
 }
 
 impl TrainCar {
@@ -318,6 +360,12 @@ impl TrainCar {
             other.speed = avg_speed;
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub(crate) enum CarType {
+    Locomotive,
+    Freight,
 }
 
 fn get_clamped(v: &[PathConnection], i: usize) -> Option<&PathConnection> {

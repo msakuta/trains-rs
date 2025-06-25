@@ -49,10 +49,10 @@ impl Train {
 
                 match path_con.connect_point {
                     ConnectPoint::Start => {
-                        self.move_to_s(0.);
+                        self.move_to_s(0., None);
                     }
                     ConnectPoint::End => {
-                        self.move_to_s(path.s_length());
+                        self.move_to_s(path.s_length(), None);
                     }
                 }
             }

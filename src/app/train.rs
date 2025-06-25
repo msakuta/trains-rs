@@ -1,12 +1,12 @@
 //! Train and train tracks rendering logic.
 
 use eframe::{
-    egui::{self, Align2, Color32, FontId, Painter, Pos2},
+    egui::{self, Align2, Color32, FontId, Painter, Pos2, Rect, pos2, vec2},
     epaint::PathShape,
 };
 
 use crate::{
-    train::TrainCar,
+    train::{CAR_CAPACITY, CarType, TrainCar},
     train_tracks::{PathBundle, SegmentDirection},
     transform::PaintTransform,
     vec2::Vec2,
@@ -290,7 +290,10 @@ impl TrainsApp {
             let convert_to_poly = |vertices: &[[f32; 2]]| {
                 PathShape::convex_polygon(
                     vertices.into_iter().map(|ofs| transform_vec(ofs)).collect(),
-                    Color32::GRAY,
+                    match car.ty {
+                        CarType::Locomotive => Color32::from_rgb(127, 127, 0),
+                        CarType::Freight => Color32::GRAY,
+                    },
                     (1., Color32::RED),
                 )
             };
@@ -347,8 +350,51 @@ impl TrainsApp {
             Some(())
         };
 
+        let paint_bar = |car: &TrainCar| {
+            if matches!(car.ty, CarType::Locomotive) {
+                return Some(());
+            }
+            let pos = car.pos(&self.tracks.paths)?;
+            let base_pos = paint_transform.to_pos2(pos).to_vec2();
+            const BAR_WIDTH: f32 = 50.;
+            const BAR_HEIGHT: f32 = 10.;
+            const BAR_OFFSET: f32 = 30.;
+            painter.rect_filled(
+                Rect::from_center_size(
+                    pos2(base_pos.x, base_pos.y + BAR_OFFSET),
+                    vec2(BAR_WIDTH, BAR_HEIGHT),
+                ),
+                0.,
+                Color32::BLACK,
+            );
+
+            painter.rect_filled(
+                Rect::from_min_size(
+                    pos2(
+                        base_pos.x - BAR_WIDTH / 2.,
+                        base_pos.y + BAR_OFFSET - BAR_HEIGHT / 2.,
+                    ),
+                    vec2(
+                        car.iron as f32 * BAR_WIDTH / CAR_CAPACITY as f32,
+                        BAR_HEIGHT,
+                    ),
+                ),
+                0.,
+                Color32::GREEN,
+            );
+
+            Some(())
+        };
+
         for car in self.train.cars.iter().enumerate() {
             paint_car(car);
+        }
+
+        // Render in a separate pass to ensure the bars are on top
+        if 2. < self.transform.scale() {
+            for car in &self.train.cars {
+                paint_bar(car);
+            }
         }
     }
 }
