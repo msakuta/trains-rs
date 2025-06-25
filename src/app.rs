@@ -561,6 +561,10 @@ impl TrainsApp {
                     car.path_id, car.s, car.speed, car.direction
                 ));
             }
+            ui.label(format!(
+                "Total transported items: {}",
+                self.train.total_transported
+            ));
         });
     }
 }

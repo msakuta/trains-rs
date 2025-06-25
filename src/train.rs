@@ -32,6 +32,7 @@ pub(crate) struct Train {
     pub switch_path: usize,
     #[serde(skip)]
     pub route: Vec<PathConnection>,
+    pub total_transported: u32,
 }
 
 impl Train {
@@ -56,6 +57,7 @@ impl Train {
             schedule: vec![],
             switch_path: 0,
             route: vec![],
+            total_transported: 0,
         }
     }
 
@@ -78,7 +80,9 @@ impl Train {
                     StationType::Unloading => {
                         for car in &mut self.cars {
                             if matches!(car.ty, CarType::Freight) {
-                                car.iron = car.iron.saturating_sub(1);
+                                let new_iron = car.iron.saturating_sub(1);
+                                self.total_transported += car.iron.abs_diff(new_iron);
+                                car.iron = new_iron;
                                 if 0 < car.iron {
                                     wait_finished = false;
                                 }
