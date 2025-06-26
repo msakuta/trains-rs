@@ -23,9 +23,7 @@ const GRAD_ACCEL: f64 = 0.0002;
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Train {
     pub cars: Vec<TrainCar>,
-    #[serde(skip)]
     pub train_task: TrainTask,
-    #[serde(skip)]
     pub schedule: Vec<usize>,
     /// The index of the direction of the path in the next branch.
     #[serde(skip)]
