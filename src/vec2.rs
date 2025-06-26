@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 /// A generic custom 2D vector type that can take f64 or TapeTerm as a type argument.
 /// It can be a bit confusing with `egui::Vec2` so I may rename it.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub struct Vec2<T> {
+pub struct Vec2<T = f64> {
     pub x: T,
     pub y: T,
 }

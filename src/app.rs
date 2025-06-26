@@ -1,8 +1,10 @@
 mod heightmap;
 mod train;
 
+use std::collections::HashMap;
+
 use eframe::{
-    egui::{self, Align2, Color32, FontId, Frame, Painter, Rect, Ui},
+    egui::{self, Align2, Color32, FontId, Frame, Painter, Rect, Ui, vec2},
     epaint::PathShape,
 };
 use heightmap::DOWNSAMPLE;
@@ -12,6 +14,8 @@ use self::heightmap::{ContoursCache, HeightMapParams};
 
 use crate::{
     bg_image::BgImage,
+    perlin_noise::Xorshift64Star,
+    structure::{BeltConnection, Belts, MAX_BELT_LENGTH, Structure},
     train::Train,
     train_tracks::{SelectedPathNode, Station, StationType, TrainTracks},
     transform::{PaintTransform, Transform, half_rect},
@@ -24,10 +28,12 @@ pub(crate) const AREA_HEIGHT: usize = 512;
 const SELECT_PIXEL_RADIUS: f64 = 20.;
 const MAX_NUM_CARS: usize = 10;
 const MAX_CONTOURS_GRID_STEP: usize = 100;
+const STRUCTURE_SIZE: f32 = 10.;
 const TRAIN_JSON: &str = "train.json";
 const TRAIN_KEY: &str = "train";
 const TRACKS_KEY: &str = "train_tracks";
 const HEIGHTMAP_KEY: &str = "heightmap";
+const BELTS_KEY: &str = "belts";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ClickMode {
@@ -38,6 +44,7 @@ enum ClickMode {
     BezierCurve,
     DeleteSegment,
     AddStation,
+    ConnectBelt,
 }
 
 pub(crate) struct TrainsApp {
@@ -53,11 +60,15 @@ pub(crate) struct TrainsApp {
     show_debug_slope: bool,
     focus_on_train: bool,
     click_mode: ClickMode,
+    belt_connection: Option<(BeltConnection, Vec2<f64>)>,
     tracks: TrainTracks,
     train: Train,
     selected_station: Option<usize>,
     new_station: String,
     station_type: StationType,
+    structures: HashMap<usize, Structure>,
+    belts: Belts,
+    credits: u32,
     error_msg: Option<(String, f64)>,
 }
 
@@ -65,7 +76,7 @@ impl TrainsApp {
     pub fn new() -> Self {
         let contour_grid_step = DOWNSAMPLE;
 
-        let (train, tracks, heightmap_params) = std::fs::File::open(TRAIN_JSON)
+        let (train, tracks, heightmap_params, belts) = std::fs::File::open(TRAIN_JSON)
             .and_then(|train_json| {
                 let mut value: serde_json::Value =
                     serde_json::from_reader(std::io::BufReader::new(train_json))
@@ -101,17 +112,46 @@ impl TrainsApp {
 
                 let heightmap: HeightMapParams = serde_json::from_value(heightmap_value)
                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-                Ok((train, tracks, heightmap))
+
+                let belts: Belts = serde_json::from_value(
+                    value
+                        .get_mut(BELTS_KEY)
+                        .ok_or_else(|| {
+                            std::io::Error::new(std::io::ErrorKind::Other, "belts doesn't exist")
+                        })?
+                        .take(),
+                )?;
+
+                Ok((train, tracks, heightmap, belts))
             })
             .unwrap_or_else(|e| {
                 eprintln!("Failed to load train data, falling back to default: {e}");
-                (Train::new(), TrainTracks::new(), HeightMapParams::new())
+                (
+                    Train::new(),
+                    TrainTracks::new(),
+                    HeightMapParams::new(),
+                    Belts::new(),
+                )
             });
 
         // Fall back to the default params if the heightmap failed to generate with the params
         let heightmap = HeightMap::new(&heightmap_params)
             .or_else(|_| HeightMap::new(&HeightMapParams::new()))
             .unwrap();
+
+        let mut rng = Xorshift64Star::new(40925612);
+        let structures = (0..10)
+            .filter_map(|i| {
+                let x = rng.next() * heightmap_params.width as f64;
+                let y = rng.next() * heightmap_params.height as f64;
+                let pos = Vec2::new(x, y);
+                if heightmap.is_water(&pos) {
+                    None
+                } else {
+                    Some((i, Structure::new_ore_mine(pos)))
+                }
+            })
+            .collect();
 
         let contours_cache = heightmap.cache_contours(contour_grid_step);
 
@@ -128,11 +168,15 @@ impl TrainsApp {
             show_debug_slope: false,
             focus_on_train: true,
             click_mode: ClickMode::None,
+            belt_connection: None,
             tracks,
             train,
             selected_station: None,
             new_station: "New Station".to_string(),
             station_type: StationType::Loading,
+            structures,
+            belts,
+            credits: 0,
             error_msg: None,
         }
     }
@@ -143,6 +187,18 @@ impl TrainsApp {
         } else {
             println!("Added point {pos:?}");
         }
+    }
+
+    fn find_belt_con(&self, pos: Vec2<f64>) -> (BeltConnection, Vec2<f64>) {
+        const SELECT_THRESHOLD: f64 = 10.;
+        let scale = 1. / self.transform.scale();
+        for (i, structure) in &self.structures {
+            let dist2 = (structure.pos - pos).length2();
+            if dist2 / (scale.powi(2) as f64) < SELECT_THRESHOLD.powi(2) {
+                return (BeltConnection::Structure(*i), structure.pos);
+            }
+        }
+        (BeltConnection::Pos, pos)
     }
 
     fn render(&mut self, ui: &mut Ui) {
@@ -239,6 +295,22 @@ impl TrainsApp {
                             );
                         }
                     }
+                    ClickMode::ConnectBelt => {
+                        let pos = paint_transform.from_pos2(pointer);
+                        if let Some((start_con, start_pos)) = &self.belt_connection {
+                            let (end_con, end_pos) = self.find_belt_con(pos);
+                            // Disallow connection to itself
+                            if end_con != *start_con
+                                && (end_pos - *start_pos).length2() < MAX_BELT_LENGTH.powi(2)
+                            {
+                                self.belts
+                                    .add_belt(*start_pos, *start_con, end_pos, end_con);
+                                self.belt_connection = None;
+                            }
+                        } else {
+                            self.belt_connection = Some(self.find_belt_con(pos));
+                        }
+                    }
                 }
             }
         }
@@ -265,6 +337,15 @@ impl TrainsApp {
         }
 
         self.render_track(&painter, &paint_transform);
+
+        for (_, structure) in &self.structures {
+            let pos = paint_transform.to_pos2(structure.pos);
+            painter.rect_filled(
+                Rect::from_center_size(pos, vec2(STRUCTURE_SIZE, STRUCTURE_SIZE)),
+                0.,
+                Color32::from_rgb(0, 127, 191),
+            );
+        }
 
         match self.click_mode {
             ClickMode::None => self.tracks.ghost_path = None,
@@ -332,6 +413,46 @@ impl TrainsApp {
                     }
                 }
             }
+            ClickMode::ConnectBelt => {
+                if let Some(pointer) = response.hover_pos() {
+                    let pos = paint_transform.from_pos2(pointer);
+                    let (end_con, end_pos) = self.find_belt_con(pos);
+                    if let Some((start_con, start_pos)) = &self.belt_connection {
+                        if matches!(end_con, BeltConnection::Structure(_)) && end_con != *start_con
+                        {
+                            painter.rect_filled(
+                                Rect::from_center_size(
+                                    paint_transform.to_pos2(end_pos),
+                                    vec2(STRUCTURE_SIZE, STRUCTURE_SIZE),
+                                ),
+                                0.,
+                                Color32::from_rgb(255, 127, 191),
+                            );
+                        }
+                        let color = if (end_pos - *start_pos).length2() < MAX_BELT_LENGTH.powi(2) {
+                            Color32::from_rgb(255, 0, 255)
+                        } else {
+                            Color32::RED
+                        };
+                        painter.line_segment(
+                            [
+                                paint_transform.to_pos2(end_pos),
+                                paint_transform.to_pos2(*start_pos),
+                            ],
+                            (2., color),
+                        );
+                    } else if matches!(end_con, BeltConnection::Structure(_)) {
+                        painter.rect_filled(
+                            Rect::from_center_size(
+                                paint_transform.to_pos2(end_pos),
+                                vec2(STRUCTURE_SIZE, STRUCTURE_SIZE),
+                            ),
+                            0.,
+                            Color32::from_rgb(255, 127, 191),
+                        );
+                    }
+                }
+            }
         }
 
         if let Some(pointer) = response.hover_pos() {
@@ -362,6 +483,12 @@ impl TrainsApp {
                 (2., Color32::from_rgb(255, 0, 255)),
                 egui::StrokeKind::Middle,
             );
+        }
+
+        for belt in self.belts.belts.values() {
+            let start = paint_transform.to_pos2(belt.start);
+            let end = paint_transform.to_pos2(belt.end);
+            painter.arrow(start, end - start, (2., Color32::BLUE));
         }
 
         for station in self.tracks.stations.values() {
@@ -523,6 +650,10 @@ impl TrainsApp {
             ui.radio_value(&mut self.click_mode, ClickMode::BezierCurve, "Bezier Curve");
             ui.radio_value(&mut self.click_mode, ClickMode::DeleteSegment, "Delete");
             ui.radio_value(&mut self.click_mode, ClickMode::AddStation, "Add Station");
+            ui.radio_value(&mut self.click_mode, ClickMode::ConnectBelt, "Connect Belt");
+            if !matches!(self.click_mode, ClickMode::ConnectBelt) {
+                self.belt_connection = None;
+            }
         });
         ui.group(|ui| {
             ui.label("Stations:");
@@ -613,6 +744,9 @@ impl eframe::App for TrainsApp {
             }
         });
         self.train.update(thrust, &self.heightmap, &self.tracks);
+        for (_, structure) in &mut self.structures {
+            structure.update(&mut self.credits);
+        }
     }
 }
 
@@ -631,6 +765,10 @@ impl std::ops::Drop for TrainsApp {
         map.insert(
             HEIGHTMAP_KEY.to_string(),
             serde_json::to_value(&self.heightmap_params).unwrap(),
+        );
+        map.insert(
+            BELTS_KEY.to_string(),
+            serde_json::to_value(&self.belts).unwrap(),
         );
         let _ = serde_json::to_writer_pretty(
             std::io::BufWriter::new(std::fs::File::create(TRAIN_JSON).unwrap()),

@@ -3,6 +3,7 @@ mod bg_image;
 mod marching_squares;
 mod path_utils;
 mod perlin_noise;
+mod structure;
 mod train;
 mod train_tracks;
 mod transform;
