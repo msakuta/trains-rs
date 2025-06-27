@@ -15,7 +15,9 @@ use self::heightmap::{ContoursCache, HeightMapParams};
 use crate::{
     bg_image::BgImage,
     perlin_noise::Xorshift64Star,
-    structure::{BeltConnection, Belts, MAX_BELT_LENGTH, Structure},
+    structure::{
+        BeltConnection, Belts, MAX_BELT_LENGTH, Structure, StructureId, StructureUpdateResult,
+    },
     train::Train,
     train_tracks::{SelectedPathNode, Station, StationType, TrainTracks},
     transform::{PaintTransform, Transform, half_rect},
@@ -33,6 +35,7 @@ const TRAIN_JSON: &str = "train.json";
 const TRAIN_KEY: &str = "train";
 const TRACKS_KEY: &str = "train_tracks";
 const HEIGHTMAP_KEY: &str = "heightmap";
+const STRUCTURES_KEY: &str = "structures";
 const BELTS_KEY: &str = "belts";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,82 +79,116 @@ impl TrainsApp {
     pub fn new() -> Self {
         let contour_grid_step = DOWNSAMPLE;
 
-        let (train, tracks, heightmap_params, belts) = std::fs::File::open(TRAIN_JSON)
-            .and_then(|train_json| {
-                let mut value: serde_json::Value =
-                    serde_json::from_reader(std::io::BufReader::new(train_json))
-                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-                let train_value = value
-                    .get_mut(TRAIN_KEY)
-                    .ok_or_else(|| {
-                        std::io::Error::new(std::io::ErrorKind::Other, "train doesn't exist")
-                    })?
-                    .take();
-                let train: Train = serde_json::from_value(train_value)
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-
-                let tracks_value = value
-                    .get_mut(TRACKS_KEY)
-                    .ok_or_else(|| {
-                        std::io::Error::new(std::io::ErrorKind::Other, "train_track doesn't exist")
-                    })?
-                    .take();
-
-                let tracks: TrainTracks = serde_json::from_value(tracks_value)
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-
-                let heightmap_value = value
-                    .get_mut(HEIGHTMAP_KEY)
-                    .ok_or_else(|| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            format!("{HEIGHTMAP_KEY}  doesn't exist"),
-                        )
-                    })?
-                    .take();
-
-                let heightmap: HeightMapParams = serde_json::from_value(heightmap_value)
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-
-                let belts: Belts = serde_json::from_value(
-                    value
-                        .get_mut(BELTS_KEY)
+        let (train, tracks, heightmap_params, heightmap, structures, belts) =
+            std::fs::File::open(TRAIN_JSON)
+                .and_then(|train_json| {
+                    let mut value: serde_json::Value =
+                        serde_json::from_reader(std::io::BufReader::new(train_json))
+                            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                    let train_value = value
+                        .get_mut(TRAIN_KEY)
                         .ok_or_else(|| {
-                            std::io::Error::new(std::io::ErrorKind::Other, "belts doesn't exist")
+                            std::io::Error::new(std::io::ErrorKind::Other, "train doesn't exist")
                         })?
-                        .take(),
-                )?;
+                        .take();
+                    let train: Train = serde_json::from_value(train_value)
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
-                Ok((train, tracks, heightmap, belts))
-            })
-            .unwrap_or_else(|e| {
-                eprintln!("Failed to load train data, falling back to default: {e}");
-                (
-                    Train::new(),
-                    TrainTracks::new(),
-                    HeightMapParams::new(),
-                    Belts::new(),
-                )
-            });
+                    let tracks_value = value
+                        .get_mut(TRACKS_KEY)
+                        .ok_or_else(|| {
+                            std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                "train_track doesn't exist",
+                            )
+                        })?
+                        .take();
 
-        // Fall back to the default params if the heightmap failed to generate with the params
-        let heightmap = HeightMap::new(&heightmap_params)
-            .or_else(|_| HeightMap::new(&HeightMapParams::new()))
-            .unwrap();
+                    let tracks: TrainTracks = serde_json::from_value(tracks_value)
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
-        let mut rng = Xorshift64Star::new(40925612);
-        let structures = (0..10)
-            .filter_map(|i| {
-                let x = rng.next() * heightmap_params.width as f64;
-                let y = rng.next() * heightmap_params.height as f64;
-                let pos = Vec2::new(x, y);
-                if heightmap.is_water(&pos) {
-                    None
-                } else {
-                    Some((i, Structure::new_ore_mine(pos)))
-                }
-            })
-            .collect();
+                    let heightmap_value = value
+                        .get_mut(HEIGHTMAP_KEY)
+                        .ok_or_else(|| {
+                            std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                format!("{HEIGHTMAP_KEY}  doesn't exist"),
+                            )
+                        })?
+                        .take();
+
+                    let heightmap_params: HeightMapParams = serde_json::from_value(heightmap_value)
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+                    // Fall back to the default params if the heightmap failed to generate with the params
+                    let heightmap = HeightMap::new(&heightmap_params)
+                        .or_else(|_| HeightMap::new(&HeightMapParams::new()))
+                        .unwrap();
+
+                    let structures: HashMap<StructureId, Structure> = serde_json::from_value(
+                        value
+                            .get_mut(STRUCTURES_KEY)
+                            .ok_or_else(|| {
+                                std::io::Error::new(
+                                    std::io::ErrorKind::Other,
+                                    "belts doesn't exist",
+                                )
+                            })?
+                            .take(),
+                    )?;
+
+                    let belts: Belts = serde_json::from_value(
+                        value
+                            .get_mut(BELTS_KEY)
+                            .ok_or_else(|| {
+                                std::io::Error::new(
+                                    std::io::ErrorKind::Other,
+                                    "belts doesn't exist",
+                                )
+                            })?
+                            .take(),
+                    )?;
+
+                    Ok((
+                        train,
+                        tracks,
+                        heightmap_params,
+                        heightmap,
+                        structures,
+                        belts,
+                    ))
+                })
+                .unwrap_or_else(|e| {
+                    eprintln!("Failed to load train data, falling back to default: {e}");
+                    let heightmap_params = HeightMapParams::new();
+
+                    // Fall back to the default params if the heightmap failed to generate with the params
+                    let heightmap = HeightMap::new(&heightmap_params)
+                        .or_else(|_| HeightMap::new(&HeightMapParams::new()))
+                        .unwrap();
+
+                    let mut rng = Xorshift64Star::new(40925612);
+                    let structures = (0..10)
+                        .filter_map(|i| {
+                            let x = rng.next() * heightmap_params.width as f64;
+                            let y = rng.next() * heightmap_params.height as f64;
+                            let pos = Vec2::new(x, y);
+                            if heightmap.is_water(&pos) {
+                                None
+                            } else {
+                                Some((i, Structure::new_ore_mine(pos)))
+                            }
+                        })
+                        .collect();
+                    (
+                        Train::new(),
+                        TrainTracks::new(),
+                        heightmap_params,
+                        heightmap,
+                        structures,
+                        Belts::new(),
+                    )
+                });
 
         let contours_cache = heightmap.cache_contours(contour_grid_step);
 
@@ -196,6 +233,16 @@ impl TrainsApp {
             let dist2 = (structure.pos - pos).length2();
             if dist2 / (scale.powi(2) as f64) < SELECT_THRESHOLD.powi(2) {
                 return (BeltConnection::Structure(*i), structure.pos);
+            }
+        }
+        for (i, belt) in &self.belts.belts {
+            let dist2 = (belt.start - pos).length2();
+            if dist2 / (scale.powi(2) as f64) < SELECT_THRESHOLD.powi(2) {
+                return (BeltConnection::BeltStart(*i), belt.start);
+            }
+            let dist2 = (belt.end - pos).length2();
+            if dist2 / (scale.powi(2) as f64) < SELECT_THRESHOLD.powi(2) {
+                return (BeltConnection::BeltEnd(*i), belt.end);
             }
         }
         (BeltConnection::Pos, pos)
@@ -298,13 +345,33 @@ impl TrainsApp {
                     ClickMode::ConnectBelt => {
                         let pos = paint_transform.from_pos2(pointer);
                         if let Some((start_con, start_pos)) = &self.belt_connection {
-                            let (end_con, end_pos) = self.find_belt_con(pos);
-                            // Disallow connection to itself
-                            if end_con != *start_con
-                                && (end_pos - *start_pos).length2() < MAX_BELT_LENGTH.powi(2)
+                            let (end_con, end_pos) = dbg!(self.find_belt_con(pos));
+                            // Disallow connection to itself and end-to-end
+                            if !matches!(end_con, BeltConnection::BeltEnd(_))
+                                && !matches!((end_con, start_con), (BeltConnection::Structure(eid), BeltConnection::Structure(sid)) if eid == *sid)
+                                && dbg!((end_pos - *start_pos).length2()) < MAX_BELT_LENGTH.powi(2)
                             {
-                                self.belts
+                                let belt_id = self
+                                    .belts
                                     .add_belt(*start_pos, *start_con, end_pos, end_con);
+                                match start_con {
+                                    BeltConnection::Structure(start_st) => {
+                                        if let Some(st) = self.structures.get_mut(start_st) {
+                                            st.output_belts.insert(belt_id);
+                                            println!("Added belt {belt_id} to output_belts");
+                                        }
+                                    }
+                                    // If we connect to a belt, we add a reference to the upstream belt.
+                                    BeltConnection::BeltEnd(start_belt) => {
+                                        if let Some(start_belt) =
+                                            self.belts.belts.get_mut(start_belt)
+                                        {
+                                            start_belt.start_con = BeltConnection::BeltEnd(belt_id);
+                                            println!("Added belt {belt_id} to upstream belt");
+                                        }
+                                    }
+                                    _ => {}
+                                }
                                 self.belt_connection = None;
                             }
                         } else {
@@ -430,7 +497,7 @@ impl TrainsApp {
                             );
                         }
                         let color = if (end_pos - *start_pos).length2() < MAX_BELT_LENGTH.powi(2) {
-                            Color32::from_rgb(255, 0, 255)
+                            Color32::from_rgba_premultiplied(127, 0, 255, 191)
                         } else {
                             Color32::RED
                         };
@@ -489,6 +556,14 @@ impl TrainsApp {
             let start = paint_transform.to_pos2(belt.start);
             let end = paint_transform.to_pos2(belt.end);
             painter.arrow(start, end - start, (2., Color32::BLUE));
+
+            let length = (belt.end - belt.start).length();
+
+            for (_item, dist) in &mut belt.items.iter() {
+                let f = *dist / length;
+                let pos = belt.start * (1. - f) + belt.end * f;
+                painter.circle_filled(paint_transform.to_pos2(pos), 10., Color32::BLUE);
+            }
         }
 
         for station in self.tracks.stations.values() {
@@ -743,9 +818,53 @@ impl eframe::App for TrainsApp {
                 }
             }
         });
+
         self.train.update(thrust, &self.heightmap, &self.tracks);
+
+        // Update structures
+        let mut result = StructureUpdateResult::new();
         for (_, structure) in &mut self.structures {
-            structure.update(&mut self.credits);
+            let single_result = structure.update(&mut self.credits);
+            result.merge(single_result);
+        }
+
+        // Insert items by structures
+        for (belt_id, item) in result.insert_items {
+            if let Some(belt) = self.belts.belts.get_mut(&belt_id) {
+                println!("try_insert {item:?}");
+                belt.try_insert(item);
+            }
+        }
+
+        // Remove items by structures
+        for (belt_id, item) in result.remove_items {
+            if let Some(belt) = self.belts.belts.get_mut(&belt_id) {
+                // Find first item and remove it
+                if let Some((i, _)) = belt
+                    .items
+                    .iter()
+                    .enumerate()
+                    .find(|(_, (belt_item, _))| *belt_item == item)
+                {
+                    belt.items.remove(i);
+                }
+            }
+        }
+
+        // We cannot use iter_mut since we need random access.
+        // Technically, this logic depends on the order of inserting belts.
+        let num_belts = self.belts.belts.len();
+        for belt_id in 0..num_belts {
+            let Some(belt) = self.belts.belts.get_mut(&belt_id) else {
+                continue;
+            };
+            let res = belt.update();
+            for (dest_belt_id, item) in res.insert_items {
+                let Some(dest) = self.belts.belts.get_mut(&dest_belt_id) else {
+                    continue;
+                };
+                dest.try_insert(item);
+            }
         }
     }
 }
@@ -765,6 +884,10 @@ impl std::ops::Drop for TrainsApp {
         map.insert(
             HEIGHTMAP_KEY.to_string(),
             serde_json::to_value(&self.heightmap_params).unwrap(),
+        );
+        map.insert(
+            STRUCTURES_KEY.to_string(),
+            serde_json::to_value(&self.structures).unwrap(),
         );
         map.insert(
             BELTS_KEY.to_string(),
