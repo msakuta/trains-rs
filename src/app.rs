@@ -841,7 +841,6 @@ impl eframe::App for TrainsApp {
         // Insert items by structures
         for (belt_id, item) in result.insert_items {
             if let Some(belt) = self.belts.belts.get_mut(&belt_id) {
-                println!("try_insert {item:?}");
                 belt.try_insert(item);
             }
         }
@@ -861,20 +860,27 @@ impl eframe::App for TrainsApp {
             }
         }
 
-        // We cannot use iter_mut since we need random access.
-        // Technically, this logic depends on the order of inserting belts.
+        // We cannot use iter_mut since we need random access of the elements in belts to transfer items.
+        // Technically, this logic depends on the ordering of iteration, which depends on the hashmap.
+        // We may want stable order by using generational id arena.
         let num_belts = self.belts.belts.len();
         for belt_id in 0..num_belts {
             let Some(belt) = self.belts.belts.get_mut(&belt_id) else {
                 continue;
             };
             let res = belt.update();
+            let mut moved_items = 0;
             for (dest_belt_id, item) in res.insert_items {
                 let Some(dest) = self.belts.belts.get_mut(&dest_belt_id) else {
                     continue;
                 };
-                dest.try_insert(item);
+                moved_items += dest.try_insert(item) as usize;
             }
+            // Re-borrow the original belt
+            let Some(belt) = self.belts.belts.get_mut(&belt_id) else {
+                continue;
+            };
+            belt.post_update(moved_items);
         }
     }
 }

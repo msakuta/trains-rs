@@ -203,12 +203,11 @@ impl Belt {
     pub fn update(&mut self) -> StructureUpdateResult {
         let mut ret = StructureUpdateResult::new();
         let length = self.length();
-        let mut last_pos = length;
+        let mut last_pos = length + ITEM_INTERVAL;
         let mut remove_idx = None;
         // We could use retain_mut, but it would be more efficient to pop first n elements, since we know that
         // the elements are only removed from the front.
         for (i, (item, pos)) in self.items.iter_mut().enumerate() {
-            *pos = (*pos + BELT_SPEED).min(last_pos - ITEM_INTERVAL);
             if length < *pos + BELT_SPEED {
                 match self.end_con {
                     BeltConnection::BeltStart(belt_id) => {
@@ -222,6 +221,7 @@ impl Belt {
                     _ => {}
                 }
             }
+            *pos = (*pos + BELT_SPEED).min(last_pos - ITEM_INTERVAL);
             last_pos = *pos;
         }
 
@@ -229,6 +229,13 @@ impl Belt {
             self.items.pop_front();
         }
         ret
+    }
+
+    /// Attempt to remove items that were successfully deleted.
+    pub fn post_update(&mut self, num: usize) {
+        for _ in 0..num {
+            self.items.pop_front();
+        }
     }
 
     pub fn length(&self) -> f64 {
