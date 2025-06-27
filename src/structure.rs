@@ -7,7 +7,7 @@ use crate::vec2::Vec2;
 const ORE_MINE_CAPACITY: u32 = 100;
 const ORE_MINE_FREQUENCY: usize = 120;
 pub(crate) const MAX_BELT_LENGTH: f64 = 10.;
-const ITEM_INTERVAL: f64 = 1.0;
+pub(crate) const ITEM_INTERVAL: f64 = 1.0;
 const BELT_SPEED: f64 = 0.05; // length per tick
 
 pub(crate) type StructureId = usize;

@@ -16,7 +16,8 @@ use crate::{
     bg_image::BgImage,
     perlin_noise::Xorshift64Star,
     structure::{
-        BeltConnection, Belts, MAX_BELT_LENGTH, Structure, StructureId, StructureUpdateResult,
+        BeltConnection, Belts, ITEM_INTERVAL, MAX_BELT_LENGTH, Structure, StructureId,
+        StructureUpdateResult,
     },
     train::Train,
     train_tracks::{SelectedPathNode, Station, StationType, TrainTracks},
@@ -362,11 +363,12 @@ impl TrainsApp {
                                         }
                                     }
                                     // If we connect to a belt, we add a reference to the upstream belt.
-                                    BeltConnection::BeltEnd(start_belt) => {
-                                        if let Some(start_belt) =
-                                            self.belts.belts.get_mut(start_belt)
+                                    BeltConnection::BeltEnd(upstream_belt) => {
+                                        if let Some(upstream_belt) =
+                                            self.belts.belts.get_mut(upstream_belt)
                                         {
-                                            start_belt.start_con = BeltConnection::BeltEnd(belt_id);
+                                            upstream_belt.end_con =
+                                                BeltConnection::BeltStart(belt_id);
                                             println!("Added belt {belt_id} to upstream belt");
                                         }
                                     }
@@ -552,17 +554,25 @@ impl TrainsApp {
             );
         }
 
+        let scale = self.transform.scale();
         for belt in self.belts.belts.values() {
             let start = paint_transform.to_pos2(belt.start);
             let end = paint_transform.to_pos2(belt.end);
             painter.arrow(start, end - start, (2., Color32::BLUE));
 
-            let length = (belt.end - belt.start).length();
+            // Render items only when they are likely more than 1 pixels
+            if ITEM_INTERVAL < scale as f64 {
+                let length = (belt.end - belt.start).length();
 
-            for (_item, dist) in &mut belt.items.iter() {
-                let f = *dist / length;
-                let pos = belt.start * (1. - f) + belt.end * f;
-                painter.circle_filled(paint_transform.to_pos2(pos), 10., Color32::BLUE);
+                for (_item, dist) in &mut belt.items.iter() {
+                    let f = *dist / length;
+                    let pos = belt.start * (1. - f) + belt.end * f;
+                    painter.circle_filled(
+                        paint_transform.to_pos2(pos),
+                        (ITEM_INTERVAL * 0.5) as f32 * scale,
+                        Color32::BLUE,
+                    );
+                }
             }
         }
 
