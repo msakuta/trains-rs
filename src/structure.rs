@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use crate::vec2::Vec2;
 
 pub(crate) const STRUCTURE_SIZE: f64 = 2.;
+pub(crate) const STRUCTURE_INPUT_POS: Vec2 = Vec2::new(0., 1.);
+pub(crate) const STRUCTURE_OUTPUT_POS: Vec2 = Vec2::new(0., -1.);
 pub(crate) const ORE_MINE_CAPACITY: u32 = 10;
 const ORE_MINE_FREQUENCY: usize = 120;
 pub(crate) const INGOT_CAPACITY: u32 = 20;
@@ -178,15 +180,23 @@ impl Structures {
         }
     }
 
+    /// Find the structure or belt connection point that is close to the given position.
+    /// Structures have different positions for the input and the output, so the parameter `input` affects it.
     pub(crate) fn find_belt_con(
         &self,
         pos: Vec2<f64>,
         search_radius: f64,
+        input: bool,
     ) -> (BeltConnection, Vec2<f64>) {
         for (i, structure) in &self.structures {
-            let dist2 = (structure.pos - pos).length2();
+            let con_pos = if input {
+                structure.pos + STRUCTURE_INPUT_POS
+            } else {
+                structure.pos + STRUCTURE_OUTPUT_POS
+            };
+            let dist2 = (con_pos - pos).length2();
             if dist2 < search_radius.powi(2) {
-                return (BeltConnection::Structure(*i), structure.pos);
+                return (BeltConnection::Structure(*i), con_pos);
             }
         }
         for (i, belt) in &self.belts {

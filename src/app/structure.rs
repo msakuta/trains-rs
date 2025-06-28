@@ -1,8 +1,11 @@
 use eframe::egui::{Color32, Painter, Pos2, Rect, pos2, vec2};
 
 use crate::{
-    structure::{INGOT_CAPACITY, ORE_MINE_CAPACITY, STRUCTURE_SIZE, Structure, StructureType},
+    structure::{
+        BeltConnection, INGOT_CAPACITY, ORE_MINE_CAPACITY, STRUCTURE_SIZE, Structure, StructureType,
+    },
     transform::PaintTransform,
+    vec2::Vec2,
 };
 
 use super::TrainsApp;
@@ -22,15 +25,6 @@ impl TrainsApp {
             const BAR_HEIGHT: f32 = 5.;
             const BAR_STRIDE: f32 = 8.; // We want some gaps to differentiate them
             const BAR_OFFSET: f32 = 30.;
-            painter.rect_filled(
-                Rect::from_center_size(
-                    pos2(base_pos.x, base_pos.y + BAR_OFFSET),
-                    vec2(BAR_WIDTH, BAR_HEIGHT),
-                ),
-                0.,
-                Color32::BLACK,
-            );
-
             for (y, fullness, color) in [
                 (
                     0,
@@ -39,12 +33,16 @@ impl TrainsApp {
                 ),
                 (1, st.ingot as f32 / INGOT_CAPACITY as f32, Color32::GREEN),
             ] {
+                let y_pos = base_pos.y + BAR_OFFSET + y as f32 * BAR_STRIDE;
+                painter.rect_filled(
+                    Rect::from_center_size(pos2(base_pos.x, y_pos), vec2(BAR_WIDTH, BAR_HEIGHT)),
+                    0.,
+                    Color32::BLACK,
+                );
+
                 painter.rect_filled(
                     Rect::from_min_size(
-                        pos2(
-                            base_pos.x - BAR_WIDTH / 2.,
-                            base_pos.y + BAR_OFFSET - BAR_HEIGHT / 2. + y as f32 * BAR_STRIDE,
-                        ),
+                        pos2(base_pos.x - BAR_WIDTH / 2., y_pos - BAR_HEIGHT / 2.),
                         vec2(fullness * BAR_WIDTH, BAR_HEIGHT),
                     ),
                     0.,
@@ -92,5 +90,11 @@ impl TrainsApp {
                 color,
             );
         }
+    }
+
+    pub(super) fn find_belt_con(&self, pos: Vec2, input: bool) -> (BeltConnection, Vec2) {
+        const SELECT_THRESHOLD: f64 = 10.;
+        self.structures
+            .find_belt_con(pos, SELECT_THRESHOLD / self.transform.scale() as f64, input)
     }
 }

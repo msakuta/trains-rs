@@ -213,12 +213,6 @@ impl TrainsApp {
         }
     }
 
-    fn find_belt_con(&self, pos: Vec2<f64>) -> (BeltConnection, Vec2<f64>) {
-        const SELECT_THRESHOLD: f64 = 10.;
-        self.structures
-            .find_belt_con(pos, SELECT_THRESHOLD / self.transform.scale() as f64)
-    }
-
     fn render(&mut self, ui: &mut Ui) {
         let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::click());
 
@@ -320,7 +314,7 @@ impl TrainsApp {
                     ClickMode::ConnectBelt => {
                         let pos = paint_transform.from_pos2(pointer);
                         if let Some((start_con, start_pos)) = &self.belt_connection {
-                            let (end_con, end_pos) = dbg!(self.find_belt_con(pos));
+                            let (end_con, end_pos) = self.find_belt_con(pos, true);
                             // Disallow connection to itself and end-to-end
                             if !matches!(end_con, BeltConnection::BeltEnd(_))
                                 && !matches!((end_con, start_con), (BeltConnection::Structure(eid), BeltConnection::Structure(sid)) if eid == *sid)
@@ -353,7 +347,7 @@ impl TrainsApp {
                                 self.belt_connection = None;
                             }
                         } else {
-                            self.belt_connection = Some(self.find_belt_con(pos));
+                            self.belt_connection = Some(self.find_belt_con(pos, false));
                         }
                     }
                 }
@@ -465,8 +459,8 @@ impl TrainsApp {
             ClickMode::ConnectBelt => {
                 if let Some(pointer) = response.hover_pos() {
                     let pos = paint_transform.from_pos2(pointer);
-                    let (end_con, end_pos) = self.find_belt_con(pos);
                     if let Some((start_con, start_pos)) = &self.belt_connection {
+                        let (end_con, end_pos) = self.find_belt_con(pos, true);
                         if matches!(end_con, BeltConnection::Structure(_)) && end_con != *start_con
                         {
                             painter.rect_filled(
@@ -490,7 +484,9 @@ impl TrainsApp {
                             ],
                             (2., color),
                         );
-                    } else if matches!(end_con, BeltConnection::Structure(_)) {
+                    } else if let (BeltConnection::Structure(_), end_pos) =
+                        self.find_belt_con(pos, false)
+                    {
                         painter.rect_filled(
                             Rect::from_center_size(
                                 paint_transform.to_pos2(end_pos),
