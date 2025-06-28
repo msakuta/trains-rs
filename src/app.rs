@@ -35,7 +35,6 @@ const TRAIN_KEY: &str = "train";
 const TRACKS_KEY: &str = "train_tracks";
 const HEIGHTMAP_KEY: &str = "heightmap";
 const STRUCTURES_KEY: &str = "structures";
-const BELTS_KEY: &str = "belts";
 const CREDITS_KEY: &str = "credits";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -251,6 +250,28 @@ impl TrainsApp {
             })
         };
 
+        const MAX_SLOPE: f64 = 0.1;
+
+        // Checks if the line segment between start_pos and end_pos has a point that exceeds maximum slope.
+        let exceeds_slope = |start_pos: Vec2, end_pos: Vec2, heightmap: &HeightMap| {
+            let interpolations = (start_pos.x - end_pos.x)
+                .abs()
+                .ceil()
+                .max((start_pos.y - end_pos.y).abs().ceil())
+                as usize;
+            println!(
+                "Max grad: {}",
+                (0..interpolations).fold(0.0f64, |acc, i| {
+                    let pos = start_pos.lerp(end_pos, i as f64 / interpolations as f64);
+                    acc.max(heightmap.gradient(&pos).length())
+                })
+            );
+            (0..interpolations).any(|i| {
+                let pos = start_pos.lerp(end_pos, i as f64 / interpolations as f64);
+                MAX_SLOPE.powi(2) < heightmap.gradient(&pos).length2()
+            })
+        };
+
         if response.clicked() {
             if let Some(pointer) = response.interact_pointer_pos() {
                 match self.click_mode {
@@ -357,6 +378,11 @@ impl TrainsApp {
                             if intersects_water(*start_pos, end_pos, &self.heightmap) {
                                 self.error_msg =
                                     Some(("Belt is intersecting water".to_string(), 10.));
+                                break 'out;
+                            }
+                            if exceeds_slope(*start_pos, end_pos, &self.heightmap) {
+                                self.error_msg =
+                                    Some(("Belt is exceeding maximum slope".to_string(), 10.));
                                 break 'out;
                             }
                             let belt_id = self
@@ -515,6 +541,7 @@ impl TrainsApp {
                         }
                         let color = if (end_pos - *start_pos).length2() < MAX_BELT_LENGTH.powi(2)
                             && !intersects_water(*start_pos, end_pos, &self.heightmap)
+                            && !exceeds_slope(*start_pos, end_pos, &self.heightmap)
                         {
                             Color32::from_rgba_premultiplied(127, 0, 255, 191)
                         } else {
