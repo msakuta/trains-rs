@@ -17,9 +17,7 @@ use self::{
 use crate::{
     bg_image::BgImage,
     perlin_noise::Xorshift64Star,
-    structure::{
-        BeltConnection, ITEM_INTERVAL, MAX_BELT_LENGTH, Structure, StructureType, Structures,
-    },
+    structure::{BeltConnection, MAX_BELT_LENGTH, Structure, StructureType, Structures},
     train::Train,
     train_tracks::{SelectedPathNode, Station, StationType, TrainTracks},
     transform::{PaintTransform, Transform, half_rect},
@@ -530,27 +528,7 @@ impl TrainsApp {
             );
         }
 
-        let scale = self.transform.scale();
-        for belt in self.structures.belts.values() {
-            let start = paint_transform.to_pos2(belt.start);
-            let end = paint_transform.to_pos2(belt.end);
-            painter.arrow(start, end - start, (2., Color32::BLUE));
-
-            // Render items only when they are likely more than 1 pixels
-            if ITEM_INTERVAL < scale as f64 {
-                let length = (belt.end - belt.start).length();
-
-                for (_item, dist) in &mut belt.items.iter() {
-                    let f = *dist / length;
-                    let pos = belt.start * (1. - f) + belt.end * f;
-                    painter.circle_filled(
-                        paint_transform.to_pos2(pos),
-                        (ITEM_INTERVAL * 0.5) as f32 * scale,
-                        Color32::BLUE,
-                    );
-                }
-            }
-        }
+        self.render_belts(&painter, &paint_transform);
 
         for station in self.tracks.stations.values() {
             // let i_ptr = &*station.borrow() as *const _;

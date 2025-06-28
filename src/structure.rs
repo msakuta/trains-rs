@@ -97,6 +97,14 @@ impl Structure {
                 } else {
                     self.cooldown = self.cooldown.saturating_sub(1);
                 }
+
+                if 0 < self.ingot {
+                    if let Some(belt_id) = self.output_belts.iter().next() {
+                        ret.insert_items
+                            .push((StructureOrBelt::Belt(*belt_id), Item::Ingot));
+                    }
+                    self.ingot -= 1;
+                }
             }
             StructureType::Sink => {
                 if self.cooldown == 0 && 0 < self.ingot {

@@ -1,8 +1,9 @@
-use eframe::egui::{Color32, Painter, Pos2, Rect, pos2, vec2};
+use eframe::egui::{self, Color32, Painter, Pos2, Rect, pos2, vec2};
 
 use crate::{
     structure::{
-        BeltConnection, INGOT_CAPACITY, ORE_MINE_CAPACITY, STRUCTURE_SIZE, Structure, StructureType,
+        BeltConnection, INGOT_CAPACITY, ITEM_INTERVAL, Item, ORE_MINE_CAPACITY, STRUCTURE_SIZE,
+        Structure, StructureType,
     },
     transform::PaintTransform,
     vec2::Vec2,
@@ -56,6 +57,44 @@ impl TrainsApp {
         if 2. < self.transform.scale() {
             for (_, structure) in &self.structures.structures {
                 paint_bar(structure);
+            }
+        }
+    }
+
+    pub(super) fn render_belts(&self, painter: &Painter, paint_transform: &PaintTransform) {
+        let scale = self.transform.scale();
+        for belt in self.structures.belts.values() {
+            let start = paint_transform.to_pos2(belt.start);
+            let end = paint_transform.to_pos2(belt.end);
+            painter.arrow(start, end - start, (2., Color32::BLUE));
+
+            // Render items only when they are likely more than 1 pixels
+            if ITEM_INTERVAL < scale as f64 {
+                let length = (belt.end - belt.start).length();
+
+                for (item, dist) in &mut belt.items.iter() {
+                    let f = *dist / length;
+                    let pos = belt.start * (1. - f) + belt.end * f;
+                    match item {
+                        Item::IronOre => {
+                            painter.circle_filled(
+                                paint_transform.to_pos2(pos),
+                                (ITEM_INTERVAL * 0.5) as f32 * scale,
+                                Color32::BLUE,
+                            );
+                        }
+                        Item::Ingot => {
+                            painter.rect_filled(
+                                Rect::from_center_size(
+                                    paint_transform.to_pos2(pos),
+                                    egui::Vec2::splat((ITEM_INTERVAL * 0.75) as f32 * scale),
+                                ),
+                                0.,
+                                Color32::BLUE,
+                            );
+                        }
+                    }
+                }
             }
         }
     }
