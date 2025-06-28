@@ -3,7 +3,7 @@ use eframe::egui::{self, Color32, Painter, Pos2, Rect, pos2, vec2};
 use crate::{
     structure::{
         BeltConnection, INGOT_CAPACITY, ITEM_INTERVAL, Item, ORE_MINE_CAPACITY, STRUCTURE_SIZE,
-        Structure, StructureType,
+        Structure, StructureOrBelt, StructureType,
     },
     transform::PaintTransform,
     vec2::Vec2,
@@ -12,6 +12,7 @@ use crate::{
 use super::TrainsApp;
 
 pub(super) const STRUCTURE_ICON_SIZE: f32 = 10.;
+const SELECT_THRESHOLD: f64 = 10.;
 
 impl TrainsApp {
     pub(super) fn render_structures(&self, painter: &Painter, paint_transform: &PaintTransform) {
@@ -132,8 +133,37 @@ impl TrainsApp {
     }
 
     pub(super) fn find_belt_con(&self, pos: Vec2, input: bool) -> (BeltConnection, Vec2) {
-        const SELECT_THRESHOLD: f64 = 10.;
-        self.structures
-            .find_belt_con(pos, SELECT_THRESHOLD / self.transform.scale() as f64, input)
+        self.structures.find_belt_con(
+            pos,
+            (SELECT_THRESHOLD / self.transform.scale() as f64).powi(2),
+            input,
+        )
+    }
+
+    pub(super) fn preview_delete_structure(
+        &self,
+        pointer: Pos2,
+        painter: &Painter,
+        paint_transform: &PaintTransform,
+    ) {
+        let pos = paint_transform.from_pos2(pointer);
+        let search_radius = SELECT_THRESHOLD / self.transform.scale() as f64;
+        if let Some(id) = self.structures.preview_delete(pos, search_radius) {
+            match id {
+                StructureOrBelt::Structure(id) => {
+                    if let Some(st) = self.structures.structures.get(&id) {
+                        let pos = paint_transform.to_pos2(st.pos);
+                        Self::render_structure(pos, true, st.ty, painter, paint_transform);
+                    }
+                }
+                StructureOrBelt::Belt(id) => {
+                    if let Some(belt) = self.structures.belts.get(&id) {
+                        let start = paint_transform.to_pos2(belt.start);
+                        let end = paint_transform.to_pos2(belt.end);
+                        painter.arrow(start, end - start, (4., Color32::from_rgb(255, 0, 255)));
+                    }
+                }
+            }
+        }
     }
 }

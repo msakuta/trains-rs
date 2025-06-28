@@ -19,7 +19,7 @@ use crate::{
     perlin_noise::Xorshift64Star,
     structure::{BeltConnection, MAX_BELT_LENGTH, Structure, StructureType, Structures},
     train::Train,
-    train_tracks::{SelectedPathNode, Station, StationType, TrainTracks},
+    train_tracks::{ConnectPoint, SelectedPathNode, Station, StationType, TrainTracks},
     transform::{PaintTransform, Transform, half_rect},
     vec2::Vec2,
 };
@@ -48,6 +48,7 @@ enum ClickMode {
     AddStation,
     AddSmelter,
     ConnectBelt,
+    DeleteStructure,
 }
 
 pub(crate) struct TrainsApp {
@@ -348,6 +349,12 @@ impl TrainsApp {
                             self.belt_connection = Some(self.find_belt_con(pos, false));
                         }
                     }
+                    ClickMode::DeleteStructure => {
+                        const SELECT_THRESHOLD: f64 = 10.;
+                        let pos = paint_transform.from_pos2(pointer);
+                        self.structures
+                            .delete(pos, SELECT_THRESHOLD / self.transform.scale() as f64);
+                    }
                 }
             }
         }
@@ -494,6 +501,11 @@ impl TrainsApp {
                             Color32::from_rgb(255, 127, 191),
                         );
                     }
+                }
+            }
+            ClickMode::DeleteStructure => {
+                if let Some(pointer) = response.hover_pos() {
+                    self.preview_delete_structure(pointer, &painter, &paint_transform);
                 }
             }
         }
@@ -691,6 +703,11 @@ impl TrainsApp {
             ui.radio_value(&mut self.click_mode, ClickMode::AddStation, "Add Station");
             ui.radio_value(&mut self.click_mode, ClickMode::AddSmelter, "Add Smelter");
             ui.radio_value(&mut self.click_mode, ClickMode::ConnectBelt, "Connect Belt");
+            ui.radio_value(
+                &mut self.click_mode,
+                ClickMode::DeleteStructure,
+                "Delete Structures",
+            );
             if !matches!(self.click_mode, ClickMode::ConnectBelt) {
                 self.belt_connection = None;
             }

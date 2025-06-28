@@ -340,6 +340,52 @@ impl Structures {
             belt.post_update(moved_items);
         }
     }
+
+    pub(crate) fn preview_delete(&self, pos: Vec2, search_radius: f64) -> Option<StructureOrBelt> {
+        let search_radius2 = search_radius.powi(2);
+        if let Some(id) = self.structures.iter().find_map(|(id, st)| {
+            if (st.pos - pos).length2() < search_radius2 {
+                Some(*id)
+            } else {
+                None
+            }
+        }) {
+            return Some(StructureOrBelt::Structure(id));
+        }
+
+        if let Some(id) = self.belts.iter().find_map(|(id, belt)| {
+            let delta = belt.end - belt.start;
+            let length = delta.length();
+            let parallel = delta / length;
+            let perp = parallel.left90();
+            // s and t coordinates are along the belt and its perpendicular axis, respectively.
+            let s = parallel.dot(pos - belt.start);
+            let t = perp.dot(pos - belt.start);
+            if 0. < s && s < length && t.abs() < search_radius {
+                Some(*id)
+            } else {
+                None
+            }
+        }) {
+            return Some(StructureOrBelt::Belt(id));
+        }
+
+        None
+    }
+
+    pub(crate) fn delete(&mut self, pos: Vec2, search_radius: f64) {
+        let Some(found) = self.preview_delete(pos, search_radius) else {
+            return;
+        };
+        match found {
+            StructureOrBelt::Structure(id) => {
+                self.structures.remove(&id);
+            }
+            StructureOrBelt::Belt(id) => {
+                self.belts.remove(&id);
+            }
+        }
+    }
 }
 
 pub(crate) type BeltId = usize;
