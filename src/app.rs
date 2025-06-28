@@ -36,6 +36,7 @@ const TRACKS_KEY: &str = "train_tracks";
 const HEIGHTMAP_KEY: &str = "heightmap";
 const STRUCTURES_KEY: &str = "structures";
 const BELTS_KEY: &str = "belts";
+const CREDITS_KEY: &str = "credits";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ClickMode {
@@ -79,103 +80,45 @@ impl TrainsApp {
     pub fn new() -> Self {
         let contour_grid_step = DOWNSAMPLE;
 
-        let (train, tracks, heightmap_params, heightmap, structures) =
-            std::fs::File::open(TRAIN_JSON)
-                .and_then(|train_json| {
-                    let mut value: serde_json::Value =
-                        serde_json::from_reader(std::io::BufReader::new(train_json))
-                            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-                    let train_value = value
-                        .get_mut(TRAIN_KEY)
-                        .ok_or_else(|| {
-                            std::io::Error::new(std::io::ErrorKind::Other, "train doesn't exist")
-                        })?
-                        .take();
-                    let train: Train = serde_json::from_value(train_value)
-                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let (train, tracks, heightmap_params, heightmap, structures, credits) = Self::deserialize()
+            .unwrap_or_else(|e| {
+                eprintln!("Failed to load train data, falling back to default: {e}");
+                let heightmap_params = HeightMapParams::new();
 
-                    let tracks_value = value
-                        .get_mut(TRACKS_KEY)
-                        .ok_or_else(|| {
-                            std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                "train_track doesn't exist",
-                            )
-                        })?
-                        .take();
+                // Fall back to the default params if the heightmap failed to generate with the params
+                let heightmap = HeightMap::new(&heightmap_params)
+                    .or_else(|_| HeightMap::new(&HeightMapParams::new()))
+                    .unwrap();
 
-                    let tracks: TrainTracks = serde_json::from_value(tracks_value)
-                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-
-                    let heightmap_value = value
-                        .get_mut(HEIGHTMAP_KEY)
-                        .ok_or_else(|| {
-                            std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                format!("{HEIGHTMAP_KEY}  doesn't exist"),
-                            )
-                        })?
-                        .take();
-
-                    let heightmap_params: HeightMapParams = serde_json::from_value(heightmap_value)
-                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-
-                    // Fall back to the default params if the heightmap failed to generate with the params
-                    let heightmap = HeightMap::new(&heightmap_params)
-                        .or_else(|_| HeightMap::new(&HeightMapParams::new()))
-                        .unwrap();
-
-                    let structures: Structures = serde_json::from_value(
-                        value
-                            .get_mut(STRUCTURES_KEY)
-                            .ok_or_else(|| {
-                                std::io::Error::new(
-                                    std::io::ErrorKind::Other,
-                                    "structures doesn't exist",
-                                )
-                            })?
-                            .take(),
-                    )?;
-
-                    Ok((train, tracks, heightmap_params, heightmap, structures))
-                })
-                .unwrap_or_else(|e| {
-                    eprintln!("Failed to load train data, falling back to default: {e}");
-                    let heightmap_params = HeightMapParams::new();
-
-                    // Fall back to the default params if the heightmap failed to generate with the params
-                    let heightmap = HeightMap::new(&heightmap_params)
-                        .or_else(|_| HeightMap::new(&HeightMapParams::new()))
-                        .unwrap();
-
-                    let mut rng = Xorshift64Star::new(40925612);
-                    let structures = (0..10)
-                        .filter_map(|i| {
-                            let x = rng.next() * heightmap_params.width as f64;
-                            let y = rng.next() * heightmap_params.height as f64;
-                            let pos = Vec2::new(x, y);
-                            if heightmap.is_water(&pos) {
-                                None
-                            } else {
-                                Some((
-                                    i,
-                                    if i % 2 == 0 {
-                                        Structure::new_ore_mine(pos)
-                                    } else {
-                                        Structure::new_sink(pos)
-                                    },
-                                ))
-                            }
-                        })
-                        .collect();
-                    (
-                        Train::new(),
-                        TrainTracks::new(),
-                        heightmap_params,
-                        heightmap,
-                        Structures::new(structures),
-                    )
-                });
+                let mut rng = Xorshift64Star::new(40925612);
+                let structures = (0..10)
+                    .filter_map(|i| {
+                        let x = rng.next() * heightmap_params.width as f64;
+                        let y = rng.next() * heightmap_params.height as f64;
+                        let pos = Vec2::new(x, y);
+                        if heightmap.is_water(&pos) {
+                            None
+                        } else {
+                            Some((
+                                i,
+                                if i % 2 == 0 {
+                                    Structure::new_ore_mine(pos)
+                                } else {
+                                    Structure::new_sink(pos)
+                                },
+                            ))
+                        }
+                    })
+                    .collect();
+                (
+                    Train::new(),
+                    TrainTracks::new(),
+                    heightmap_params,
+                    heightmap,
+                    Structures::new(structures),
+                    0,
+                )
+            });
 
         let contours_cache = heightmap.cache_contours(contour_grid_step);
 
@@ -199,9 +142,75 @@ impl TrainsApp {
             new_station: "New Station".to_string(),
             station_type: StationType::Loading,
             structures,
-            credits: 0,
+            credits,
             error_msg: None,
         }
+    }
+
+    fn deserialize() -> Result<
+        (
+            Train,
+            TrainTracks,
+            HeightMapParams,
+            HeightMap,
+            Structures,
+            u32,
+        ),
+        String,
+    > {
+        let train_json = std::fs::File::open(TRAIN_JSON).map_err(|e| e.to_string())?;
+        let mut value: serde_json::Value =
+            serde_json::from_reader(std::io::BufReader::new(train_json))
+                .map_err(|e| e.to_string())?;
+        let train_value = value
+            .get_mut(TRAIN_KEY)
+            .ok_or_else(|| "train doesn't exist".to_string())?
+            .take();
+        let train: Train = serde_json::from_value(train_value).map_err(|e| e.to_string())?;
+
+        let tracks_value = value
+            .get_mut(TRACKS_KEY)
+            .ok_or_else(|| "train_track doesn't exist".to_string())?
+            .take();
+
+        let tracks: TrainTracks =
+            serde_json::from_value(tracks_value).map_err(|e| e.to_string())?;
+
+        let heightmap_value = value
+            .get_mut(HEIGHTMAP_KEY)
+            .ok_or_else(|| format!("{HEIGHTMAP_KEY}  doesn't exist"))?
+            .take();
+
+        let heightmap_params: HeightMapParams =
+            serde_json::from_value(heightmap_value).map_err(|e| e.to_string())?;
+
+        // Fall back to the default params if the heightmap failed to generate with the params
+        let heightmap = HeightMap::new(&heightmap_params)
+            .or_else(|_| HeightMap::new(&HeightMapParams::new()))
+            .unwrap();
+
+        let structures: Structures = serde_json::from_value(
+            value
+                .get_mut(STRUCTURES_KEY)
+                .ok_or_else(|| "structures doesn't exist".to_string())?
+                .take(),
+        )
+        .map_err(|e| e.to_string())?;
+
+        let credits = value
+            .get(CREDITS_KEY)
+            .ok_or_else(|| "credits doesn't exist".to_string())?
+            .as_u64()
+            .ok_or_else(|| "credits is not a number".to_string())? as u32;
+
+        Ok((
+            train,
+            tracks,
+            heightmap_params,
+            heightmap,
+            structures,
+            credits,
+        ))
     }
 
     fn process_result(&mut self, pos: Vec2<f64>, res: Result<(), String>) {
@@ -858,8 +867,8 @@ impl std::ops::Drop for TrainsApp {
             serde_json::to_value(&self.structures).unwrap(),
         );
         map.insert(
-            BELTS_KEY.to_string(),
-            serde_json::to_value(&self.structures).unwrap(),
+            CREDITS_KEY.to_string(),
+            serde_json::Value::Number(self.credits.into()),
         );
         let _ = serde_json::to_writer_pretty(
             std::io::BufWriter::new(std::fs::File::create(TRAIN_JSON).unwrap()),
