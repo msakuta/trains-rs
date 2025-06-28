@@ -190,7 +190,7 @@ impl TrainsApp {
             show_grid: false,
             use_cached_contours: true,
             show_debug_slope: false,
-            focus_on_train: true,
+            focus_on_train: false,
             click_mode: ClickMode::None,
             belt_connection: None,
             tracks,
