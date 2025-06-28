@@ -19,7 +19,7 @@ use crate::{
     perlin_noise::Xorshift64Star,
     structure::{BeltConnection, MAX_BELT_LENGTH, Structure, StructureType, Structures},
     train::Train,
-    train_tracks::{ConnectPoint, SelectedPathNode, Station, StationType, TrainTracks},
+    train_tracks::{SelectedPathNode, Station, StationType, TrainTracks},
     transform::{PaintTransform, Transform, half_rect},
     vec2::Vec2,
 };
@@ -230,6 +230,18 @@ impl TrainsApp {
 
         let thresh = SELECT_PIXEL_RADIUS / self.transform.scale() as f64;
 
+        let intersects_water = |start_pos: Vec2, end_pos: Vec2, heightmap: &HeightMap| {
+            let interpolations = (start_pos.x - end_pos.x)
+                .abs()
+                .ceil()
+                .max((start_pos.y - end_pos.y).abs().ceil())
+                as usize;
+            (0..interpolations).any(|i| {
+                let pos = start_pos.lerp(end_pos, i as f64 / interpolations as f64);
+                heightmap.is_water(&pos)
+            })
+        };
+
         if response.clicked() {
             if let Some(pointer) = response.interact_pointer_pos() {
                 match self.click_mode {
@@ -310,41 +322,56 @@ impl TrainsApp {
                         let pos = paint_transform.from_pos2(pointer);
                         self.structures.add_structure(Structure::new_smelter(pos));
                     }
-                    ClickMode::ConnectBelt => {
+                    ClickMode::ConnectBelt => 'out: {
                         let pos = paint_transform.from_pos2(pointer);
                         if let Some((start_con, start_pos)) = &self.belt_connection {
                             let (end_con, end_pos) = self.find_belt_con(pos, true);
                             // Disallow connection to itself and end-to-end
-                            if !matches!(end_con, BeltConnection::BeltEnd(_))
-                                && !matches!((end_con, start_con), (BeltConnection::Structure(eid), BeltConnection::Structure(sid)) if eid == *sid)
-                                && dbg!((end_pos - *start_pos).length2()) < MAX_BELT_LENGTH.powi(2)
-                            {
-                                let belt_id = self
-                                    .structures
-                                    .add_belt(*start_pos, *start_con, end_pos, end_con);
-                                match start_con {
-                                    BeltConnection::Structure(start_st) => {
-                                        if let Some(st) =
-                                            self.structures.structures.get_mut(start_st)
-                                        {
-                                            st.output_belts.insert(belt_id);
-                                            println!("Added belt {belt_id} to output_belts");
-                                        }
-                                    }
-                                    // If we connect to a belt, we add a reference to the upstream belt.
-                                    BeltConnection::BeltEnd(upstream_belt) => {
-                                        if let Some(upstream_belt) =
-                                            self.structures.belts.get_mut(upstream_belt)
-                                        {
-                                            upstream_belt.end_con =
-                                                BeltConnection::BeltStart(belt_id);
-                                            println!("Added belt {belt_id} to upstream belt");
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                                self.belt_connection = None;
+                            if matches!(end_con, BeltConnection::BeltEnd(_)) {
+                                self.error_msg = Some((
+                                    "You cannot connect the end of a belt to another end"
+                                        .to_string(),
+                                    10.,
+                                ));
+                                break 'out;
                             }
+                            if matches!((end_con, start_con), (BeltConnection::Structure(eid), BeltConnection::Structure(sid)) if eid == *sid)
+                            {
+                                self.error_msg =
+                                    Some(("You cannot connect a belt itself".to_string(), 10.));
+                                break 'out;
+                            }
+                            if MAX_BELT_LENGTH.powi(2) <= (end_pos - *start_pos).length2() {
+                                self.error_msg = Some(("Belt is too long".to_string(), 10.));
+                                break 'out;
+                            }
+                            if intersects_water(*start_pos, end_pos, &self.heightmap) {
+                                self.error_msg =
+                                    Some(("Belt is intersecting water".to_string(), 10.));
+                                break 'out;
+                            }
+                            let belt_id = self
+                                .structures
+                                .add_belt(*start_pos, *start_con, end_pos, end_con);
+                            match start_con {
+                                BeltConnection::Structure(start_st) => {
+                                    if let Some(st) = self.structures.structures.get_mut(start_st) {
+                                        st.output_belts.insert(belt_id);
+                                        println!("Added belt {belt_id} to output_belts");
+                                    }
+                                }
+                                // If we connect to a belt, we add a reference to the upstream belt.
+                                BeltConnection::BeltEnd(upstream_belt) => {
+                                    if let Some(upstream_belt) =
+                                        self.structures.belts.get_mut(upstream_belt)
+                                    {
+                                        upstream_belt.end_con = BeltConnection::BeltStart(belt_id);
+                                        println!("Added belt {belt_id} to upstream belt");
+                                    }
+                                }
+                                _ => {}
+                            }
+                            self.belt_connection = None;
                         } else {
                             self.belt_connection = Some(self.find_belt_con(pos, false));
                         }
@@ -477,7 +504,9 @@ impl TrainsApp {
                                 Color32::from_rgb(255, 127, 191),
                             );
                         }
-                        let color = if (end_pos - *start_pos).length2() < MAX_BELT_LENGTH.powi(2) {
+                        let color = if (end_pos - *start_pos).length2() < MAX_BELT_LENGTH.powi(2)
+                            && !intersects_water(*start_pos, end_pos, &self.heightmap)
+                        {
                             Color32::from_rgba_premultiplied(127, 0, 255, 191)
                         } else {
                             Color32::RED

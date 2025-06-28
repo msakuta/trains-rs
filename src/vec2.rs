@@ -111,6 +111,10 @@ impl Vec2<f64> {
     pub fn zero() -> Self {
         Self { x: 0., y: 0. }
     }
+
+    pub fn lerp(&self, rhs: Self, f: f64) -> Self {
+        *self * (1. - f) + rhs * f
+    }
 }
 
 impl<T> From<[T; 2]> for Vec2<T> {

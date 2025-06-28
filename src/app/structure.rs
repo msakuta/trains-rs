@@ -133,11 +133,8 @@ impl TrainsApp {
     }
 
     pub(super) fn find_belt_con(&self, pos: Vec2, input: bool) -> (BeltConnection, Vec2) {
-        self.structures.find_belt_con(
-            pos,
-            (SELECT_THRESHOLD / self.transform.scale() as f64).powi(2),
-            input,
-        )
+        self.structures
+            .find_belt_con(pos, SELECT_THRESHOLD / self.transform.scale() as f64, input)
     }
 
     pub(super) fn preview_delete_structure(
