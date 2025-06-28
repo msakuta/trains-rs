@@ -10,7 +10,7 @@ pub(crate) const STRUCTURE_OUTPUT_POS: Vec2 = Vec2::new(0., -1.);
 pub(crate) const ORE_MINE_CAPACITY: u32 = 10;
 const ORE_MINE_FREQUENCY: usize = 120;
 pub(crate) const INGOT_CAPACITY: u32 = 20;
-pub(crate) const MAX_BELT_LENGTH: f64 = 10.;
+pub(crate) const MAX_BELT_LENGTH: f64 = 20.;
 pub(crate) const ITEM_INTERVAL: f64 = 1.0;
 const BELT_SPEED: f64 = 0.05; // length per tick
 

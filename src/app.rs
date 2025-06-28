@@ -736,6 +736,7 @@ impl TrainsApp {
                 "Total transported items: {}",
                 self.train.total_transported
             ));
+            ui.label(format!("Credits: {}", self.credits));
         });
     }
 }
