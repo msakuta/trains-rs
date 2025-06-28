@@ -14,8 +14,8 @@ use crate::{
     bg_image::BgImage,
     perlin_noise::Xorshift64Star,
     structure::{
-        BeltConnection, INGOT_CAPACITY, ITEM_INTERVAL, Item, MAX_BELT_LENGTH, ORE_MINE_CAPACITY,
-        STRUCTURE_SIZE, Structure, StructureOrBelt, StructureType, Structures,
+        BeltConnection, INGOT_CAPACITY, ITEM_INTERVAL, MAX_BELT_LENGTH, ORE_MINE_CAPACITY,
+        STRUCTURE_SIZE, Structure, StructureType, Structures,
     },
     train::Train,
     train_tracks::{SelectedPathNode, Station, StationType, TrainTracks},
@@ -878,106 +878,7 @@ impl eframe::App for TrainsApp {
 
         self.train.update(thrust, &self.heightmap, &self.tracks);
 
-        // Update structures
-        let st_ids = self
-            .structures
-            .structures
-            .keys()
-            .copied()
-            .collect::<Vec<_>>();
-        for id in st_ids {
-            let Some(st) = self.structures.structures.get_mut(&id) else {
-                continue;
-            };
-            let result = st.update(&mut self.credits);
-
-            // Insert items by structures
-            let mut moved_iron_ores = 0;
-            let mut moved_ingots = 0;
-            for (dest_id, item) in result.insert_items {
-                match dest_id {
-                    StructureOrBelt::Belt(belt_id) => {
-                        if let Some(belt) = self.structures.belts.get_mut(&belt_id) {
-                            if belt.try_insert(item) {
-                                match item {
-                                    Item::IronOre => moved_iron_ores += 1,
-                                    Item::Ingot => moved_ingots += 1,
-                                }
-                            }
-                        }
-                    }
-                    StructureOrBelt::Structure(st_id) => {
-                        if let Some(st) = self.structures.structures.get_mut(&st_id) {
-                            if st.try_insert(item) {
-                                match item {
-                                    Item::IronOre => moved_iron_ores += 1,
-                                    Item::Ingot => moved_ingots += 1,
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Remove items by structures
-            for (dest_id, item) in result.remove_items {
-                match dest_id {
-                    StructureOrBelt::Belt(belt_id) => {
-                        if let Some(belt) = self.structures.belts.get_mut(&belt_id) {
-                            belt.post_update(1);
-                        }
-                    }
-                    StructureOrBelt::Structure(st_id) => {
-                        if let Some(st) = self.structures.structures.get_mut(&st_id) {
-                            match item {
-                                Item::IronOre => st.post_update(1, 0),
-                                Item::Ingot => st.post_update(0, 1),
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Re-borrow the original structure
-            let Some(st) = self.structures.structures.get_mut(&id) else {
-                continue;
-            };
-            st.post_update(moved_iron_ores, moved_ingots);
-        }
-
-        // We cannot use iter_mut since we need random access of the elements in belts to transfer items.
-        // Technically, this logic depends on the ordering of iteration, which depends on the hashmap.
-        // We also need to store the keys into a temporary container to avoid borrow checker, which is not great
-        // for performance.
-        // We may want stable order by using generational id arena.
-        let belt_ids = self.structures.belts.keys().copied().collect::<Vec<_>>();
-        for belt_id in belt_ids {
-            let Some(belt) = self.structures.belts.get_mut(&belt_id) else {
-                continue;
-            };
-            let res = belt.update();
-            let mut moved_items = 0;
-            for (dest_id, item) in res.insert_items {
-                match dest_id {
-                    StructureOrBelt::Belt(dest_belt_id) => {
-                        let Some(dest) = self.structures.belts.get_mut(&dest_belt_id) else {
-                            continue;
-                        };
-                        moved_items += dest.try_insert(item) as usize;
-                    }
-                    StructureOrBelt::Structure(dest_st_id) => {
-                        if let Some(dest) = self.structures.structures.get_mut(&dest_st_id) {
-                            moved_items += dest.try_insert(item) as usize;
-                        }
-                    }
-                }
-            }
-            // Re-borrow the original belt
-            let Some(belt) = self.structures.belts.get_mut(&belt_id) else {
-                continue;
-            };
-            belt.post_update(moved_items);
-        }
+        self.structures.update(&mut self.credits);
     }
 }
 
