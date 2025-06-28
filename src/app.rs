@@ -15,7 +15,7 @@ use crate::{
     perlin_noise::Xorshift64Star,
     structure::{
         BeltConnection, INGOT_CAPACITY, ITEM_INTERVAL, Item, MAX_BELT_LENGTH, ORE_MINE_CAPACITY,
-        Structure, StructureOrBelt, StructureType, StructureUpdateResult, Structures,
+        STRUCTURE_SIZE, Structure, StructureOrBelt, StructureType, Structures,
     },
     train::Train,
     train_tracks::{SelectedPathNode, Station, StationType, TrainTracks},
@@ -29,7 +29,7 @@ pub(crate) const AREA_HEIGHT: usize = 512;
 const SELECT_PIXEL_RADIUS: f64 = 20.;
 const MAX_NUM_CARS: usize = 10;
 const MAX_CONTOURS_GRID_STEP: usize = 100;
-const STRUCTURE_SIZE: f32 = 10.;
+const STRUCTURE_ICON_SIZE: f32 = 10.;
 const TRAIN_JSON: &str = "train.json";
 const TRAIN_KEY: &str = "train";
 const TRACKS_KEY: &str = "train_tracks";
@@ -383,15 +383,30 @@ impl TrainsApp {
 
         for (_, structure) in &self.structures.structures {
             let pos = paint_transform.to_pos2(structure.pos);
-            painter.rect_filled(
-                Rect::from_center_size(pos, vec2(STRUCTURE_SIZE, STRUCTURE_SIZE)),
-                0.,
-                match structure.ty {
-                    StructureType::OreMine => Color32::from_rgb(0, 127, 191),
-                    StructureType::Smelter => Color32::from_rgb(0, 191, 127),
-                    StructureType::Sink => Color32::from_rgb(127, 0, 127),
-                },
-            );
+            // Render the real size with enough zoom
+            if 2. < self.transform.scale() {
+                let size = STRUCTURE_SIZE as f32 * self.transform.scale();
+                painter.rect_filled(
+                    Rect::from_center_size(pos, vec2(size, size)),
+                    0.,
+                    match structure.ty {
+                        StructureType::OreMine => Color32::from_rgb(0, 127, 191),
+                        StructureType::Smelter => Color32::from_rgb(0, 191, 127),
+                        StructureType::Sink => Color32::from_rgb(127, 0, 127),
+                    },
+                );
+            } else {
+                // render icon that does not shink if zoomed out
+                painter.rect_filled(
+                    Rect::from_center_size(pos, vec2(STRUCTURE_ICON_SIZE, STRUCTURE_ICON_SIZE)),
+                    0.,
+                    match structure.ty {
+                        StructureType::OreMine => Color32::from_rgb(0, 127, 191),
+                        StructureType::Smelter => Color32::from_rgb(0, 191, 127),
+                        StructureType::Sink => Color32::from_rgb(127, 0, 127),
+                    },
+                );
+            }
         }
 
         let paint_bar = |st: &Structure| {
@@ -506,7 +521,7 @@ impl TrainsApp {
                     painter.rect_filled(
                         Rect::from_center_size(
                             paint_transform.to_pos2(pos),
-                            vec2(STRUCTURE_SIZE, STRUCTURE_SIZE),
+                            vec2(STRUCTURE_ICON_SIZE, STRUCTURE_ICON_SIZE),
                         ),
                         0.,
                         Color32::from_rgb(255, 127, 191),
@@ -523,7 +538,7 @@ impl TrainsApp {
                             painter.rect_filled(
                                 Rect::from_center_size(
                                     paint_transform.to_pos2(end_pos),
-                                    vec2(STRUCTURE_SIZE, STRUCTURE_SIZE),
+                                    vec2(STRUCTURE_ICON_SIZE, STRUCTURE_ICON_SIZE),
                                 ),
                                 0.,
                                 Color32::from_rgb(255, 127, 191),
@@ -545,7 +560,7 @@ impl TrainsApp {
                         painter.rect_filled(
                             Rect::from_center_size(
                                 paint_transform.to_pos2(end_pos),
-                                vec2(STRUCTURE_SIZE, STRUCTURE_SIZE),
+                                vec2(STRUCTURE_ICON_SIZE, STRUCTURE_ICON_SIZE),
                             ),
                             0.,
                             Color32::from_rgb(255, 127, 191),
@@ -864,7 +879,6 @@ impl eframe::App for TrainsApp {
         self.train.update(thrust, &self.heightmap, &self.tracks);
 
         // Update structures
-        let mut result = StructureUpdateResult::new();
         let st_ids = self
             .structures
             .structures

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::vec2::Vec2;
 
+pub(crate) const STRUCTURE_SIZE: f64 = 2.;
 pub(crate) const ORE_MINE_CAPACITY: u32 = 10;
 const ORE_MINE_FREQUENCY: usize = 120;
 pub(crate) const INGOT_CAPACITY: u32 = 20;
