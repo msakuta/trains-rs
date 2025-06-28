@@ -65,6 +65,7 @@ pub(crate) struct TrainsApp {
     focus_on_train: bool,
     click_mode: ClickMode,
     belt_connection: Option<(BeltConnection, Vec2<f64>)>,
+    building_structure: Option<Vec2>,
     tracks: TrainTracks,
     train: Train,
     selected_station: Option<usize>,
@@ -101,9 +102,9 @@ impl TrainsApp {
                             Some((
                                 i,
                                 if i % 2 == 0 {
-                                    Structure::new_ore_mine(pos)
+                                    Structure::new_ore_mine(pos, 0.)
                                 } else {
-                                    Structure::new_sink(pos)
+                                    Structure::new_sink(pos, 0.)
                                 },
                             ))
                         }
@@ -135,6 +136,7 @@ impl TrainsApp {
             focus_on_train: false,
             click_mode: ClickMode::None,
             belt_connection: None,
+            building_structure: None,
             tracks,
             train,
             selected_station: None,
@@ -259,13 +261,6 @@ impl TrainsApp {
                 .ceil()
                 .max((start_pos.y - end_pos.y).abs().ceil())
                 as usize;
-            println!(
-                "Max grad: {}",
-                (0..interpolations).fold(0.0f64, |acc, i| {
-                    let pos = start_pos.lerp(end_pos, i as f64 / interpolations as f64);
-                    acc.max(heightmap.gradient(&pos).length())
-                })
-            );
             (0..interpolations).any(|i| {
                 let pos = start_pos.lerp(end_pos, i as f64 / interpolations as f64);
                 MAX_SLOPE.powi(2) < heightmap.gradient(&pos).length2()
@@ -350,7 +345,15 @@ impl TrainsApp {
                     }
                     ClickMode::AddSmelter => {
                         let pos = paint_transform.from_pos2(pointer);
-                        self.structures.add_structure(Structure::new_smelter(pos));
+                        if let Some(pos) = self.building_structure {
+                            let delta = pos - paint_transform.from_pos2(pointer);
+                            let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
+                            self.structures
+                                .add_structure(Structure::new_smelter(pos, orient));
+                            self.building_structure = None;
+                        } else {
+                            self.building_structure = Some(pos);
+                        }
                     }
                     ClickMode::ConnectBelt => 'out: {
                         let pos = paint_transform.from_pos2(pointer);
@@ -514,13 +517,18 @@ impl TrainsApp {
             }
             ClickMode::AddSmelter => {
                 if let Some(pointer) = response.hover_pos() {
-                    Self::render_structure(
-                        pointer,
-                        true,
-                        StructureType::Smelter,
-                        &painter,
-                        &paint_transform,
-                    );
+                    if let Some(pos) = self.building_structure {
+                        let delta = pos - paint_transform.from_pos2(pointer);
+                        let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
+                        Self::render_structure(
+                            paint_transform.to_pos2(pos),
+                            orient,
+                            true,
+                            StructureType::Smelter,
+                            &painter,
+                            &paint_transform,
+                        );
+                    }
                 }
             }
             ClickMode::ConnectBelt => {
@@ -573,6 +581,11 @@ impl TrainsApp {
                     self.preview_delete_structure(pointer, &painter, &paint_transform);
                 }
             }
+        }
+
+        // Clear the state of inserting structure when the player select another mode
+        if !matches!(self.click_mode, ClickMode::AddSmelter) {
+            self.building_structure = None;
         }
 
         if let Some(pointer) = response.hover_pos() {

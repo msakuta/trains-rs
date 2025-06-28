@@ -1,9 +1,12 @@
-use eframe::egui::{self, Color32, Painter, Pos2, Rect, pos2, vec2};
+use eframe::{
+    egui::{self, Color32, Painter, Pos2, Rect, pos2, vec2},
+    epaint::PathShape,
+};
 
 use crate::{
     structure::{
-        BeltConnection, INGOT_CAPACITY, ITEM_INTERVAL, Item, ORE_MINE_CAPACITY, STRUCTURE_SIZE,
-        Structure, StructureOrBelt, StructureType,
+        BeltConnection, INGOT_CAPACITY, ITEM_INTERVAL, Item, ORE_MINE_CAPACITY, Structure,
+        StructureOrBelt, StructureType,
     },
     transform::PaintTransform,
     vec2::Vec2,
@@ -18,7 +21,14 @@ impl TrainsApp {
     pub(super) fn render_structures(&self, painter: &Painter, paint_transform: &PaintTransform) {
         for (_, structure) in &self.structures.structures {
             let pos = paint_transform.to_pos2(structure.pos);
-            Self::render_structure(pos, false, structure.ty, painter, paint_transform);
+            Self::render_structure(
+                pos,
+                structure.orientation,
+                false,
+                structure.ty,
+                painter,
+                paint_transform,
+            );
         }
 
         let paint_bar = |st: &Structure| {
@@ -103,6 +113,7 @@ impl TrainsApp {
     /// A common rendering logic for the built structures and preview ghosts.
     pub(super) fn render_structure(
         pos: Pos2,
+        orient: f64,
         preview: bool,
         ty: StructureType,
         painter: &Painter,
@@ -117,11 +128,44 @@ impl TrainsApp {
                 StructureType::Sink => Color32::from_rgb(127, 0, 127),
             }
         };
+        let line_color = Color32::from_rgb(0, 63, 31);
 
         // Render the real size with enough zoom
         if 2. < paint_transform.scale() {
-            let size = STRUCTURE_SIZE as f32 * paint_transform.scale();
-            painter.rect_filled(Rect::from_center_size(pos, vec2(size, size)), 0., color);
+            let s = orient.sin();
+            let c = orient.cos();
+            let rotate = |ofs: [f64; 2]| {
+                let x = ofs[0] * c - ofs[1] * s;
+                let y = ofs[0] * s + ofs[1] * c;
+                pos + paint_transform.to_vec2(Vec2::new(x, y))
+            };
+
+            painter.add(PathShape::convex_polygon(
+                [[-1., -1.], [1., -1.], [1., 1.], [-1., 1.]]
+                    .into_iter()
+                    .map(rotate)
+                    .collect(),
+                color,
+                (1., line_color),
+            ));
+
+            painter.add(PathShape::convex_polygon(
+                [[0., -1.5], [-0.3, -1.2], [0.3, -1.2]]
+                    .into_iter()
+                    .map(rotate)
+                    .collect(),
+                color,
+                (1., line_color),
+            ));
+
+            painter.add(PathShape::convex_polygon(
+                [[0., 1.2], [-0.3, 1.5], [0.3, 1.5]]
+                    .into_iter()
+                    .map(rotate)
+                    .collect(),
+                color,
+                (1., line_color),
+            ));
         } else {
             // render icon that does not shink if zoomed out
             painter.rect_filled(
@@ -150,7 +194,14 @@ impl TrainsApp {
                 StructureOrBelt::Structure(id) => {
                     if let Some(st) = self.structures.structures.get(&id) {
                         let pos = paint_transform.to_pos2(st.pos);
-                        Self::render_structure(pos, true, st.ty, painter, paint_transform);
+                        Self::render_structure(
+                            pos,
+                            st.orientation,
+                            true,
+                            st.ty,
+                            painter,
+                            paint_transform,
+                        );
                     }
                 }
                 StructureOrBelt::Belt(id) => {

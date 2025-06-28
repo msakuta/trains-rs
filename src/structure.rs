@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::vec2::Vec2;
 
-pub(crate) const STRUCTURE_SIZE: f64 = 2.;
 pub(crate) const STRUCTURE_INPUT_POS: Vec2 = Vec2::new(0., 1.);
 pub(crate) const STRUCTURE_OUTPUT_POS: Vec2 = Vec2::new(0., -1.);
 pub(crate) const ORE_MINE_CAPACITY: u32 = 10;
@@ -24,6 +23,7 @@ pub(crate) struct Structure {
     pub ingot: u32,
     cooldown: usize,
     pub output_belts: HashSet<BeltId>,
+    pub orientation: f64,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -34,7 +34,7 @@ pub(crate) enum StructureType {
 }
 
 impl Structure {
-    pub fn new_ore_mine(pos: Vec2<f64>) -> Self {
+    pub fn new_ore_mine(pos: Vec2, orientation: f64) -> Self {
         Self {
             pos,
             ty: StructureType::OreMine,
@@ -42,10 +42,11 @@ impl Structure {
             ingot: 0,
             cooldown: 0,
             output_belts: HashSet::new(),
+            orientation,
         }
     }
 
-    pub fn new_smelter(pos: Vec2<f64>) -> Self {
+    pub fn new_smelter(pos: Vec2, orientation: f64) -> Self {
         Self {
             pos,
             ty: StructureType::Smelter,
@@ -53,10 +54,11 @@ impl Structure {
             ingot: 0,
             cooldown: 0,
             output_belts: HashSet::new(),
+            orientation,
         }
     }
 
-    pub fn new_sink(pos: Vec2<f64>) -> Self {
+    pub fn new_sink(pos: Vec2, orientation: f64) -> Self {
         Self {
             pos,
             ty: StructureType::Sink,
@@ -64,6 +66,7 @@ impl Structure {
             ingot: 0,
             cooldown: 0,
             output_belts: HashSet::new(),
+            orientation,
         }
     }
 
@@ -142,6 +145,22 @@ impl Structure {
         self.iron = self.iron.saturating_sub(remove_iron_ores);
         self.ingot = self.ingot.saturating_sub(remove_ingots);
     }
+
+    pub fn input_pos(&self) -> Vec2 {
+        self.relative_pos(&STRUCTURE_INPUT_POS)
+    }
+
+    pub fn output_pos(&self) -> Vec2 {
+        self.relative_pos(&STRUCTURE_OUTPUT_POS)
+    }
+
+    fn relative_pos(&self, ofs: &Vec2) -> Vec2 {
+        let s = self.orientation.sin();
+        let c = self.orientation.cos();
+        let x = ofs.x * c - ofs.y * s;
+        let y = ofs.x * s + ofs.y * c;
+        self.pos + Vec2::new(x, y)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -198,9 +217,9 @@ impl Structures {
     ) -> (BeltConnection, Vec2<f64>) {
         for (i, structure) in &self.structures {
             let con_pos = if input {
-                structure.pos + STRUCTURE_INPUT_POS
+                structure.input_pos()
             } else {
-                structure.pos + STRUCTURE_OUTPUT_POS
+                structure.output_pos()
             };
             let dist2 = (con_pos - pos).length2();
             if dist2 < search_radius.powi(2) {

@@ -166,6 +166,13 @@ impl PaintTransform {
         ))
     }
 
+    pub(crate) fn to_vec2(&self, pos: crate::vec2::Vec2<f64>) -> Vec2 {
+        let pos = self
+            .transform
+            .transform_vector([pos.x as f32, pos.y as f32]);
+        vec2(pos.x, -pos.y)
+    }
+
     pub(crate) fn transform_pos2(&self, pos: Pos2) -> Pos2 {
         let pos = self.transform.transform_point(pos);
         self.to_screen.transform_pos(pos2(
