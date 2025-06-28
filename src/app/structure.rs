@@ -19,7 +19,8 @@ impl TrainsApp {
         let paint_bar = |st: &Structure| {
             let base_pos = paint_transform.to_pos2(st.pos).to_vec2();
             const BAR_WIDTH: f32 = 50.;
-            const BAR_HEIGHT: f32 = 10.;
+            const BAR_HEIGHT: f32 = 5.;
+            const BAR_STRIDE: f32 = 8.; // We want some gaps to differentiate them
             const BAR_OFFSET: f32 = 30.;
             painter.rect_filled(
                 Rect::from_center_size(
@@ -30,20 +31,24 @@ impl TrainsApp {
                 Color32::BLACK,
             );
 
-            for (y, fullness) in [
-                (0, st.iron as f32 / ORE_MINE_CAPACITY as f32),
-                (1, st.ingot as f32 / INGOT_CAPACITY as f32),
+            for (y, fullness, color) in [
+                (
+                    0,
+                    st.iron as f32 / ORE_MINE_CAPACITY as f32,
+                    Color32::from_rgb(255, 255, 0),
+                ),
+                (1, st.ingot as f32 / INGOT_CAPACITY as f32, Color32::GREEN),
             ] {
                 painter.rect_filled(
                     Rect::from_min_size(
                         pos2(
                             base_pos.x - BAR_WIDTH / 2.,
-                            base_pos.y + BAR_OFFSET - BAR_HEIGHT / 2. + y as f32 * BAR_HEIGHT,
+                            base_pos.y + BAR_OFFSET - BAR_HEIGHT / 2. + y as f32 * BAR_STRIDE,
                         ),
                         vec2(fullness * BAR_WIDTH, BAR_HEIGHT),
                     ),
                     0.,
-                    Color32::GREEN,
+                    color,
                 );
             }
 
