@@ -2,7 +2,7 @@ mod heightmap;
 mod train;
 
 use eframe::{
-    egui::{self, Align2, Color32, FontId, Frame, Painter, Rect, Ui, vec2},
+    egui::{self, Align2, Color32, FontId, Frame, Painter, Rect, Ui, pos2, vec2},
     epaint::PathShape,
 };
 use heightmap::DOWNSAMPLE;
@@ -14,8 +14,8 @@ use crate::{
     bg_image::BgImage,
     perlin_noise::Xorshift64Star,
     structure::{
-        BeltConnection, ITEM_INTERVAL, MAX_BELT_LENGTH, Structure, StructureType,
-        StructureUpdateResult, Structures,
+        BeltConnection, INGOT_CAPACITY, ITEM_INTERVAL, Item, MAX_BELT_LENGTH, ORE_MINE_CAPACITY,
+        Structure, StructureOrBelt, StructureType, StructureUpdateResult, Structures,
     },
     train::Train,
     train_tracks::{SelectedPathNode, Station, StationType, TrainTracks},
@@ -392,6 +392,46 @@ impl TrainsApp {
                     StructureType::Sink => Color32::from_rgb(127, 0, 127),
                 },
             );
+        }
+
+        let paint_bar = |st: &Structure| {
+            let base_pos = paint_transform.to_pos2(st.pos).to_vec2();
+            const BAR_WIDTH: f32 = 50.;
+            const BAR_HEIGHT: f32 = 10.;
+            const BAR_OFFSET: f32 = 30.;
+            painter.rect_filled(
+                Rect::from_center_size(
+                    pos2(base_pos.x, base_pos.y + BAR_OFFSET),
+                    vec2(BAR_WIDTH, BAR_HEIGHT),
+                ),
+                0.,
+                Color32::BLACK,
+            );
+
+            for (y, fullness) in [
+                (0, st.iron as f32 / ORE_MINE_CAPACITY as f32),
+                (1, st.ingot as f32 / INGOT_CAPACITY as f32),
+            ] {
+                painter.rect_filled(
+                    Rect::from_min_size(
+                        pos2(
+                            base_pos.x - BAR_WIDTH / 2.,
+                            base_pos.y + BAR_OFFSET - BAR_HEIGHT / 2. + y as f32 * BAR_HEIGHT,
+                        ),
+                        vec2(fullness * BAR_WIDTH, BAR_HEIGHT),
+                    ),
+                    0.,
+                    Color32::GREEN,
+                );
+            }
+
+            Some(())
+        };
+
+        if 2. < self.transform.scale() {
+            for (_, structure) in &self.structures.structures {
+                paint_bar(structure);
+            }
         }
 
         match self.click_mode {
@@ -825,31 +865,70 @@ impl eframe::App for TrainsApp {
 
         // Update structures
         let mut result = StructureUpdateResult::new();
-        for (_, structure) in &mut self.structures.structures {
-            let single_result = structure.update(&mut self.credits);
-            result.merge(single_result);
-        }
+        let st_ids = self
+            .structures
+            .structures
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+        for id in st_ids {
+            let Some(st) = self.structures.structures.get_mut(&id) else {
+                continue;
+            };
+            let result = st.update(&mut self.credits);
 
-        // Insert items by structures
-        for (belt_id, item) in result.insert_items {
-            if let Some(belt) = self.structures.belts.get_mut(&belt_id) {
-                belt.try_insert(item);
-            }
-        }
-
-        // Remove items by structures
-        for (belt_id, item) in result.remove_items {
-            if let Some(belt) = self.structures.belts.get_mut(&belt_id) {
-                // Find first item and remove it
-                if let Some((i, _)) = belt
-                    .items
-                    .iter()
-                    .enumerate()
-                    .find(|(_, (belt_item, _))| *belt_item == item)
-                {
-                    belt.items.remove(i);
+            // Insert items by structures
+            let mut moved_iron_ores = 0;
+            let mut moved_ingots = 0;
+            for (dest_id, item) in result.insert_items {
+                match dest_id {
+                    StructureOrBelt::Belt(belt_id) => {
+                        if let Some(belt) = self.structures.belts.get_mut(&belt_id) {
+                            if belt.try_insert(item) {
+                                match item {
+                                    Item::IronOre => moved_iron_ores += 1,
+                                    Item::Ingot => moved_ingots += 1,
+                                }
+                            }
+                        }
+                    }
+                    StructureOrBelt::Structure(st_id) => {
+                        if let Some(st) = self.structures.structures.get_mut(&st_id) {
+                            if st.try_insert(item) {
+                                match item {
+                                    Item::IronOre => moved_iron_ores += 1,
+                                    Item::Ingot => moved_ingots += 1,
+                                }
+                            }
+                        }
+                    }
                 }
             }
+
+            // Remove items by structures
+            for (dest_id, item) in result.remove_items {
+                match dest_id {
+                    StructureOrBelt::Belt(belt_id) => {
+                        if let Some(belt) = self.structures.belts.get_mut(&belt_id) {
+                            belt.post_update(1);
+                        }
+                    }
+                    StructureOrBelt::Structure(st_id) => {
+                        if let Some(st) = self.structures.structures.get_mut(&st_id) {
+                            match item {
+                                Item::IronOre => st.post_update(1, 0),
+                                Item::Ingot => st.post_update(0, 1),
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Re-borrow the original structure
+            let Some(st) = self.structures.structures.get_mut(&id) else {
+                continue;
+            };
+            st.post_update(moved_iron_ores, moved_ingots);
         }
 
         // We cannot use iter_mut since we need random access of the elements in belts to transfer items.
@@ -864,11 +943,20 @@ impl eframe::App for TrainsApp {
             };
             let res = belt.update();
             let mut moved_items = 0;
-            for (dest_belt_id, item) in res.insert_items {
-                let Some(dest) = self.structures.belts.get_mut(&dest_belt_id) else {
-                    continue;
-                };
-                moved_items += dest.try_insert(item) as usize;
+            for (dest_id, item) in res.insert_items {
+                match dest_id {
+                    StructureOrBelt::Belt(dest_belt_id) => {
+                        let Some(dest) = self.structures.belts.get_mut(&dest_belt_id) else {
+                            continue;
+                        };
+                        moved_items += dest.try_insert(item) as usize;
+                    }
+                    StructureOrBelt::Structure(dest_st_id) => {
+                        if let Some(dest) = self.structures.structures.get_mut(&dest_st_id) {
+                            moved_items += dest.try_insert(item) as usize;
+                        }
+                    }
+                }
             }
             // Re-borrow the original belt
             let Some(belt) = self.structures.belts.get_mut(&belt_id) else {

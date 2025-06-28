@@ -4,8 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::vec2::Vec2;
 
-const ORE_MINE_CAPACITY: u32 = 100;
+pub(crate) const ORE_MINE_CAPACITY: u32 = 10;
 const ORE_MINE_FREQUENCY: usize = 120;
+pub(crate) const INGOT_CAPACITY: u32 = 20;
 pub(crate) const MAX_BELT_LENGTH: f64 = 10.;
 pub(crate) const ITEM_INTERVAL: f64 = 1.0;
 const BELT_SPEED: f64 = 0.05; // length per tick
@@ -16,8 +17,8 @@ pub(crate) type StructureId = usize;
 pub(crate) struct Structure {
     pub pos: Vec2<f64>,
     pub ty: StructureType,
-    iron: u32,
-    ingot: u32,
+    pub iron: u32,
+    pub ingot: u32,
     cooldown: usize,
     pub output_belts: HashSet<BeltId>,
 }
@@ -79,7 +80,8 @@ impl Structure {
 
                 if 0 < self.iron {
                     if let Some(belt_id) = self.output_belts.iter().next() {
-                        ret.insert_items.push((*belt_id, Item::IronOre));
+                        ret.insert_items
+                            .push((StructureOrBelt::Belt(*belt_id), Item::IronOre));
                     }
                     self.iron -= 1;
                 }
@@ -87,7 +89,7 @@ impl Structure {
             StructureType::Smelter => {
                 if self.cooldown == 0 && self.ingot < ORE_MINE_CAPACITY && 0 < self.iron {
                     self.iron -= 1;
-                    self.ingot -= 1;
+                    self.ingot += 1;
                     self.cooldown = ORE_MINE_FREQUENCY;
                 } else {
                     self.cooldown = self.cooldown.saturating_sub(1);
@@ -105,12 +107,36 @@ impl Structure {
         }
         ret
     }
+
+    pub fn try_insert(&mut self, item: Item) -> bool {
+        match item {
+            Item::IronOre => {
+                if self.iron < ORE_MINE_CAPACITY {
+                    self.iron += 1;
+                    return true;
+                }
+            }
+            Item::Ingot => {
+                if matches!(self.ty, StructureType::Sink) && self.ingot < ORE_MINE_CAPACITY {
+                    self.ingot += 1;
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Attempt to remove items that were successfully deleted.
+    pub fn post_update(&mut self, remove_iron_ores: u32, remove_ingots: u32) {
+        self.iron = self.iron.saturating_sub(remove_iron_ores);
+        self.ingot = self.ingot.saturating_sub(remove_ingots);
+    }
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct StructureUpdateResult {
-    pub insert_items: Vec<(BeltId, Item)>,
-    pub remove_items: Vec<(BeltId, Item)>,
+    pub insert_items: Vec<(StructureOrBelt, Item)>,
+    pub remove_items: Vec<(StructureOrBelt, Item)>,
 }
 
 impl StructureUpdateResult {
@@ -120,11 +146,12 @@ impl StructureUpdateResult {
             remove_items: vec![],
         }
     }
+}
 
-    pub fn merge(&mut self, other: Self) {
-        self.insert_items.extend_from_slice(&other.insert_items);
-        self.remove_items.extend_from_slice(&other.remove_items);
-    }
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum StructureOrBelt {
+    Structure(StructureId),
+    Belt(BeltId),
 }
 
 /// A collection of structures and belts.
@@ -141,9 +168,10 @@ pub(crate) struct Structures {
 
 impl Structures {
     pub fn new(structures: HashMap<usize, Structure>) -> Self {
+        let structure_id_gen = structures.keys().max().map_or(0, |id| id + 1);
         Self {
             structures,
-            structure_id_gen: 0,
+            structure_id_gen,
             belts: HashMap::new(),
             belt_id_gen: 0,
         }
@@ -250,11 +278,13 @@ impl Belt {
             if length < *pos + BELT_SPEED {
                 match self.end_con {
                     BeltConnection::BeltStart(belt_id) => {
-                        ret.insert_items.push((belt_id, *item));
+                        ret.insert_items
+                            .push((StructureOrBelt::Belt(belt_id), *item));
                         remove_idx = Some(i);
                     }
                     BeltConnection::Structure(st) => {
-                        ret.insert_items.push((st, *item));
+                        ret.insert_items
+                            .push((StructureOrBelt::Structure(st), *item));
                         remove_idx = Some(i);
                     }
                     _ => {}
@@ -284,6 +314,7 @@ impl Belt {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum BeltConnection {
+    /// An end of a belt that connects to nothing.
     Pos,
     Structure(StructureId),
     /// Belt start can only connect to end and vice versa
