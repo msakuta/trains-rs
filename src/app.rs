@@ -1,8 +1,6 @@
 mod heightmap;
 mod train;
 
-use std::collections::HashMap;
-
 use eframe::{
     egui::{self, Align2, Color32, FontId, Frame, Painter, Rect, Ui, vec2},
     epaint::PathShape,
@@ -16,8 +14,8 @@ use crate::{
     bg_image::BgImage,
     perlin_noise::Xorshift64Star,
     structure::{
-        BeltConnection, Belts, ITEM_INTERVAL, MAX_BELT_LENGTH, Structure, StructureId,
-        StructureUpdateResult,
+        BeltConnection, ITEM_INTERVAL, MAX_BELT_LENGTH, Structure, StructureType,
+        StructureUpdateResult, Structures,
     },
     train::Train,
     train_tracks::{SelectedPathNode, Station, StationType, TrainTracks},
@@ -48,6 +46,7 @@ enum ClickMode {
     BezierCurve,
     DeleteSegment,
     AddStation,
+    AddSmelter,
     ConnectBelt,
 }
 
@@ -70,8 +69,7 @@ pub(crate) struct TrainsApp {
     selected_station: Option<usize>,
     new_station: String,
     station_type: StationType,
-    structures: HashMap<usize, Structure>,
-    belts: Belts,
+    structures: Structures,
     credits: u32,
     error_msg: Option<(String, f64)>,
 }
@@ -80,7 +78,7 @@ impl TrainsApp {
     pub fn new() -> Self {
         let contour_grid_step = DOWNSAMPLE;
 
-        let (train, tracks, heightmap_params, heightmap, structures, belts) =
+        let (train, tracks, heightmap_params, heightmap, structures) =
             std::fs::File::open(TRAIN_JSON)
                 .and_then(|train_json| {
                     let mut value: serde_json::Value =
@@ -126,38 +124,19 @@ impl TrainsApp {
                         .or_else(|_| HeightMap::new(&HeightMapParams::new()))
                         .unwrap();
 
-                    let structures: HashMap<StructureId, Structure> = serde_json::from_value(
+                    let structures: Structures = serde_json::from_value(
                         value
                             .get_mut(STRUCTURES_KEY)
                             .ok_or_else(|| {
                                 std::io::Error::new(
                                     std::io::ErrorKind::Other,
-                                    "belts doesn't exist",
+                                    "structures doesn't exist",
                                 )
                             })?
                             .take(),
                     )?;
 
-                    let belts: Belts = serde_json::from_value(
-                        value
-                            .get_mut(BELTS_KEY)
-                            .ok_or_else(|| {
-                                std::io::Error::new(
-                                    std::io::ErrorKind::Other,
-                                    "belts doesn't exist",
-                                )
-                            })?
-                            .take(),
-                    )?;
-
-                    Ok((
-                        train,
-                        tracks,
-                        heightmap_params,
-                        heightmap,
-                        structures,
-                        belts,
-                    ))
+                    Ok((train, tracks, heightmap_params, heightmap, structures))
                 })
                 .unwrap_or_else(|e| {
                     eprintln!("Failed to load train data, falling back to default: {e}");
@@ -177,7 +156,14 @@ impl TrainsApp {
                             if heightmap.is_water(&pos) {
                                 None
                             } else {
-                                Some((i, Structure::new_ore_mine(pos)))
+                                Some((
+                                    i,
+                                    if i % 2 == 0 {
+                                        Structure::new_ore_mine(pos)
+                                    } else {
+                                        Structure::new_sink(pos)
+                                    },
+                                ))
                             }
                         })
                         .collect();
@@ -186,8 +172,7 @@ impl TrainsApp {
                         TrainTracks::new(),
                         heightmap_params,
                         heightmap,
-                        structures,
-                        Belts::new(),
+                        Structures::new(structures),
                     )
                 });
 
@@ -213,7 +198,6 @@ impl TrainsApp {
             new_station: "New Station".to_string(),
             station_type: StationType::Loading,
             structures,
-            belts,
             credits: 0,
             error_msg: None,
         }
@@ -229,24 +213,8 @@ impl TrainsApp {
 
     fn find_belt_con(&self, pos: Vec2<f64>) -> (BeltConnection, Vec2<f64>) {
         const SELECT_THRESHOLD: f64 = 10.;
-        let scale = 1. / self.transform.scale();
-        for (i, structure) in &self.structures {
-            let dist2 = (structure.pos - pos).length2();
-            if dist2 / (scale.powi(2) as f64) < SELECT_THRESHOLD.powi(2) {
-                return (BeltConnection::Structure(*i), structure.pos);
-            }
-        }
-        for (i, belt) in &self.belts.belts {
-            let dist2 = (belt.start - pos).length2();
-            if dist2 / (scale.powi(2) as f64) < SELECT_THRESHOLD.powi(2) {
-                return (BeltConnection::BeltStart(*i), belt.start);
-            }
-            let dist2 = (belt.end - pos).length2();
-            if dist2 / (scale.powi(2) as f64) < SELECT_THRESHOLD.powi(2) {
-                return (BeltConnection::BeltEnd(*i), belt.end);
-            }
-        }
-        (BeltConnection::Pos, pos)
+        self.structures
+            .find_belt_con(pos, SELECT_THRESHOLD / self.transform.scale() as f64)
     }
 
     fn render(&mut self, ui: &mut Ui) {
@@ -343,6 +311,10 @@ impl TrainsApp {
                             );
                         }
                     }
+                    ClickMode::AddSmelter => {
+                        let pos = paint_transform.from_pos2(pointer);
+                        self.structures.add_structure(Structure::new_smelter(pos));
+                    }
                     ClickMode::ConnectBelt => {
                         let pos = paint_transform.from_pos2(pointer);
                         if let Some((start_con, start_pos)) = &self.belt_connection {
@@ -353,11 +325,13 @@ impl TrainsApp {
                                 && dbg!((end_pos - *start_pos).length2()) < MAX_BELT_LENGTH.powi(2)
                             {
                                 let belt_id = self
-                                    .belts
+                                    .structures
                                     .add_belt(*start_pos, *start_con, end_pos, end_con);
                                 match start_con {
                                     BeltConnection::Structure(start_st) => {
-                                        if let Some(st) = self.structures.get_mut(start_st) {
+                                        if let Some(st) =
+                                            self.structures.structures.get_mut(start_st)
+                                        {
                                             st.output_belts.insert(belt_id);
                                             println!("Added belt {belt_id} to output_belts");
                                         }
@@ -365,7 +339,7 @@ impl TrainsApp {
                                     // If we connect to a belt, we add a reference to the upstream belt.
                                     BeltConnection::BeltEnd(upstream_belt) => {
                                         if let Some(upstream_belt) =
-                                            self.belts.belts.get_mut(upstream_belt)
+                                            self.structures.belts.get_mut(upstream_belt)
                                         {
                                             upstream_belt.end_con =
                                                 BeltConnection::BeltStart(belt_id);
@@ -407,12 +381,16 @@ impl TrainsApp {
 
         self.render_track(&painter, &paint_transform);
 
-        for (_, structure) in &self.structures {
+        for (_, structure) in &self.structures.structures {
             let pos = paint_transform.to_pos2(structure.pos);
             painter.rect_filled(
                 Rect::from_center_size(pos, vec2(STRUCTURE_SIZE, STRUCTURE_SIZE)),
                 0.,
-                Color32::from_rgb(0, 127, 191),
+                match structure.ty {
+                    StructureType::OreMine => Color32::from_rgb(0, 127, 191),
+                    StructureType::Smelter => Color32::from_rgb(0, 191, 127),
+                    StructureType::Sink => Color32::from_rgb(127, 0, 127),
+                },
             );
         }
 
@@ -480,6 +458,19 @@ impl TrainsApp {
                         );
                         self.render_station(&painter, &paint_transform, &station, false, true);
                     }
+                }
+            }
+            ClickMode::AddSmelter => {
+                if let Some(pointer) = response.hover_pos() {
+                    let pos = paint_transform.from_pos2(pointer);
+                    painter.rect_filled(
+                        Rect::from_center_size(
+                            paint_transform.to_pos2(pos),
+                            vec2(STRUCTURE_SIZE, STRUCTURE_SIZE),
+                        ),
+                        0.,
+                        Color32::from_rgb(255, 127, 191),
+                    );
                 }
             }
             ClickMode::ConnectBelt => {
@@ -555,7 +546,7 @@ impl TrainsApp {
         }
 
         let scale = self.transform.scale();
-        for belt in self.belts.belts.values() {
+        for belt in self.structures.belts.values() {
             let start = paint_transform.to_pos2(belt.start);
             let end = paint_transform.to_pos2(belt.end);
             painter.arrow(start, end - start, (2., Color32::BLUE));
@@ -735,6 +726,7 @@ impl TrainsApp {
             ui.radio_value(&mut self.click_mode, ClickMode::BezierCurve, "Bezier Curve");
             ui.radio_value(&mut self.click_mode, ClickMode::DeleteSegment, "Delete");
             ui.radio_value(&mut self.click_mode, ClickMode::AddStation, "Add Station");
+            ui.radio_value(&mut self.click_mode, ClickMode::AddSmelter, "Add Smelter");
             ui.radio_value(&mut self.click_mode, ClickMode::ConnectBelt, "Connect Belt");
             if !matches!(self.click_mode, ClickMode::ConnectBelt) {
                 self.belt_connection = None;
@@ -833,21 +825,21 @@ impl eframe::App for TrainsApp {
 
         // Update structures
         let mut result = StructureUpdateResult::new();
-        for (_, structure) in &mut self.structures {
+        for (_, structure) in &mut self.structures.structures {
             let single_result = structure.update(&mut self.credits);
             result.merge(single_result);
         }
 
         // Insert items by structures
         for (belt_id, item) in result.insert_items {
-            if let Some(belt) = self.belts.belts.get_mut(&belt_id) {
+            if let Some(belt) = self.structures.belts.get_mut(&belt_id) {
                 belt.try_insert(item);
             }
         }
 
         // Remove items by structures
         for (belt_id, item) in result.remove_items {
-            if let Some(belt) = self.belts.belts.get_mut(&belt_id) {
+            if let Some(belt) = self.structures.belts.get_mut(&belt_id) {
                 // Find first item and remove it
                 if let Some((i, _)) = belt
                     .items
@@ -862,22 +854,24 @@ impl eframe::App for TrainsApp {
 
         // We cannot use iter_mut since we need random access of the elements in belts to transfer items.
         // Technically, this logic depends on the ordering of iteration, which depends on the hashmap.
+        // We also need to store the keys into a temporary container to avoid borrow checker, which is not great
+        // for performance.
         // We may want stable order by using generational id arena.
-        let num_belts = self.belts.belts.len();
-        for belt_id in 0..num_belts {
-            let Some(belt) = self.belts.belts.get_mut(&belt_id) else {
+        let belt_ids = self.structures.belts.keys().copied().collect::<Vec<_>>();
+        for belt_id in belt_ids {
+            let Some(belt) = self.structures.belts.get_mut(&belt_id) else {
                 continue;
             };
             let res = belt.update();
             let mut moved_items = 0;
             for (dest_belt_id, item) in res.insert_items {
-                let Some(dest) = self.belts.belts.get_mut(&dest_belt_id) else {
+                let Some(dest) = self.structures.belts.get_mut(&dest_belt_id) else {
                     continue;
                 };
                 moved_items += dest.try_insert(item) as usize;
             }
             // Re-borrow the original belt
-            let Some(belt) = self.belts.belts.get_mut(&belt_id) else {
+            let Some(belt) = self.structures.belts.get_mut(&belt_id) else {
                 continue;
             };
             belt.post_update(moved_items);
@@ -907,7 +901,7 @@ impl std::ops::Drop for TrainsApp {
         );
         map.insert(
             BELTS_KEY.to_string(),
-            serde_json::to_value(&self.belts).unwrap(),
+            serde_json::to_value(&self.structures).unwrap(),
         );
         let _ = serde_json::to_writer_pretty(
             std::io::BufWriter::new(std::fs::File::create(TRAIN_JSON).unwrap()),

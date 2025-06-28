@@ -12,10 +12,10 @@ const BELT_SPEED: f64 = 0.05; // length per tick
 
 pub(crate) type StructureId = usize;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct Structure {
     pub pos: Vec2<f64>,
-    ty: StructureType,
+    pub ty: StructureType,
     iron: u32,
     ingot: u32,
     cooldown: usize,
@@ -55,7 +55,7 @@ impl Structure {
     pub fn new_sink(pos: Vec2<f64>) -> Self {
         Self {
             pos,
-            ty: StructureType::Smelter,
+            ty: StructureType::Sink,
             iron: 0,
             ingot: 0,
             cooldown: 0,
@@ -127,18 +127,57 @@ impl StructureUpdateResult {
     }
 }
 
+/// A collection of structures and belts.
+///
+/// Since they are deeply related to each other, we group them in the same struct.
+/// We may add stations and cargo loader/unloader here, but they may be also a part of TrainTracks.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct Belts {
+pub(crate) struct Structures {
+    pub structures: HashMap<usize, Structure>,
+    pub structure_id_gen: StructureId,
     pub belts: HashMap<BeltId, Belt>,
     pub belt_id_gen: BeltId,
 }
 
-impl Belts {
-    pub fn new() -> Self {
+impl Structures {
+    pub fn new(structures: HashMap<usize, Structure>) -> Self {
         Self {
+            structures,
+            structure_id_gen: 0,
             belts: HashMap::new(),
             belt_id_gen: 0,
         }
+    }
+
+    pub(crate) fn find_belt_con(
+        &self,
+        pos: Vec2<f64>,
+        search_radius: f64,
+    ) -> (BeltConnection, Vec2<f64>) {
+        for (i, structure) in &self.structures {
+            let dist2 = (structure.pos - pos).length2();
+            if dist2 < search_radius.powi(2) {
+                return (BeltConnection::Structure(*i), structure.pos);
+            }
+        }
+        for (i, belt) in &self.belts {
+            let dist2 = (belt.start - pos).length2();
+            if dist2 < search_radius.powi(2) {
+                return (BeltConnection::BeltStart(*i), belt.start);
+            }
+            let dist2 = (belt.end - pos).length2();
+            if dist2 < search_radius.powi(2) {
+                return (BeltConnection::BeltEnd(*i), belt.end);
+            }
+        }
+        (BeltConnection::Pos, pos)
+    }
+
+    pub fn add_structure(&mut self, st: Structure) -> StructureId {
+        let ret = self.structure_id_gen;
+        self.structures.insert(self.belt_id_gen, st);
+        self.belt_id_gen += 1;
+        ret
     }
 
     pub fn add_belt(
@@ -250,10 +289,6 @@ pub(crate) enum BeltConnection {
     /// Belt start can only connect to end and vice versa
     BeltStart(BeltId),
     BeltEnd(BeltId),
-}
-
-pub(crate) struct BeltUpdateResult {
-    items: Vec<Item>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
