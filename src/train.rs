@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     app::HeightMap,
     path_utils::{interpolate_path, interpolate_path_heading, interpolate_path_tangent},
+    structure::Item,
     train_tracks::{
         ConnectPoint, PathBundle, PathConnection, Paths, SegmentDirection, StationId, StationType,
         TrainTask, TrainTracks,
@@ -47,6 +48,7 @@ impl Train {
                     CarType::Freight
                 },
                 iron: 0,
+                ingot: 0,
             })
             .collect();
         Self {
@@ -68,7 +70,6 @@ impl Train {
                     StationType::Loading => {
                         for car in &mut self.cars {
                             if matches!(car.ty, CarType::Freight) {
-                                car.iron = (car.iron + 1).min(CAR_CAPACITY);
                                 if car.iron < CAR_CAPACITY {
                                     wait_finished = false;
                                 }
@@ -78,9 +79,6 @@ impl Train {
                     StationType::Unloading => {
                         for car in &mut self.cars {
                             if matches!(car.ty, CarType::Freight) {
-                                let new_iron = car.iron.saturating_sub(1);
-                                self.total_transported += car.iron.abs_diff(new_iron);
-                                car.iron = new_iron;
                                 if 0 < car.iron {
                                     wait_finished = false;
                                 }
@@ -255,6 +253,7 @@ pub(crate) struct TrainCar {
     pub direction: SegmentDirection,
     pub ty: CarType,
     pub iron: u32,
+    pub ingot: u32,
 }
 
 impl TrainCar {
@@ -351,7 +350,7 @@ impl TrainCar {
         self.s = (self.s + self.speed).clamp(0., path.s_length);
     }
 
-    fn adjust_connected_cars(&mut self, other: &mut TrainCar, tracks: &TrainTracks) {
+    fn adjust_connected_cars(&mut self, other: &mut TrainCar, _tracks: &TrainTracks) {
         if self.path_id == other.path_id {
             let delta = self.s - other.s;
             let avg_speed = (self.speed + other.speed) * 0.5;
@@ -360,6 +359,42 @@ impl TrainCar {
             self.speed = avg_speed;
             other.speed = avg_speed;
         }
+    }
+
+    pub fn try_insert(&mut self, item: Item) -> bool {
+        match item {
+            Item::IronOre => {
+                if self.iron + self.ingot < CAR_CAPACITY {
+                    self.iron += 1;
+                    return true;
+                }
+            }
+            Item::Ingot => {
+                if self.iron + self.ingot < CAR_CAPACITY {
+                    self.ingot += 1;
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    pub fn remove_item(&mut self, item: Item) -> bool {
+        match item {
+            Item::IronOre => {
+                if 0 < self.iron {
+                    self.iron -= 1;
+                    return true;
+                }
+            }
+            Item::Ingot => {
+                if 0 < self.ingot {
+                    self.ingot -= 1;
+                    return true;
+                }
+            }
+        }
+        false
     }
 }
 

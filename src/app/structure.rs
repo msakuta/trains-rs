@@ -126,6 +126,7 @@ impl TrainsApp {
                 StructureType::OreMine => Color32::from_rgb(0, 127, 191),
                 StructureType::Smelter => Color32::from_rgb(0, 191, 127),
                 StructureType::Sink => Color32::from_rgb(127, 0, 127),
+                StructureType::Loader => Color32::from_rgb(127, 127, 0),
             }
         };
         let line_color = Color32::from_rgb(0, 63, 31);

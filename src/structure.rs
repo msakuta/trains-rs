@@ -2,7 +2,11 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use serde::{Deserialize, Serialize};
 
-use crate::vec2::Vec2;
+use crate::{
+    train::Train,
+    train_tracks::{StationId, TrainTask},
+    vec2::Vec2,
+};
 
 pub(crate) const STRUCTURE_INPUT_POS: Vec2 = Vec2::new(0., 1.);
 pub(crate) const STRUCTURE_OUTPUT_POS: Vec2 = Vec2::new(0., -1.);
@@ -16,7 +20,7 @@ pub(crate) const BELT_MAX_SLOPE: f64 = 0.1;
 
 pub(crate) type StructureId = usize;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct Structure {
     pub pos: Vec2<f64>,
     pub ty: StructureType,
@@ -25,13 +29,16 @@ pub(crate) struct Structure {
     cooldown: usize,
     pub output_belts: HashSet<BeltId>,
     pub orientation: f64,
+    pub connected_station: Option<(StationId, usize)>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 pub(crate) enum StructureType {
+    #[default]
     OreMine,
     Smelter,
     Sink,
+    Loader,
 }
 
 impl Structure {
@@ -39,11 +46,8 @@ impl Structure {
         Self {
             pos,
             ty: StructureType::OreMine,
-            iron: 0,
-            ingot: 0,
-            cooldown: 0,
-            output_belts: HashSet::new(),
             orientation,
+            ..Self::default()
         }
     }
 
@@ -51,11 +55,8 @@ impl Structure {
         Self {
             pos,
             ty: StructureType::Smelter,
-            iron: 0,
-            ingot: 0,
-            cooldown: 0,
-            output_belts: HashSet::new(),
             orientation,
+            ..Self::default()
         }
     }
 
@@ -63,11 +64,18 @@ impl Structure {
         Self {
             pos,
             ty: StructureType::Sink,
-            iron: 0,
-            ingot: 0,
-            cooldown: 0,
-            output_belts: HashSet::new(),
             orientation,
+            ..Self::default()
+        }
+    }
+
+    pub fn new_loader(pos: Vec2, orientation: f64, station: StationId, car_idx: usize) -> Self {
+        Self {
+            pos,
+            ty: StructureType::Loader,
+            orientation,
+            connected_station: Some((station, car_idx)),
+            ..Self::default()
         }
     }
 
@@ -88,7 +96,7 @@ impl Structure {
                 if 0 < self.iron {
                     if let Some(belt_id) = self.output_belts.iter().next() {
                         ret.insert_items
-                            .push((StructureOrBelt::Belt(*belt_id), Item::IronOre));
+                            .push((EntityId::Belt(*belt_id), Item::IronOre));
                     }
                     self.iron -= 1;
                 }
@@ -105,7 +113,7 @@ impl Structure {
                 if 0 < self.ingot {
                     if let Some(belt_id) = self.output_belts.iter().next() {
                         ret.insert_items
-                            .push((StructureOrBelt::Belt(*belt_id), Item::Ingot));
+                            .push((EntityId::Belt(*belt_id), Item::Ingot));
                     }
                 }
             }
@@ -116,6 +124,17 @@ impl Structure {
                     self.cooldown = ORE_MINE_FREQUENCY;
                 } else {
                     self.cooldown = self.cooldown.saturating_sub(1);
+                }
+            }
+            StructureType::Loader => {
+                if let Some((station, car_idx)) = self.connected_station {
+                    if 0 < self.iron {
+                        ret.insert_items
+                            .push((EntityId::Station(station, car_idx), Item::IronOre));
+                    } else if 0 < self.ingot {
+                        ret.insert_items
+                            .push((EntityId::Station(station, car_idx), Item::Ingot));
+                    }
                 }
             }
         }
@@ -165,8 +184,8 @@ impl Structure {
 
 #[derive(Clone, Debug)]
 pub(crate) struct StructureUpdateResult {
-    pub insert_items: Vec<(StructureOrBelt, Item)>,
-    pub remove_items: Vec<(StructureOrBelt, Item)>,
+    pub insert_items: Vec<(EntityId, Item)>,
+    pub remove_items: Vec<(EntityId, Item)>,
 }
 
 impl StructureUpdateResult {
@@ -182,6 +201,14 @@ impl StructureUpdateResult {
 pub(crate) enum StructureOrBelt {
     Structure(StructureId),
     Belt(BeltId),
+}
+
+/// A reference type that can indicate either a structure, a belt or a train car parked on a station.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum EntityId {
+    Structure(StructureId),
+    Belt(BeltId),
+    Station(StationId, usize),
 }
 
 /// A collection of structures and belts.
@@ -262,7 +289,7 @@ impl Structures {
         ret
     }
 
-    pub fn update(&mut self, credits: &mut u32) {
+    pub fn update(&mut self, credits: &mut u32, train: &mut Train) {
         // Update structures
         let st_ids = self.structures.keys().copied().collect::<Vec<_>>();
         for id in st_ids {
@@ -271,27 +298,37 @@ impl Structures {
             };
             let result = st.update(credits);
 
-            // Insert items by structures
             let mut moved_iron_ores = 0;
             let mut moved_ingots = 0;
+            let mut record_moved = |item| match item {
+                Item::IronOre => moved_iron_ores += 1,
+                Item::Ingot => moved_ingots += 1,
+            };
+
+            // Insert items by structures
             for (dest_id, item) in result.insert_items {
                 match dest_id {
-                    StructureOrBelt::Belt(belt_id) => {
+                    EntityId::Belt(belt_id) => {
                         if let Some(belt) = self.belts.get_mut(&belt_id) {
                             if belt.try_insert(item) {
-                                match item {
-                                    Item::IronOre => moved_iron_ores += 1,
-                                    Item::Ingot => moved_ingots += 1,
-                                }
+                                record_moved(item);
                             }
                         }
                     }
-                    StructureOrBelt::Structure(st_id) => {
+                    EntityId::Structure(st_id) => {
                         if let Some(st) = self.structures.get_mut(&st_id) {
                             if st.try_insert(item) {
-                                match item {
-                                    Item::IronOre => moved_iron_ores += 1,
-                                    Item::Ingot => moved_ingots += 1,
+                                record_moved(item);
+                            }
+                        }
+                    }
+                    EntityId::Station(st_id, car_idx) => {
+                        if let TrainTask::Wait(_, wait_station) = train.train_task {
+                            if wait_station == st_id {
+                                if let Some(car) = train.cars.get_mut(car_idx) {
+                                    if car.try_insert(item) {
+                                        record_moved(item);
+                                    }
                                 }
                             }
                         }
@@ -302,16 +339,34 @@ impl Structures {
             // Remove items by structures
             for (dest_id, item) in result.remove_items {
                 match dest_id {
-                    StructureOrBelt::Belt(belt_id) => {
+                    EntityId::Belt(belt_id) => {
                         if let Some(belt) = self.belts.get_mut(&belt_id) {
                             belt.post_update(1);
                         }
                     }
-                    StructureOrBelt::Structure(st_id) => {
+                    EntityId::Structure(st_id) => {
                         if let Some(st) = self.structures.get_mut(&st_id) {
                             match item {
                                 Item::IronOre => st.post_update(1, 0),
                                 Item::Ingot => st.post_update(0, 1),
+                            }
+                        }
+                    }
+                    EntityId::Station(st_id, car_idx) => {
+                        if let TrainTask::Wait(_, wait_station) = train.train_task {
+                            if wait_station == st_id {
+                                if let Some((car, st)) = train
+                                    .cars
+                                    .get_mut(car_idx)
+                                    .zip(self.structures.get_mut(&st_id))
+                                {
+                                    if car.remove_item(item) {
+                                        match item {
+                                            Item::IronOre => st.post_update(1, 0),
+                                            Item::Ingot => st.post_update(0, 1),
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -339,17 +394,18 @@ impl Structures {
             let mut moved_items = 0;
             for (dest_id, item) in res.insert_items {
                 match dest_id {
-                    StructureOrBelt::Belt(dest_belt_id) => {
+                    EntityId::Belt(dest_belt_id) => {
                         let Some(dest) = self.belts.get_mut(&dest_belt_id) else {
                             continue;
                         };
                         moved_items += dest.try_insert(item) as usize;
                     }
-                    StructureOrBelt::Structure(dest_st_id) => {
+                    EntityId::Structure(dest_st_id) => {
                         if let Some(dest) = self.structures.get_mut(&dest_st_id) {
                             moved_items += dest.try_insert(item) as usize;
                         }
                     }
+                    _ => {}
                 }
             }
             // Re-borrow the original belt
@@ -460,13 +516,11 @@ impl Belt {
             if length < *pos + BELT_SPEED {
                 match self.end_con {
                     BeltConnection::BeltStart(belt_id) => {
-                        ret.insert_items
-                            .push((StructureOrBelt::Belt(belt_id), *item));
+                        ret.insert_items.push((EntityId::Belt(belt_id), *item));
                         remove_idx = Some(i);
                     }
                     BeltConnection::Structure(st) => {
-                        ret.insert_items
-                            .push((StructureOrBelt::Structure(st), *item));
+                        ret.insert_items.push((EntityId::Structure(st), *item));
                         remove_idx = Some(i);
                     }
                     _ => {}

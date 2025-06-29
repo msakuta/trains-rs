@@ -7,6 +7,7 @@ use eframe::{
     epaint::PathShape,
 };
 use heightmap::DOWNSAMPLE;
+use ordered_float::NotNan;
 
 pub(crate) use self::heightmap::HeightMap;
 use self::{
@@ -21,7 +22,7 @@ use crate::{
         BELT_MAX_SLOPE, BeltConnection, MAX_BELT_LENGTH, Structure, StructureType, Structures,
     },
     train::Train,
-    train_tracks::{SelectedPathNode, Station, StationType, TrainTracks},
+    train_tracks::{SelectedPathNode, Station, StationId, StationType, TrainTracks},
     transform::{PaintTransform, Transform, half_rect},
     vec2::Vec2,
 };
@@ -49,6 +50,7 @@ enum ClickMode {
     DeleteSegment,
     AddStation,
     AddSmelter,
+    AddLoader,
     ConnectBelt,
     DeleteStructure,
 }
@@ -67,7 +69,7 @@ pub(crate) struct TrainsApp {
     focus_on_train: bool,
     click_mode: ClickMode,
     belt_connection: Option<(BeltConnection, Vec2<f64>)>,
-    building_structure: Option<Vec2>,
+    building_structure: Option<(Vec2, Option<StationId>)>,
     tracks: TrainTracks,
     train: Train,
     selected_station: Option<usize>,
@@ -345,14 +347,44 @@ impl TrainsApp {
                     }
                     ClickMode::AddSmelter => {
                         let pos = paint_transform.from_pos2(pointer);
-                        if let Some(pos) = self.building_structure {
+                        if let Some((pos, _)) = self.building_structure {
                             let delta = pos - paint_transform.from_pos2(pointer);
                             let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
                             self.structures
                                 .add_structure(Structure::new_smelter(pos, orient));
                             self.building_structure = None;
                         } else {
-                            self.building_structure = Some(pos);
+                            self.building_structure = Some((pos, None));
+                        }
+                    }
+                    ClickMode::AddLoader => {
+                        let pos = paint_transform.from_pos2(pointer);
+                        if let Some((pos, Some(st_id))) = self.building_structure {
+                            let delta = pos - paint_transform.from_pos2(pointer);
+                            let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
+                            self.structures
+                                .add_structure(Structure::new_loader(pos, orient, st_id, 1));
+                            self.building_structure = None;
+                        } else {
+                            let closest_station = self
+                                .tracks
+                                .stations
+                                .iter()
+                                .filter_map(|(id, station)| {
+                                    let Some(path) = self.tracks.paths.get(&station.path_id) else {
+                                        return None;
+                                    };
+                                    let Some(track_pos) = path.track.get(station.s as usize) else {
+                                        return None;
+                                    };
+                                    let delta = pos - *track_pos;
+                                    let dist = delta.length();
+                                    Some((*id, *track_pos, NotNan::new(dist).unwrap()))
+                                })
+                                .min_by_key(|(_, _, dist)| *dist);
+                            println!("closest_station: {closest_station:?}");
+                            self.building_structure =
+                                closest_station.map(|(st_id, pos, _)| (pos, Some(st_id)));
                         }
                     }
                     ClickMode::ConnectBelt => 'out: {
@@ -522,16 +554,20 @@ impl TrainsApp {
                     }
                 }
             }
-            ClickMode::AddSmelter => {
+            ClickMode::AddSmelter | ClickMode::AddLoader => {
                 if let Some(pointer) = response.hover_pos() {
-                    if let Some(pos) = self.building_structure {
+                    if let Some((pos, _)) = self.building_structure {
                         let delta = pos - paint_transform.from_pos2(pointer);
                         let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
                         Self::render_structure(
                             paint_transform.to_pos2(pos),
                             orient,
                             true,
-                            StructureType::Smelter,
+                            match self.click_mode {
+                                ClickMode::AddSmelter => StructureType::Smelter,
+                                ClickMode::AddLoader => StructureType::Loader,
+                                _ => unreachable!(),
+                            },
                             &painter,
                             &paint_transform,
                         );
@@ -591,7 +627,10 @@ impl TrainsApp {
         }
 
         // Clear the state of inserting structure when the player select another mode
-        if !matches!(self.click_mode, ClickMode::AddSmelter) {
+        if !matches!(
+            self.click_mode,
+            ClickMode::AddSmelter | ClickMode::AddLoader
+        ) {
             self.building_structure = None;
         }
 
@@ -788,6 +827,7 @@ impl TrainsApp {
             ui.radio_value(&mut self.click_mode, ClickMode::DeleteSegment, "Delete");
             ui.radio_value(&mut self.click_mode, ClickMode::AddStation, "Add Station");
             ui.radio_value(&mut self.click_mode, ClickMode::AddSmelter, "Add Smelter");
+            ui.radio_value(&mut self.click_mode, ClickMode::AddLoader, "Add Loader");
             ui.radio_value(&mut self.click_mode, ClickMode::ConnectBelt, "Connect Belt");
             ui.radio_value(
                 &mut self.click_mode,
@@ -897,7 +937,7 @@ impl eframe::App for TrainsApp {
 
         self.train.update(thrust, &self.heightmap, &self.tracks);
 
-        self.structures.update(&mut self.credits);
+        self.structures.update(&mut self.credits, &mut self.train);
     }
 }
 
