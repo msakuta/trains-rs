@@ -7,7 +7,6 @@ use eframe::{
     epaint::PathShape,
 };
 use heightmap::DOWNSAMPLE;
-use ordered_float::NotNan;
 
 pub(crate) use self::heightmap::HeightMap;
 use self::{
@@ -69,7 +68,7 @@ pub(crate) struct TrainsApp {
     focus_on_train: bool,
     click_mode: ClickMode,
     belt_connection: Option<(BeltConnection, Vec2<f64>)>,
-    building_structure: Option<(Vec2, Option<StationId>)>,
+    building_structure: Option<Vec2>,
     tracks: TrainTracks,
     train: Train,
     selected_station: Option<usize>,
@@ -347,44 +346,25 @@ impl TrainsApp {
                     }
                     ClickMode::AddSmelter => {
                         let pos = paint_transform.from_pos2(pointer);
-                        if let Some((pos, _)) = self.building_structure {
+                        if let Some(pos) = self.building_structure {
                             let delta = pos - paint_transform.from_pos2(pointer);
                             let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
                             self.structures
                                 .add_structure(Structure::new_smelter(pos, orient));
                             self.building_structure = None;
                         } else {
-                            self.building_structure = Some((pos, None));
+                            self.building_structure = Some(pos);
                         }
                     }
                     ClickMode::AddLoader => {
+                        // Loaders orientation is determined by the track normal, so we do not need two-step method to
+                        // insert one.
                         let pos = paint_transform.from_pos2(pointer);
-                        if let Some((pos, Some(st_id))) = self.building_structure {
-                            let delta = pos - paint_transform.from_pos2(pointer);
-                            let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
+                        if let Some((st_id, pos, _, orient)) = self.tracks.find_loader_position(pos)
+                        {
                             self.structures
                                 .add_structure(Structure::new_loader(pos, orient, st_id, 1));
                             self.building_structure = None;
-                        } else {
-                            let closest_station = self
-                                .tracks
-                                .stations
-                                .iter()
-                                .filter_map(|(id, station)| {
-                                    let Some(path) = self.tracks.paths.get(&station.path_id) else {
-                                        return None;
-                                    };
-                                    let Some(track_pos) = path.track.get(station.s as usize) else {
-                                        return None;
-                                    };
-                                    let delta = pos - *track_pos;
-                                    let dist = delta.length();
-                                    Some((*id, *track_pos, NotNan::new(dist).unwrap()))
-                                })
-                                .min_by_key(|(_, _, dist)| *dist);
-                            println!("closest_station: {closest_station:?}");
-                            self.building_structure =
-                                closest_station.map(|(st_id, pos, _)| (pos, Some(st_id)));
                         }
                     }
                     ClickMode::ConnectBelt => 'out: {
@@ -554,23 +534,36 @@ impl TrainsApp {
                     }
                 }
             }
-            ClickMode::AddSmelter | ClickMode::AddLoader => {
+            ClickMode::AddSmelter => {
                 if let Some(pointer) = response.hover_pos() {
-                    if let Some((pos, _)) = self.building_structure {
+                    if let Some(pos) = self.building_structure {
                         let delta = pos - paint_transform.from_pos2(pointer);
                         let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
                         Self::render_structure(
                             paint_transform.to_pos2(pos),
                             orient,
                             true,
-                            match self.click_mode {
-                                ClickMode::AddSmelter => StructureType::Smelter,
-                                ClickMode::AddLoader => StructureType::Loader,
-                                _ => unreachable!(),
-                            },
+                            StructureType::Smelter,
                             &painter,
                             &paint_transform,
                         );
+                    }
+                }
+            }
+            ClickMode::AddLoader => {
+                if let Some(pointer) = response.hover_pos() {
+                    if matches!(self.click_mode, ClickMode::AddLoader) {
+                        let pos = paint_transform.from_pos2(pointer);
+                        if let Some((_, pos, _, orient)) = self.tracks.find_loader_position(pos) {
+                            Self::render_structure(
+                                paint_transform.to_pos2(pos),
+                                orient,
+                                true,
+                                StructureType::Loader,
+                                &painter,
+                                &paint_transform,
+                            );
+                        }
                     }
                 }
             }

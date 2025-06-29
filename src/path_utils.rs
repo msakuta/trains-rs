@@ -102,6 +102,7 @@ pub(crate) fn interpolate_path_heading(path: &[Vec2<f64>], s: f64) -> Option<f64
     interpolate_path_tangent(path, s).map(|tangent| tangent.y.atan2(tangent.x))
 }
 
+/// Returns a tangent vector along a path. The vector is not normalized.
 pub(crate) fn interpolate_path_tangent(path: &[Vec2<f64>], s: f64) -> Option<Vec2<f64>> {
     if path.len() < 2 {
         return None;

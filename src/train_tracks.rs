@@ -7,15 +7,18 @@ mod tight;
 use std::collections::HashMap;
 
 use crate::{
-    path_utils::{CircleArc, PathSegment, interpolate_path, wrap_angle},
-    train::Train,
+    path_utils::{CircleArc, PathSegment, interpolate_path, interpolate_path_tangent, wrap_angle},
+    train::{CAR_LENGTH, Train},
     vec2::Vec2,
 };
 
 pub(crate) use self::path_bundle::{ConnectPoint, NodeConnection, PathBundle, PathConnection};
 
+use ordered_float::NotNan;
 use serde::{Deserialize, Serialize};
 
+pub(crate) const RAIL_HALFWIDTH: f64 = 1.25;
+pub(crate) const RAIL_WIDTH: f64 = RAIL_HALFWIDTH * 2.;
 const MIN_RADIUS: f64 = 50.;
 const MAX_RADIUS: f64 = 10000.;
 pub(crate) const SEGMENT_LENGTH: f64 = 10.;
@@ -662,6 +665,32 @@ impl TrainTracks {
                 None
             })
         })
+    }
+
+    pub(crate) fn find_loader_position(&self, pos: Vec2) -> Option<(StationId, Vec2, f64, f64)> {
+        self.stations
+            .iter()
+            .filter_map(|(id, station)| {
+                let Some(path) = self.paths.get(&station.path_id) else {
+                    return None;
+                };
+                let Some(track_pos) = path.track.get(station.s as usize) else {
+                    return None;
+                };
+                let Some(tangent) = interpolate_path_tangent(&path.track, station.s) else {
+                    return None;
+                };
+                let tangent = tangent.normalized();
+                let delta = pos - *track_pos;
+                let dist = delta.length();
+                let normal = tangent.left90();
+                let loader_pos =
+                    *track_pos - tangent * CAR_LENGTH * SEGMENT_LENGTH + normal * RAIL_WIDTH;
+                let orient = tangent.y.atan2(tangent.x);
+                Some((*id, loader_pos, NotNan::new(dist).ok()?, orient))
+            })
+            .min_by_key(|(_, _, dist, _)| *dist)
+            .map(|(id, pos, dist, orient)| (id, pos, *dist, orient))
     }
 
     pub fn delete_segment(

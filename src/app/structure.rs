@@ -120,7 +120,7 @@ impl TrainsApp {
         paint_transform: &PaintTransform,
     ) {
         let color = if preview {
-            Color32::from_rgb(255, 127, 191)
+            Color32::from_rgba_premultiplied(255, 127, 191, 191)
         } else {
             match ty {
                 StructureType::OreMine => Color32::from_rgb(0, 127, 191),

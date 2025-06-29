@@ -7,14 +7,13 @@ use eframe::{
 
 use crate::{
     train::{CAR_CAPACITY, CarType, TrainCar},
-    train_tracks::{PathBundle, SegmentDirection},
+    train_tracks::{PathBundle, RAIL_HALFWIDTH, SegmentDirection},
     transform::PaintTransform,
     vec2::Vec2,
 };
 
 use super::TrainsApp;
 
-const RAIL_HALFWIDTH: f64 = 1.25;
 // const TIE_HALFLENGTH: f64 = 1.5;
 // const TIE_HALFWIDTH: f64 = 0.3;
 // const TIE_INTERPOLATES: usize = 3;
