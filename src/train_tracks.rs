@@ -667,7 +667,10 @@ impl TrainTracks {
         })
     }
 
-    pub(crate) fn find_loader_position(&self, pos: Vec2) -> Option<(StationId, Vec2, f64, f64)> {
+    pub(crate) fn find_loader_position(
+        &self,
+        pos: Vec2,
+    ) -> Option<(StationId, usize, Vec2, f64, f64)> {
         self.stations
             .iter()
             .filter_map(|(id, station)| {
@@ -681,16 +684,24 @@ impl TrainTracks {
                     return None;
                 };
                 let tangent = tangent.normalized();
-                let delta = pos - *track_pos;
-                let dist = delta.length();
                 let normal = tangent.left90();
-                let loader_pos =
-                    *track_pos - tangent * CAR_LENGTH * SEGMENT_LENGTH + normal * RAIL_WIDTH;
                 let orient = tangent.y.atan2(tangent.x);
-                Some((*id, loader_pos, NotNan::new(dist).ok()?, orient))
+                Some(
+                    (0..3)
+                        .filter_map(|i| {
+                            let loader_pos = *track_pos
+                                - tangent * i as f64 * CAR_LENGTH * SEGMENT_LENGTH
+                                + normal * RAIL_WIDTH;
+                            let delta = pos - loader_pos;
+                            let dist = delta.length();
+                            Some((*id, i, loader_pos, NotNan::new(dist).ok()?, orient))
+                        })
+                        .collect::<Vec<_>>(),
+                )
             })
-            .min_by_key(|(_, _, dist, _)| *dist)
-            .map(|(id, pos, dist, orient)| (id, pos, *dist, orient))
+            .flatten()
+            .min_by_key(|(_, _, _, dist, _)| *dist)
+            .map(|(id, idx, pos, dist, orient)| (id, idx, pos, *dist, orient))
     }
 
     pub fn delete_segment(

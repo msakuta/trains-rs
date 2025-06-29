@@ -95,7 +95,7 @@ impl TrainsApp {
                     .unwrap();
 
                 let mut rng = Xorshift64Star::new(40925612);
-                let structures = (0..10)
+                let structures = (0..15)
                     .filter_map(|i| {
                         let x = rng.next() * heightmap_params.width as f64;
                         let y = rng.next() * heightmap_params.height as f64;
@@ -361,11 +361,12 @@ impl TrainsApp {
                         // Loaders orientation is determined by the track normal, so we do not need two-step method to
                         // insert one.
                         let pos = paint_transform.from_pos2(pointer);
-                        if let Some((st_id, pos, _, orient)) = self.tracks.find_loader_position(pos)
+                        if let Some((st_id, car_idx, pos, _, orient)) =
+                            self.tracks.find_loader_position(pos)
                         {
                             self.structures.add_structure(
                                 if matches!(self.click_mode, ClickMode::AddLoader) {
-                                    Structure::new_loader(pos, orient, st_id, 1)
+                                    Structure::new_loader(pos, orient, st_id, car_idx)
                                 } else {
                                     Structure::new_unloader(
                                         pos,
@@ -564,7 +565,7 @@ impl TrainsApp {
             ClickMode::AddLoader | ClickMode::AddUnloader => {
                 if let Some(pointer) = response.hover_pos() {
                     let pos = paint_transform.from_pos2(pointer);
-                    if let Some((_, pos, _, orient)) = self.tracks.find_loader_position(pos) {
+                    if let Some((_, _, pos, _, orient)) = self.tracks.find_loader_position(pos) {
                         let (ty, orient) = if matches!(self.click_mode, ClickMode::AddLoader) {
                             (StructureType::Loader, orient)
                         } else {
@@ -634,10 +635,7 @@ impl TrainsApp {
         }
 
         // Clear the state of inserting structure when the player select another mode
-        if !matches!(
-            self.click_mode,
-            ClickMode::AddSmelter | ClickMode::AddLoader
-        ) {
+        if !matches!(self.click_mode, ClickMode::AddSmelter) {
             self.building_structure = None;
         }
 

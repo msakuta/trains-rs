@@ -374,7 +374,7 @@ impl TrainsApp {
                         base_pos.y + BAR_OFFSET - BAR_HEIGHT / 2.,
                     ),
                     vec2(
-                        car.iron as f32 * BAR_WIDTH / CAR_CAPACITY as f32,
+                        (car.iron + car.ingot) as f32 * BAR_WIDTH / CAR_CAPACITY as f32,
                         BAR_HEIGHT,
                     ),
                 ),

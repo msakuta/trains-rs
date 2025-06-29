@@ -185,7 +185,9 @@ impl Structure {
                 }
             }
             Item::Ingot => {
-                if matches!(self.ty, StructureType::Sink) && self.ingot < INGOT_CAPACITY {
+                if matches!(self.ty, StructureType::Sink | StructureType::Loader)
+                    && self.ingot < INGOT_CAPACITY
+                {
                     self.ingot += 1;
                     return true;
                 }
