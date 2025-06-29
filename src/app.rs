@@ -762,34 +762,35 @@ impl TrainsApp {
     }
 
     fn ui_panel(&mut self, ui: &mut Ui) {
-        ui.checkbox(&mut self.show_contours, "Show contour lines");
-        ui.horizontal(|ui| {
-            ui.label("Contours grid step:");
-            ui.add(egui::Slider::new(
-                &mut self.contour_grid_step,
-                1..=MAX_CONTOURS_GRID_STEP,
-            ));
+        ui.collapsing("View options", |ui| {
+            ui.checkbox(&mut self.show_contours, "Show contour lines");
+            ui.horizontal(|ui| {
+                ui.label("Contours grid step:");
+                ui.add(egui::Slider::new(
+                    &mut self.contour_grid_step,
+                    1..=MAX_CONTOURS_GRID_STEP,
+                ));
+            });
+            if self
+                .contours_cache
+                .as_ref()
+                .is_some_and(|c| c.grid_step() != self.contour_grid_step)
+            {
+                self.contours_cache = Some(self.heightmap.cache_contours(self.contour_grid_step));
+            }
+            ui.checkbox(&mut self.show_grid, "Show grid");
+            ui.checkbox(&mut self.use_cached_contours, "Use cached contours");
+            ui.checkbox(&mut self.show_debug_slope, "Show debug slope");
+            ui.checkbox(&mut self.focus_on_train, "Focus on train");
+            ui.horizontal(|ui| {
+                ui.label("Num cars:");
+                ui.add(egui::Slider::new(
+                    &mut self.train.cars.len(),
+                    1..=MAX_NUM_CARS,
+                ));
+            });
         });
-        if self
-            .contours_cache
-            .as_ref()
-            .is_some_and(|c| c.grid_step() != self.contour_grid_step)
-        {
-            self.contours_cache = Some(self.heightmap.cache_contours(self.contour_grid_step));
-        }
-        ui.checkbox(&mut self.show_grid, "Show grid");
-        ui.checkbox(&mut self.use_cached_contours, "Use cached contours");
-        ui.checkbox(&mut self.show_debug_slope, "Show debug slope");
-        ui.checkbox(&mut self.focus_on_train, "Focus on train");
-        ui.horizontal(|ui| {
-            ui.label("Num cars:");
-            ui.add(egui::Slider::new(
-                &mut self.train.cars.len(),
-                1..=MAX_NUM_CARS,
-            ));
-        });
-        ui.group(|ui| {
-            ui.label("Terrain generation params");
+        ui.collapsing("Terrain generation params", |ui| {
             self.heightmap_params.params_ui(ui);
             if ui.button("Regenerate").clicked() {
                 match HeightMap::new(&self.heightmap_params) {
