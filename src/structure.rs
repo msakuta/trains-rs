@@ -39,6 +39,7 @@ pub(crate) enum StructureType {
     Smelter,
     Sink,
     Loader,
+    Unloader,
 }
 
 impl Structure {
@@ -79,6 +80,16 @@ impl Structure {
         }
     }
 
+    pub fn new_unloader(pos: Vec2, orientation: f64, station: StationId, car_idx: usize) -> Self {
+        Self {
+            pos,
+            ty: StructureType::Unloader,
+            orientation,
+            connected_station: Some((station, car_idx)),
+            ..Self::default()
+        }
+    }
+
     pub fn update(&mut self, score: &mut u32) -> StructureUpdateResult {
         let mut ret = StructureUpdateResult {
             insert_items: vec![],
@@ -98,7 +109,6 @@ impl Structure {
                         ret.insert_items
                             .push((EntityId::Belt(*belt_id), Item::IronOre));
                     }
-                    self.iron -= 1;
                 }
             }
             StructureType::Smelter => {
@@ -137,6 +147,31 @@ impl Structure {
                     }
                 }
             }
+            StructureType::Unloader => {
+                if let Some((station, car_idx)) = self.connected_station {
+                    if self.iron < ORE_MINE_CAPACITY {
+                        ret.remove_items
+                            .push((EntityId::Station(station, car_idx), Item::IronOre));
+                    } else if self.ingot < INGOT_CAPACITY {
+                        ret.remove_items
+                            .push((EntityId::Station(station, car_idx), Item::Ingot));
+                    }
+                }
+
+                if 0 < self.iron {
+                    if let Some(belt_id) = self.output_belts.iter().next() {
+                        ret.insert_items
+                            .push((EntityId::Belt(*belt_id), Item::IronOre));
+                    }
+                }
+
+                if 0 < self.ingot {
+                    if let Some(belt_id) = self.output_belts.iter().next() {
+                        ret.insert_items
+                            .push((EntityId::Belt(*belt_id), Item::Ingot));
+                    }
+                }
+            }
         }
         ret
     }
@@ -160,9 +195,9 @@ impl Structure {
     }
 
     /// Attempt to remove items that were successfully deleted.
-    pub fn post_update(&mut self, remove_iron_ores: u32, remove_ingots: u32) {
-        self.iron = self.iron.saturating_sub(remove_iron_ores);
-        self.ingot = self.ingot.saturating_sub(remove_ingots);
+    pub fn post_update(&mut self, remove_iron_ores: i32, remove_ingots: i32) {
+        self.iron = (self.iron as i32 - remove_iron_ores).max(0) as u32;
+        self.ingot = (self.ingot as i32 - remove_ingots).max(0) as u32;
     }
 
     pub fn input_pos(&self) -> Vec2 {
@@ -300,9 +335,9 @@ impl Structures {
 
             let mut moved_iron_ores = 0;
             let mut moved_ingots = 0;
-            let mut record_moved = |item| match item {
-                Item::IronOre => moved_iron_ores += 1,
-                Item::Ingot => moved_ingots += 1,
+            let mut record_moved = |item, delta: i32| match item {
+                Item::IronOre => moved_iron_ores += delta,
+                Item::Ingot => moved_ingots += delta,
             };
 
             // Insert items by structures
@@ -311,14 +346,14 @@ impl Structures {
                     EntityId::Belt(belt_id) => {
                         if let Some(belt) = self.belts.get_mut(&belt_id) {
                             if belt.try_insert(item) {
-                                record_moved(item);
+                                record_moved(item, 1);
                             }
                         }
                     }
                     EntityId::Structure(st_id) => {
                         if let Some(st) = self.structures.get_mut(&st_id) {
                             if st.try_insert(item) {
-                                record_moved(item);
+                                record_moved(item, 1);
                             }
                         }
                     }
@@ -327,7 +362,7 @@ impl Structures {
                             if wait_station == st_id {
                                 if let Some(car) = train.cars.get_mut(car_idx) {
                                     if car.try_insert(item) {
-                                        record_moved(item);
+                                        record_moved(item, 1);
                                     }
                                 }
                             }
@@ -352,19 +387,12 @@ impl Structures {
                             }
                         }
                     }
-                    EntityId::Station(st_id, car_idx) => {
+                    EntityId::Station(station_id, car_idx) => {
                         if let TrainTask::Wait(_, wait_station) = train.train_task {
-                            if wait_station == st_id {
-                                if let Some((car, st)) = train
-                                    .cars
-                                    .get_mut(car_idx)
-                                    .zip(self.structures.get_mut(&st_id))
-                                {
+                            if wait_station == station_id {
+                                if let Some(car) = train.cars.get_mut(car_idx) {
                                     if car.remove_item(item) {
-                                        match item {
-                                            Item::IronOre => st.post_update(1, 0),
-                                            Item::Ingot => st.post_update(0, 1),
-                                        }
+                                        record_moved(item, -1);
                                     }
                                 }
                             }

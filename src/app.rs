@@ -50,6 +50,7 @@ enum ClickMode {
     AddStation,
     AddSmelter,
     AddLoader,
+    AddUnloader,
     ConnectBelt,
     DeleteStructure,
 }
@@ -356,14 +357,24 @@ impl TrainsApp {
                             self.building_structure = Some(pos);
                         }
                     }
-                    ClickMode::AddLoader => {
+                    ClickMode::AddLoader | ClickMode::AddUnloader => {
                         // Loaders orientation is determined by the track normal, so we do not need two-step method to
                         // insert one.
                         let pos = paint_transform.from_pos2(pointer);
                         if let Some((st_id, pos, _, orient)) = self.tracks.find_loader_position(pos)
                         {
-                            self.structures
-                                .add_structure(Structure::new_loader(pos, orient, st_id, 1));
+                            self.structures.add_structure(
+                                if matches!(self.click_mode, ClickMode::AddLoader) {
+                                    Structure::new_loader(pos, orient, st_id, 1)
+                                } else {
+                                    Structure::new_unloader(
+                                        pos,
+                                        orient + std::f64::consts::PI,
+                                        st_id,
+                                        1,
+                                    )
+                                },
+                            );
                             self.building_structure = None;
                         }
                     }
@@ -550,20 +561,23 @@ impl TrainsApp {
                     }
                 }
             }
-            ClickMode::AddLoader => {
+            ClickMode::AddLoader | ClickMode::AddUnloader => {
                 if let Some(pointer) = response.hover_pos() {
-                    if matches!(self.click_mode, ClickMode::AddLoader) {
-                        let pos = paint_transform.from_pos2(pointer);
-                        if let Some((_, pos, _, orient)) = self.tracks.find_loader_position(pos) {
-                            Self::render_structure(
-                                paint_transform.to_pos2(pos),
-                                orient,
-                                true,
-                                StructureType::Loader,
-                                &painter,
-                                &paint_transform,
-                            );
-                        }
+                    let pos = paint_transform.from_pos2(pointer);
+                    if let Some((_, pos, _, orient)) = self.tracks.find_loader_position(pos) {
+                        let (ty, orient) = if matches!(self.click_mode, ClickMode::AddLoader) {
+                            (StructureType::Loader, orient)
+                        } else {
+                            (StructureType::Unloader, orient + std::f64::consts::PI)
+                        };
+                        Self::render_structure(
+                            paint_transform.to_pos2(pos),
+                            orient,
+                            true,
+                            ty,
+                            &painter,
+                            &paint_transform,
+                        );
                     }
                 }
             }
@@ -822,6 +836,7 @@ impl TrainsApp {
             ui.radio_value(&mut self.click_mode, ClickMode::AddStation, "Add Station");
             ui.radio_value(&mut self.click_mode, ClickMode::AddSmelter, "Add Smelter");
             ui.radio_value(&mut self.click_mode, ClickMode::AddLoader, "Add Loader");
+            ui.radio_value(&mut self.click_mode, ClickMode::AddUnloader, "Add Unloader");
             ui.radio_value(&mut self.click_mode, ClickMode::ConnectBelt, "Connect Belt");
             ui.radio_value(
                 &mut self.click_mode,
