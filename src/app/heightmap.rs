@@ -176,7 +176,7 @@ impl HeightMap {
         })
     }
 
-    pub fn get_image(&self) -> Result<ColorImage, ()> {
+    pub fn get_image(&self, slope_threshold: Option<f64>) -> Result<ColorImage, ()> {
         let min_p = self
             .map
             .iter()
@@ -215,6 +215,7 @@ impl HeightMap {
                     let x = (i % self.shape.0 as usize) as f64;
                     let y = (i / self.shape.1 as usize) as f64;
                     let grad = self.gradient(&Vec2::new(x, y));
+                    let slope = grad.length();
                     let dot = (grad.x - grad.y) * 10.;
                     let diffuse = (dot + 1.) / 2.5;
                     let greenness = (1. - white) / (1. + 1000. * grad.length2());
@@ -225,7 +226,11 @@ impl HeightMap {
                     let blue = ((diffuse * (1. - 0.5 * greenness as f64) + 0.2).clamp(0., 1.)
                         * 255.) as u8;
                     let green = ((diffuse + 0.2).clamp(0., 1.) * 255.) as u8;
-                    [red, green, blue]
+                    if slope_threshold.is_some_and(|threshold| threshold < slope) {
+                        [red / 2 + 127, green / 2, blue / 2]
+                    } else {
+                        [red, green, blue]
+                    }
                 }
                 .into_iter()
             })

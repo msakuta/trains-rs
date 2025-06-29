@@ -17,7 +17,9 @@ use self::{
 use crate::{
     bg_image::BgImage,
     perlin_noise::Xorshift64Star,
-    structure::{BeltConnection, MAX_BELT_LENGTH, Structure, StructureType, Structures},
+    structure::{
+        BELT_MAX_SLOPE, BeltConnection, MAX_BELT_LENGTH, Structure, StructureType, Structures,
+    },
     train::Train,
     train_tracks::{SelectedPathNode, Station, StationType, TrainTracks},
     transform::{PaintTransform, Transform, half_rect},
@@ -252,8 +254,6 @@ impl TrainsApp {
             })
         };
 
-        const MAX_SLOPE: f64 = 0.1;
-
         // Checks if the line segment between start_pos and end_pos has a point that exceeds maximum slope.
         let exceeds_slope = |start_pos: Vec2, end_pos: Vec2, heightmap: &HeightMap| {
             let interpolations = (start_pos.x - end_pos.x)
@@ -263,7 +263,7 @@ impl TrainsApp {
                 as usize;
             (0..interpolations).any(|i| {
                 let pos = start_pos.lerp(end_pos, i as f64 / interpolations as f64);
-                MAX_SLOPE.powi(2) < heightmap.gradient(&pos).length2()
+                BELT_MAX_SLOPE.powi(2) < heightmap.gradient(&pos).length2()
             })
         };
 
@@ -427,7 +427,14 @@ impl TrainsApp {
         let _ = self.bg.paint(
             &painter,
             (),
-            |_| self.heightmap.get_image(),
+            |_| {
+                self.heightmap
+                    .get_image(if matches!(self.click_mode, ClickMode::ConnectBelt) {
+                        Some(BELT_MAX_SLOPE)
+                    } else {
+                        None
+                    })
+            },
             &paint_transform,
         );
 
@@ -767,6 +774,7 @@ impl TrainsApp {
             }
         });
         ui.group(|ui| {
+            let was_belt_mode = matches!(self.click_mode, ClickMode::ConnectBelt);
             ui.label("Click mode:");
             ui.radio_value(&mut self.click_mode, ClickMode::None, "None");
             ui.radio_value(&mut self.click_mode, ClickMode::GentleCurve, "Gentle Curve");
@@ -786,8 +794,15 @@ impl TrainsApp {
                 ClickMode::DeleteStructure,
                 "Delete Structures",
             );
-            if !matches!(self.click_mode, ClickMode::ConnectBelt) {
+            let is_belt_mode = matches!(self.click_mode, ClickMode::ConnectBelt);
+            if !is_belt_mode {
                 self.belt_connection = None;
+            }
+            if is_belt_mode != was_belt_mode {
+                // Re-render the map to highlight areas that exceeds slope.
+                // ui.radio_value().changed() can detect changes by clicking the option, but cannot detect when
+                // the option is passively deselected by clicking another.
+                self.bg.clear();
             }
         });
         ui.group(|ui| {
