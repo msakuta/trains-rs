@@ -107,7 +107,6 @@ impl Structure {
                         ret.insert_items
                             .push((StructureOrBelt::Belt(*belt_id), Item::Ingot));
                     }
-                    self.ingot -= 1;
                 }
             }
             StructureType::Sink => {
