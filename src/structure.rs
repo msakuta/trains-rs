@@ -94,7 +94,7 @@ impl Structure {
                 }
             }
             StructureType::Smelter => {
-                if self.cooldown == 0 && self.ingot < ORE_MINE_CAPACITY && 0 < self.iron {
+                if self.cooldown == 0 && self.ingot < INGOT_CAPACITY && 0 < self.iron {
                     self.iron -= 1;
                     self.ingot += 1;
                     self.cooldown = ORE_MINE_FREQUENCY;
@@ -132,7 +132,7 @@ impl Structure {
                 }
             }
             Item::Ingot => {
-                if matches!(self.ty, StructureType::Sink) && self.ingot < ORE_MINE_CAPACITY {
+                if matches!(self.ty, StructureType::Sink) && self.ingot < INGOT_CAPACITY {
                     self.ingot += 1;
                     return true;
                 }

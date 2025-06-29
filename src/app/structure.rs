@@ -31,7 +31,7 @@ impl TrainsApp {
             );
         }
 
-        let paint_bar = |st: &Structure| {
+        let paint_bars = |st: &Structure| {
             let base_pos = paint_transform.to_pos2(st.pos).to_vec2();
             const BAR_WIDTH: f32 = 50.;
             const BAR_HEIGHT: f32 = 5.;
@@ -67,7 +67,7 @@ impl TrainsApp {
 
         if 2. < self.transform.scale() {
             for (_, structure) in &self.structures.structures {
-                paint_bar(structure);
+                paint_bars(structure);
             }
         }
     }
