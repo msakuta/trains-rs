@@ -2,6 +2,8 @@ mod heightmap;
 mod structure;
 mod train;
 
+use std::collections::HashMap;
+
 use eframe::{
     egui::{self, Align2, Color32, FontId, Frame, Painter, Rect, Ui, vec2},
     epaint::PathShape,
@@ -21,13 +23,13 @@ use crate::{
         BELT_MAX_SLOPE, BeltConnection, MAX_BELT_LENGTH, Structure, StructureType, Structures,
     },
     train::Train,
-    train_tracks::{SelectedPathNode, Station, StationId, StationType, TrainTracks},
+    train_tracks::{SelectedPathNode, Station, StationType, TrainTracks},
     transform::{PaintTransform, Transform, half_rect},
     vec2::Vec2,
 };
 
-pub(crate) const AREA_WIDTH: usize = 512;
-pub(crate) const AREA_HEIGHT: usize = 512;
+pub(crate) const AREA_WIDTH: usize = 256;
+pub(crate) const AREA_HEIGHT: usize = 256;
 // const AREA_SHAPE: Shape = (AREA_WIDTH as isize, AREA_HEIGHT as isize);
 const SELECT_PIXEL_RADIUS: f64 = 20.;
 const MAX_NUM_CARS: usize = 10;
@@ -38,6 +40,8 @@ const TRACKS_KEY: &str = "train_tracks";
 const HEIGHTMAP_KEY: &str = "heightmap";
 const STRUCTURES_KEY: &str = "structures";
 const CREDITS_KEY: &str = "credits";
+const HEIGHTMAP_LEVELS: usize = 4;
+const HEIGHTMAP_LEVEL_SCALE: f64 = 2.;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ClickMode {
@@ -61,7 +65,7 @@ pub(crate) struct TrainsApp {
     heightmap_params: HeightMapParams,
     contours_cache: Option<ContoursCache>,
     contour_grid_step: usize,
-    bg: BgImage,
+    bg: HashMap<usize, BgImage>,
     show_contours: bool,
     show_grid: bool,
     use_cached_contours: bool,
@@ -132,7 +136,7 @@ impl TrainsApp {
             heightmap_params,
             contours_cache: Some(contours_cache),
             contour_grid_step,
-            bg: BgImage::new(),
+            bg: HashMap::new(),
             show_contours: true,
             show_grid: false,
             use_cached_contours: true,
@@ -448,18 +452,25 @@ impl TrainsApp {
             }
         }
 
-        let _ = self.bg.paint(
+        let level = (-(self.transform.scale().log2() / HEIGHTMAP_LEVEL_SCALE.log2() as f32).floor())
+            .clamp(0., HEIGHTMAP_LEVELS as f32) as usize;
+        let heightmap_scale = (HEIGHTMAP_LEVEL_SCALE as f32).powi(level as i32);
+        let _ = self.bg.entry(level).or_insert_with(BgImage::new).paint(
             &painter,
             (),
             |_| {
-                self.heightmap
-                    .get_image(if matches!(self.click_mode, ClickMode::ConnectBelt) {
+                self.heightmap.get_image(
+                    level,
+                    if matches!(self.click_mode, ClickMode::ConnectBelt) {
                         Some(BELT_MAX_SLOPE)
                     } else {
                         None
-                    })
+                    },
+                )
             },
             &paint_transform,
+            heightmap_scale,
+            egui::pos2(0., heightmap_scale * self.heightmap_params.height as f32),
         );
 
         if self.use_cached_contours {

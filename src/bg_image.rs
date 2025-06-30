@@ -23,8 +23,10 @@ impl BgImage {
         &mut self,
         painter: &Painter,
         app_data: T,
-        img_getter: impl Fn(T) -> Result<egui::ColorImage, E>,
+        mut img_getter: impl FnMut(T) -> Result<egui::ColorImage, E>,
         paint_transform: &PaintTransform,
+        scale: f32,
+        origin: Pos2,
     ) -> Result<(), E> {
         let texture: &egui::TextureHandle = if let Some(texture) = &self.texture {
             texture
@@ -45,8 +47,8 @@ impl BgImage {
             })
         };
 
-        let origin = paint_transform.transform_pos2(pos2(0., texture.size()[1] as f32));
-        let scale = paint_transform.scale();
+        let origin = paint_transform.transform_pos2(origin);
+        let scale = paint_transform.scale() * scale;
         let size = texture.size_vec2() * scale;
         let min = Vec2::new(origin.x as f32, origin.y as f32);
         let max = min + size;

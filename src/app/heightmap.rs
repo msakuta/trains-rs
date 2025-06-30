@@ -7,6 +7,7 @@ use eframe::egui::{self, Color32, ColorImage, Painter, Pos2, Ui, pos2};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    app::HEIGHTMAP_LEVEL_SCALE,
     marching_squares::{
         Idx, Shape, border_pixel, cell_border_interpolated, pick_bits, pick_values,
     },
@@ -31,13 +32,13 @@ const BRIDGE_HEIGHT: f64 = 0.1;
 
 pub(super) const DOWNSAMPLE: usize = 16;
 
-#[derive(PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum NoiseType {
     White,
     Perlin,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct HeightMapParams {
     pub noise_type: NoiseType,
     pub width: usize,
@@ -122,13 +123,35 @@ softmax(
 }
 
 pub(crate) struct HeightMap {
-    pub(super) map: Vec<f32>,
+    pub(super) maps: HashMap<usize, Vec<f32>>,
     pub(super) shape: Shape,
     pub(super) water_level: f32,
+    params: HeightMapParams,
 }
 
 impl HeightMap {
     pub(super) fn new(params: &HeightMapParams) -> Result<Self, String> {
+        Ok(Self {
+            maps: HashMap::new(),
+            shape: (params.width as isize, params.height as isize),
+            water_level: params.water_level,
+            params: params.clone(),
+        })
+    }
+
+    /// Get or initialize a map at the given level.
+    ///
+    /// Heightmaps are lazily evaluated, so we may not have the data.
+    pub fn get_map(&mut self, level: usize) -> Result<&Vec<f32>, String> {
+        if !self.maps.contains_key(&level) {
+            self.maps.insert(level, Self::new_map(&self.params, level)?);
+        }
+        self.maps
+            .get(&level)
+            .ok_or_else(|| "Should exist".to_string())
+    }
+
+    fn new_map(params: &HeightMapParams, level: usize) -> Result<Vec<f32>, String> {
         let mut rng = Xorshift64Star::new(params.seed);
 
         let mut ast = parse(&params.noise_expr)?;
@@ -136,8 +159,8 @@ impl HeightMap {
 
         let map: Vec<_> = (0..params.width * params.height)
             .map(|i| {
-                let ix = (i % params.width) as f64;
-                let iy = (i / params.width) as f64;
+                let ix = (i % params.width) as f64 * HEIGHTMAP_LEVEL_SCALE.powi(level as i32);
+                let iy = (i / params.width) as f64 * HEIGHTMAP_LEVEL_SCALE.powi(level as i32);
                 let pos = crate::vec2::Vec2::new(ix as f64, iy as f64);
                 let Value::Scalar(eval_res) = run(&ast, &pos)? else {
                     return Err("Eval result was not a scalar".to_string());
@@ -147,6 +170,39 @@ impl HeightMap {
             })
             .collect::<Result<_, _>>()?;
 
+        // Heightmap cannot be normalized by values anymore since the noise can be sampled infinitely
+        // let min_p = map
+        //     .iter()
+        //     .fold(None, |acc, cur| {
+        //         if let Some(acc) = acc {
+        //             if acc < *cur { Some(acc) } else { Some(*cur) }
+        //         } else {
+        //             Some(*cur)
+        //         }
+        //     })
+        //     .ok_or_else(|| "Min value not found".to_string())?;
+        // let max_p = map
+        //     .iter()
+        //     .fold(None, |acc, cur| {
+        //         if let Some(acc) = acc {
+        //             if acc < *cur { Some(*cur) } else { Some(acc) }
+        //         } else {
+        //             Some(*cur)
+        //         }
+        //     })
+        //     .ok_or_else(|| "Max value not found".to_string())?;
+
+        Ok(map)
+    }
+
+    pub fn get_image(
+        &mut self,
+        level: usize,
+        slope_threshold: Option<f64>,
+    ) -> Result<ColorImage, String> {
+        let water_level = self.water_level;
+        let shape = self.shape;
+        let map = self.get_map(level)?;
         let min_p = map
             .iter()
             .fold(None, |acc, cur| {
@@ -156,7 +212,7 @@ impl HeightMap {
                     Some(*cur)
                 }
             })
-            .ok_or_else(|| "Min value not found".to_string())?;
+            .ok_or_else(|| "Map has no pixel".to_string())?;
         let max_p = map
             .iter()
             .fold(None, |acc, cur| {
@@ -166,55 +222,23 @@ impl HeightMap {
                     Some(*cur)
                 }
             })
-            .ok_or_else(|| "Max value not found".to_string())?;
-        let water_level = (max_p - min_p) * params.water_level + min_p;
-
-        Ok(Self {
-            map,
-            shape: (params.width as isize, params.height as isize),
-            water_level,
-        })
-    }
-
-    pub fn get_image(&self, slope_threshold: Option<f64>) -> Result<ColorImage, ()> {
-        let min_p = self
-            .map
-            .iter()
-            .fold(None, |acc, cur| {
-                if let Some(acc) = acc {
-                    if acc < *cur { Some(acc) } else { Some(*cur) }
-                } else {
-                    Some(*cur)
-                }
-            })
-            .ok_or(())?;
-        let max_p = self
-            .map
-            .iter()
-            .fold(None, |acc, cur| {
-                if let Some(acc) = acc {
-                    if acc < *cur { Some(*cur) } else { Some(acc) }
-                } else {
-                    Some(*cur)
-                }
-            })
-            .ok_or(())?;
-        let bitmap: Vec<_> = self
-            .map
+            .ok_or_else(|| "Map has no pixel".to_string())?;
+        let bitmap: Vec<_> = map
             .iter()
             .enumerate()
             .map(|(i, p)| {
-                let is_water = *p < self.water_level;
+                let is_water = *p < water_level;
                 if is_water {
-                    let water_depth = (self.water_level - p) / (self.water_level - min_p);
+                    let water_depth = (water_level - p) / (water_level - min_p);
                     let inten = 1. / (1. + 0.5 * water_depth);
                     [0, (95. * inten) as u8, (191. * inten) as u8]
                 } else {
-                    let above_water = (p - self.water_level) / (max_p - self.water_level);
+                    let above_water = (p - water_level) / (max_p - water_level);
                     let white = above_water.powi(4) as f64;
-                    let x = (i % self.shape.0 as usize) as f64;
-                    let y = (i / self.shape.1 as usize) as f64;
-                    let grad = self.gradient(&Vec2::new(x, y));
+                    let x = (i % shape.0 as usize) as f64;
+                    let y = (i / shape.1 as usize) as f64;
+                    let grad = Self::local_gradient(map, shape, &Vec2::new(x, y))
+                        / HEIGHTMAP_LEVEL_SCALE.powi(level as i32);
                     let slope = grad.length();
                     let dot = (grad.x - grad.y) * 10.;
                     let diffuse = (dot + 1.) / 2.5;
@@ -243,21 +267,24 @@ impl HeightMap {
         //     self.shape.1 as u32,
         //     image::ColorType::L8,
         // );
-        let img = eframe::egui::ColorImage::from_rgb(
-            [self.shape.0 as usize, self.shape.1 as usize],
-            &bitmap,
-        );
+        let img = eframe::egui::ColorImage::from_rgb([shape.0 as usize, shape.1 as usize], &bitmap);
         Ok(img)
     }
 
     pub(crate) fn gradient(&self, pos: &crate::vec2::Vec2<f64>) -> crate::vec2::Vec2<f64> {
+        self.maps.get(&0).map_or(Vec2::zero(), |map| {
+            Self::local_gradient(map, self.shape, pos)
+        })
+    }
+
+    fn local_gradient(map: &[f32], shape: Shape, pos: &crate::vec2::Vec2) -> crate::vec2::Vec2 {
         let [x, y] = [pos.x as isize, pos.y as isize];
-        if x < 0 || self.shape.0 <= x || y < 0 || self.shape.1 < y {
+        if x < 0 || shape.0 <= x || y < 0 || shape.1 < y {
             return crate::vec2::Vec2::zero();
         }
 
-        let dx = self.map[self.shape.idx(x + 1, y)] - self.map[self.shape.idx(x, y)];
-        let dy = self.map[self.shape.idx(x, y + 1)] - self.map[self.shape.idx(x, y)];
+        let dx = map[shape.idx(x + 1, y)] - map[shape.idx(x, y)];
+        let dy = map[shape.idx(x, y + 1)] - map[shape.idx(x, y)];
 
         crate::vec2::Vec2::new(dx as f64, dy as f64)
 
@@ -273,22 +300,26 @@ impl HeightMap {
         if x < 0 || self.shape.0 <= x || y < 0 || self.shape.1 < y {
             return false;
         }
-        self.map[self.shape.idx(x, y)] < self.water_level
+        self.maps
+            .get(&0)
+            .map_or(true, |map| map[self.shape.idx(x, y)] < self.water_level)
     }
 }
 
 impl std::ops::Index<(isize, isize)> for HeightMap {
     type Output = f32;
     fn index(&self, index: (isize, isize)) -> &Self::Output {
-        &self.map[self.shape.idx(index.0, index.1)]
+        self.maps
+            .get(&0)
+            .map_or(&0., |map| &map[self.shape.idx(index.0, index.1)])
     }
 }
 
-impl std::ops::IndexMut<(isize, isize)> for HeightMap {
-    fn index_mut(&mut self, index: (isize, isize)) -> &mut Self::Output {
-        &mut self.map[self.shape.idx(index.0, index.1)]
-    }
-}
+// impl std::ops::IndexMut<(isize, isize)> for HeightMap {
+//     fn index_mut(&mut self, index: (isize, isize)) -> &mut Self::Output {
+//         self.map[self.shape.idx(index.0, index.1)]
+//     }
+// }
 
 pub struct ContoursCache {
     grid_step: usize,
