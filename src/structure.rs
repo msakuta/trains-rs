@@ -104,11 +104,11 @@ impl Structure {
                     self.cooldown = self.cooldown.saturating_sub(1);
                 }
 
-                if 0 < self.iron {
-                    if let Some(belt_id) = self.output_belts.iter().next() {
-                        ret.insert_items
-                            .push((EntityId::Belt(*belt_id), Item::IronOre));
-                    }
+                if 0 < self.iron
+                    && let Some(belt_id) = self.output_belts.iter().next()
+                {
+                    ret.insert_items
+                        .push((EntityId::Belt(*belt_id), Item::IronOre));
                 }
             }
             StructureType::Smelter => {
@@ -120,11 +120,11 @@ impl Structure {
                     self.cooldown = self.cooldown.saturating_sub(1);
                 }
 
-                if 0 < self.ingot {
-                    if let Some(belt_id) = self.output_belts.iter().next() {
-                        ret.insert_items
-                            .push((EntityId::Belt(*belt_id), Item::Ingot));
-                    }
+                if 0 < self.ingot
+                    && let Some(belt_id) = self.output_belts.iter().next()
+                {
+                    ret.insert_items
+                        .push((EntityId::Belt(*belt_id), Item::Ingot));
                 }
             }
             StructureType::Sink => {
@@ -346,10 +346,11 @@ impl Structures {
             for (dest_id, item) in result.insert_items {
                 match dest_id {
                     EntityId::Belt(belt_id) => {
-                        if let Some(belt) = self.belts.get_mut(&belt_id) {
-                            if belt.try_insert(item) {
-                                record_moved(item, 1);
-                            }
+                        if let Some(belt) = self.belts.get_mut(&belt_id)
+                            && let t = item
+                            && belt.try_insert(t)
+                        {
+                            record_moved(item, 1);
                         }
                     }
                     EntityId::Structure(st_id) => {

@@ -269,181 +269,179 @@ impl TrainsApp {
             })
         };
 
-        if response.clicked() {
-            if let Some(pointer) = response.interact_pointer_pos() {
-                match self.click_mode {
-                    ClickMode::None => {
-                        let pos = paint_transform.from_pos2(pointer);
+        if response.clicked()
+            && let Some(pointer) = response.interact_pointer_pos()
+        {
+            match self.click_mode {
+                ClickMode::None => {
+                    let pos = paint_transform.from_pos2(pointer);
+                    let _res = self.tracks.select_node(pos, thresh);
+                }
+                ClickMode::GentleCurve => {
+                    let pos = paint_transform.from_pos2(pointer);
+                    if self.tracks.has_selected_node() {
+                        // self.train.control_points.push(pos);
+                        let res = self
+                            .tracks
+                            .add_gentle(pos, &self.heightmap, &mut self.train);
+                        self.process_result(pos, res);
+                    } else {
                         let _res = self.tracks.select_node(pos, thresh);
                     }
-                    ClickMode::GentleCurve => {
-                        let pos = paint_transform.from_pos2(pointer);
-                        if self.tracks.has_selected_node() {
-                            // self.train.control_points.push(pos);
-                            let res = self
-                                .tracks
-                                .add_gentle(pos, &self.heightmap, &mut self.train);
-                            self.process_result(pos, res);
-                        } else {
-                            let _res = self.tracks.select_node(pos, thresh);
-                        }
-                    }
-                    ClickMode::TightCurve => {
-                        let pos = paint_transform.from_pos2(pointer);
-                        if self.tracks.has_selected_node() {
-                            let res = self.tracks.add_tight(pos, &self.heightmap, &mut self.train);
-                            self.process_result(pos, res);
-                        } else {
-                            let _res = self.tracks.select_node(pos, thresh);
-                        }
-                    }
-                    ClickMode::StraightLine => {
-                        let pos = paint_transform.from_pos2(pointer);
-                        if self.tracks.has_selected_node() {
-                            let res =
-                                self.tracks
-                                    .add_straight(pos, &self.heightmap, &mut self.train);
-                            self.process_result(pos, res);
-                        } else {
-                            let _res = self.tracks.select_node(pos, thresh);
-                        }
-                    }
-                    ClickMode::BezierCurve => {
-                        let pos = paint_transform.from_pos2(pointer);
-                        if self.tracks.has_selected_node() {
-                            let res = self
-                                .tracks
-                                .add_bezier(pos, &self.heightmap, &mut self.train);
-                            self.process_result(pos, res);
-                        } else {
-                            let _res = self.tracks.select_node(pos, thresh);
-                        }
-                    }
-                    ClickMode::DeleteSegment => {
-                        let pos = paint_transform.from_pos2(pointer);
-                        let res = self.tracks.delete_segment(pos, thresh, &mut self.train);
+                }
+                ClickMode::TightCurve => {
+                    let pos = paint_transform.from_pos2(pointer);
+                    if self.tracks.has_selected_node() {
+                        let res = self.tracks.add_tight(pos, &self.heightmap, &mut self.train);
                         self.process_result(pos, res);
+                    } else {
+                        let _res = self.tracks.select_node(pos, thresh);
                     }
-                    ClickMode::AddStation => {
-                        let pos = paint_transform.from_pos2(pointer);
-                        let next_name = (0..).find_map(|i| {
-                            let cand = format!("New Station {i}");
-                            if !self.tracks.stations.values().any(|s| s.name == cand)
-                                && self.new_station != cand
-                            {
-                                Some(cand)
-                            } else {
-                                None
-                            }
-                        });
-                        if let Some(name) = next_name {
-                            self.tracks.add_station(
-                                std::mem::replace(&mut self.new_station, name),
-                                pos,
-                                thresh,
-                                self.station_type,
-                            );
-                        }
+                }
+                ClickMode::StraightLine => {
+                    let pos = paint_transform.from_pos2(pointer);
+                    if self.tracks.has_selected_node() {
+                        let res = self
+                            .tracks
+                            .add_straight(pos, &self.heightmap, &mut self.train);
+                        self.process_result(pos, res);
+                    } else {
+                        let _res = self.tracks.select_node(pos, thresh);
                     }
-                    ClickMode::AddSmelter => {
-                        let pos = paint_transform.from_pos2(pointer);
-                        if let Some(pos) = self.building_structure {
-                            let delta = pos - paint_transform.from_pos2(pointer);
-                            let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
-                            self.structures
-                                .add_structure(Structure::new_smelter(pos, orient));
-                            self.building_structure = None;
-                        } else {
-                            self.building_structure = Some(pos);
-                        }
+                }
+                ClickMode::BezierCurve => {
+                    let pos = paint_transform.from_pos2(pointer);
+                    if self.tracks.has_selected_node() {
+                        let res = self
+                            .tracks
+                            .add_bezier(pos, &self.heightmap, &mut self.train);
+                        self.process_result(pos, res);
+                    } else {
+                        let _res = self.tracks.select_node(pos, thresh);
                     }
-                    ClickMode::AddLoader | ClickMode::AddUnloader => {
-                        // Loaders orientation is determined by the track normal, so we do not need two-step method to
-                        // insert one.
-                        let pos = paint_transform.from_pos2(pointer);
-                        if let Some((st_id, car_idx, pos, _, orient)) =
-                            self.tracks.find_loader_position(pos)
+                }
+                ClickMode::DeleteSegment => {
+                    let pos = paint_transform.from_pos2(pointer);
+                    let res = self.tracks.delete_segment(pos, thresh, &mut self.train);
+                    self.process_result(pos, res);
+                }
+                ClickMode::AddStation => {
+                    let pos = paint_transform.from_pos2(pointer);
+                    let next_name = (0..).find_map(|i| {
+                        let cand = format!("New Station {i}");
+                        if !self.tracks.stations.values().any(|s| s.name == cand)
+                            && self.new_station != cand
                         {
-                            self.structures.add_structure(
-                                if matches!(self.click_mode, ClickMode::AddLoader) {
-                                    Structure::new_loader(pos, orient, st_id, car_idx)
-                                } else {
-                                    Structure::new_unloader(
-                                        pos,
-                                        orient + std::f64::consts::PI,
-                                        st_id,
-                                        1,
-                                    )
-                                },
-                            );
-                            self.building_structure = None;
-                        }
-                    }
-                    ClickMode::ConnectBelt => 'out: {
-                        let pos = paint_transform.from_pos2(pointer);
-                        if let Some((start_con, start_pos)) = &self.belt_connection {
-                            let (end_con, end_pos) = self.find_belt_con(pos, true);
-                            // Disallow connection to itself and end-to-end
-                            if matches!(end_con, BeltConnection::BeltEnd(_)) {
-                                self.error_msg = Some((
-                                    "You cannot connect the end of a belt to another end"
-                                        .to_string(),
-                                    10.,
-                                ));
-                                break 'out;
-                            }
-                            if matches!((end_con, start_con), (BeltConnection::Structure(eid), BeltConnection::Structure(sid)) if eid == *sid)
-                            {
-                                self.error_msg =
-                                    Some(("You cannot connect a belt itself".to_string(), 10.));
-                                break 'out;
-                            }
-                            if MAX_BELT_LENGTH.powi(2) <= (end_pos - *start_pos).length2() {
-                                self.error_msg = Some(("Belt is too long".to_string(), 10.));
-                                break 'out;
-                            }
-                            if intersects_water(*start_pos, end_pos, &self.heightmap) {
-                                self.error_msg =
-                                    Some(("Belt is intersecting water".to_string(), 10.));
-                                break 'out;
-                            }
-                            if exceeds_slope(*start_pos, end_pos, &self.heightmap) {
-                                self.error_msg =
-                                    Some(("Belt is exceeding maximum slope".to_string(), 10.));
-                                break 'out;
-                            }
-                            let belt_id = self
-                                .structures
-                                .add_belt(*start_pos, *start_con, end_pos, end_con);
-                            match start_con {
-                                BeltConnection::Structure(start_st) => {
-                                    if let Some(st) = self.structures.structures.get_mut(start_st) {
-                                        st.output_belts.insert(belt_id);
-                                        println!("Added belt {belt_id} to output_belts");
-                                    }
-                                }
-                                // If we connect to a belt, we add a reference to the upstream belt.
-                                BeltConnection::BeltEnd(upstream_belt) => {
-                                    if let Some(upstream_belt) =
-                                        self.structures.belts.get_mut(upstream_belt)
-                                    {
-                                        upstream_belt.end_con = BeltConnection::BeltStart(belt_id);
-                                        println!("Added belt {belt_id} to upstream belt");
-                                    }
-                                }
-                                _ => {}
-                            }
-                            self.belt_connection = None;
+                            Some(cand)
                         } else {
-                            self.belt_connection = Some(self.find_belt_con(pos, false));
+                            None
                         }
+                    });
+                    if let Some(name) = next_name {
+                        self.tracks.add_station(
+                            std::mem::replace(&mut self.new_station, name),
+                            pos,
+                            thresh,
+                            self.station_type,
+                        );
                     }
-                    ClickMode::DeleteStructure => {
-                        const SELECT_THRESHOLD: f64 = 10.;
-                        let pos = paint_transform.from_pos2(pointer);
+                }
+                ClickMode::AddSmelter => {
+                    let pos = paint_transform.from_pos2(pointer);
+                    if let Some(pos) = self.building_structure {
+                        let delta = pos - paint_transform.from_pos2(pointer);
+                        let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
                         self.structures
-                            .delete(pos, SELECT_THRESHOLD / self.transform.scale() as f64);
+                            .add_structure(Structure::new_smelter(pos, orient));
+                        self.building_structure = None;
+                    } else {
+                        self.building_structure = Some(pos);
                     }
+                }
+                ClickMode::AddLoader | ClickMode::AddUnloader => {
+                    // Loaders orientation is determined by the track normal, so we do not need two-step method to
+                    // insert one.
+                    let pos = paint_transform.from_pos2(pointer);
+                    if let Some((st_id, car_idx, pos, _, orient)) =
+                        self.tracks.find_loader_position(pos)
+                    {
+                        self.structures.add_structure(
+                            if matches!(self.click_mode, ClickMode::AddLoader) {
+                                Structure::new_loader(pos, orient, st_id, car_idx)
+                            } else {
+                                Structure::new_unloader(
+                                    pos,
+                                    orient + std::f64::consts::PI,
+                                    st_id,
+                                    1,
+                                )
+                            },
+                        );
+                        self.building_structure = None;
+                    }
+                }
+                ClickMode::ConnectBelt => 'out: {
+                    let pos = paint_transform.from_pos2(pointer);
+                    if let Some((start_con, start_pos)) = &self.belt_connection {
+                        let (end_con, end_pos) = self.find_belt_con(pos, true);
+                        // Disallow connection to itself and end-to-end
+                        if matches!(end_con, BeltConnection::BeltEnd(_)) {
+                            self.error_msg = Some((
+                                "You cannot connect the end of a belt to another end".to_string(),
+                                10.,
+                            ));
+                            break 'out;
+                        }
+                        if matches!((end_con, start_con), (BeltConnection::Structure(eid), BeltConnection::Structure(sid)) if eid == *sid)
+                        {
+                            self.error_msg =
+                                Some(("You cannot connect a belt itself".to_string(), 10.));
+                            break 'out;
+                        }
+                        if MAX_BELT_LENGTH.powi(2) <= (end_pos - *start_pos).length2() {
+                            self.error_msg = Some(("Belt is too long".to_string(), 10.));
+                            break 'out;
+                        }
+                        if intersects_water(*start_pos, end_pos, &self.heightmap) {
+                            self.error_msg = Some(("Belt is intersecting water".to_string(), 10.));
+                            break 'out;
+                        }
+                        if exceeds_slope(*start_pos, end_pos, &self.heightmap) {
+                            self.error_msg =
+                                Some(("Belt is exceeding maximum slope".to_string(), 10.));
+                            break 'out;
+                        }
+                        let belt_id = self
+                            .structures
+                            .add_belt(*start_pos, *start_con, end_pos, end_con);
+                        match start_con {
+                            BeltConnection::Structure(start_st) => {
+                                if let Some(st) = self.structures.structures.get_mut(start_st) {
+                                    st.output_belts.insert(belt_id);
+                                    println!("Added belt {belt_id} to output_belts");
+                                }
+                            }
+                            // If we connect to a belt, we add a reference to the upstream belt.
+                            BeltConnection::BeltEnd(upstream_belt) => {
+                                if let Some(upstream_belt) =
+                                    self.structures.belts.get_mut(upstream_belt)
+                                {
+                                    upstream_belt.end_con = BeltConnection::BeltStart(belt_id);
+                                    println!("Added belt {belt_id} to upstream belt");
+                                }
+                            }
+                            _ => {}
+                        }
+                        self.belt_connection = None;
+                    } else {
+                        self.belt_connection = Some(self.find_belt_con(pos, false));
+                    }
+                }
+                ClickMode::DeleteStructure => {
+                    const SELECT_THRESHOLD: f64 = 10.;
+                    let pos = paint_transform.from_pos2(pointer);
+                    self.structures
+                        .delete(pos, SELECT_THRESHOLD / self.transform.scale() as f64);
                 }
             }
         }
@@ -519,67 +517,66 @@ impl TrainsApp {
                 }
             }
             ClickMode::DeleteSegment => {
-                let found_node = response.hover_pos().and_then(|pointer| {
-                    let thresh = SELECT_PIXEL_RADIUS / self.transform.scale() as f64;
-                    self.tracks
+                if let Some(pointer) = response.hover_pos()
+                    && let thresh = SELECT_PIXEL_RADIUS / self.transform.scale() as f64
+                    && let Some((path_id, seg_id, _)) = self
+                        .tracks
                         .find_path_node(paint_transform.from_pos2(pointer), thresh)
-                });
-                if let Some((path_id, seg_id, _)) = found_node {
+                    && let Some(path) = self.tracks.paths.get(&path_id)
+                {
                     let color = Color32::from_rgba_premultiplied(127, 0, 127, 63);
-                    if let Some(path) = self.tracks.paths.get(&path_id) {
-                        let seg_track = path.seg_track(seg_id);
-                        self.render_track_detail(seg_track, &painter, &paint_transform, 5., color);
-                    }
+                    let seg_track = path.seg_track(seg_id);
+                    self.render_track_detail(seg_track, &painter, &paint_transform, 5., color);
                 }
             }
             ClickMode::AddStation => {
-                if let Some(pointer) = response.hover_pos() {
-                    let pos = paint_transform.from_pos2(pointer);
-                    if let Some((path_id, _, node_id)) = self.tracks.find_path_node(pos, thresh) {
-                        let station = Station::new(
-                            self.new_station.clone(),
-                            path_id,
-                            node_id as f64,
-                            self.station_type,
-                        );
-                        self.render_station(&painter, &paint_transform, &station, false, true);
-                    }
+                if let Some(pointer) = response.hover_pos()
+                    && let pos = paint_transform.from_pos2(pointer)
+                    && let Some((path_id, _, node_id)) = self.tracks.find_path_node(pos, thresh)
+                {
+                    let station = Station::new(
+                        self.new_station.clone(),
+                        path_id,
+                        node_id as f64,
+                        self.station_type,
+                    );
+                    self.render_station(&painter, &paint_transform, &station, false, true);
                 }
             }
             ClickMode::AddSmelter => {
-                if let Some(pointer) = response.hover_pos() {
-                    if let Some(pos) = self.building_structure {
-                        let delta = pos - paint_transform.from_pos2(pointer);
-                        let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
-                        Self::render_structure(
-                            paint_transform.to_pos2(pos),
-                            orient,
-                            true,
-                            StructureType::Smelter,
-                            &painter,
-                            &paint_transform,
-                        );
-                    }
+                if let Some(pointer) = response.hover_pos()
+                    && let Some(pos) = self.building_structure
+                {
+                    let delta = pos - paint_transform.from_pos2(pointer);
+                    let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
+                    Self::render_structure(
+                        paint_transform.to_pos2(pos),
+                        orient,
+                        true,
+                        StructureType::Smelter,
+                        &painter,
+                        &paint_transform,
+                    );
                 }
             }
             ClickMode::AddLoader | ClickMode::AddUnloader => {
-                if let Some(pointer) = response.hover_pos() {
-                    let pos = paint_transform.from_pos2(pointer);
-                    if let Some((_, _, pos, _, orient)) = self.tracks.find_loader_position(pos) {
-                        let (ty, orient) = if matches!(self.click_mode, ClickMode::AddLoader) {
-                            (StructureType::Loader, orient)
-                        } else {
-                            (StructureType::Unloader, orient + std::f64::consts::PI)
-                        };
-                        Self::render_structure(
-                            paint_transform.to_pos2(pos),
-                            orient,
-                            true,
-                            ty,
-                            &painter,
-                            &paint_transform,
-                        );
-                    }
+                if let Some(pointer) = response.hover_pos()
+                    && let pos = paint_transform.from_pos2(pointer)
+                    && let Some((_, _, pos, _, orient)) = self.tracks.find_loader_position(pos)
+                {
+                    let (ty, orient) = if matches!(self.click_mode, ClickMode::AddLoader) {
+                        (StructureType::Loader, orient)
+                    } else {
+                        (StructureType::Unloader, orient + std::f64::consts::PI)
+                    };
+                    Self::render_structure(
+                        paint_transform.to_pos2(pos),
+                        orient,
+                        true,
+                        ty,
+                        &painter,
+                        &paint_transform,
+                    );
                 }
             }
             ClickMode::ConnectBelt => {
@@ -639,25 +636,21 @@ impl TrainsApp {
             self.building_structure = None;
         }
 
-        if let Some(pointer) = response.hover_pos() {
-            let pos = paint_transform.from_pos2(pointer);
-            if let Some((id, node_pos)) = self
+        if let Some(pointer) = response.hover_pos()
+            && let pos = paint_transform.from_pos2(pointer)
+            && let Some((id, node_pos)) = self
                 .tracks
                 .find_segment_node(pos, thresh)
                 .and_then(|id| Some((id, self.tracks.node_position(id)?.0)))
-            {
-                painter.rect_stroke(
-                    Rect::from_center_size(
-                        paint_transform.to_pos2(node_pos),
-                        egui::Vec2::splat(10.),
-                    ),
-                    0.,
-                    (1., Color32::from_rgba_premultiplied(255, 0, 255, 127)),
-                    egui::StrokeKind::Middle,
-                );
+        {
+            painter.rect_stroke(
+                Rect::from_center_size(paint_transform.to_pos2(node_pos), egui::Vec2::splat(10.)),
+                0.,
+                (1., Color32::from_rgba_premultiplied(255, 0, 255, 127)),
+                egui::StrokeKind::Middle,
+            );
 
-                self.render_path_direction(&painter, &paint_transform, &id);
-            }
+            self.render_path_direction(&painter, &paint_transform, &id);
         }
 
         if let Some(sel_node) = self.tracks.selected_node() {
@@ -864,15 +857,15 @@ impl TrainsApp {
                     ),
                 );
             }
-            if ui.button("Schedule station").clicked() {
-                if let Some(target) = self.selected_station {
-                    self.train.schedule.push(target);
-                }
+            if ui.button("Schedule station").clicked()
+                && let Some(target) = self.selected_station
+            {
+                self.train.schedule.push(target);
             }
-            if ui.button("Delete station").clicked() {
-                if let Some(target) = self.selected_station {
-                    self.tracks.stations.remove(&target);
-                }
+            if ui.button("Delete station").clicked()
+                && let Some(target) = self.selected_station
+            {
+                self.tracks.stations.remove(&target);
             }
             ui.text_edit_singleline(&mut self.new_station);
             ui.group(|ui| {

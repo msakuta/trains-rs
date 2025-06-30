@@ -2,19 +2,19 @@ use crate::{train_tracks::SEGMENT_LENGTH, vec2::Vec2};
 
 use serde::{Deserialize, Serialize};
 
-pub(super) fn find_closest_node(path: &[Vec2<f64>], pos: Vec2<f64>) -> f64 {
+pub(super) fn _find_closest_node(path: &[Vec2<f64>], pos: Vec2<f64>) -> f64 {
     let closest_two =
         path.iter()
             .enumerate()
             .fold([None; 2], |mut acc: [Option<(usize, f64)>; 2], cur| {
                 let dist2 = (pos - *cur.1).length2();
                 // Insertion sort up to closest 2 elements
-                if let [Some(acc0), _] = acc {
-                    if dist2 < acc0.1 {
-                        acc[1] = Some(acc0);
-                        acc[0] = Some((cur.0, dist2));
-                        return acc;
-                    }
+                if let [Some(acc0), _] = acc
+                    && dist2 < acc0.1
+                {
+                    acc[1] = Some(acc0);
+                    acc[0] = Some((cur.0, dist2));
+                    return acc;
                 }
                 if let [Some(_), None] = acc {
                     acc[1] = Some((cur.0, dist2));
