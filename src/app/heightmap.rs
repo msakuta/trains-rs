@@ -122,8 +122,14 @@ softmax(
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub(crate) struct HeightMapKey {
+    pub level: usize,
+    pub pos: [i32; 2],
+}
+
 pub(crate) struct HeightMap {
-    pub(super) maps: HashMap<usize, Vec<f32>>,
+    pub(super) maps: HashMap<HeightMapKey, Vec<f32>>,
     pub(super) shape: Shape,
     pub(super) water_level: f32,
     params: HeightMapParams,
@@ -142,16 +148,18 @@ impl HeightMap {
     /// Get or initialize a map at the given level.
     ///
     /// Heightmaps are lazily evaluated, so we may not have the data.
-    pub fn get_map(&mut self, level: usize) -> Result<&Vec<f32>, String> {
-        if !self.maps.contains_key(&level) {
-            self.maps.insert(level, Self::new_map(&self.params, level)?);
+    pub fn get_map(&mut self, key: &HeightMapKey) -> Result<&Vec<f32>, String> {
+        // We could not use entry API due to a lifetime issue.
+        if !self.maps.contains_key(key) {
+            println!("maps: {}", self.maps.len());
+            self.maps.insert(*key, Self::new_map(&self.params, key)?);
         }
         self.maps
-            .get(&level)
+            .get(&key)
             .ok_or_else(|| "Should exist".to_string())
     }
 
-    fn new_map(params: &HeightMapParams, level: usize) -> Result<Vec<f32>, String> {
+    fn new_map(params: &HeightMapParams, key: &HeightMapKey) -> Result<Vec<f32>, String> {
         let mut rng = Xorshift64Star::new(params.seed);
 
         let mut ast = parse(&params.noise_expr)?;
@@ -159,8 +167,10 @@ impl HeightMap {
 
         let map: Vec<_> = (0..params.width * params.height)
             .map(|i| {
-                let ix = (i % params.width) as f64 * HEIGHTMAP_LEVEL_SCALE.powi(level as i32);
-                let iy = (i / params.width) as f64 * HEIGHTMAP_LEVEL_SCALE.powi(level as i32);
+                let ix = ((i % params.width) as i32 + key.pos[0] * params.width as i32) as f64
+                    * HEIGHTMAP_LEVEL_SCALE.powi(key.level as i32);
+                let iy = ((i / params.width) as i32 + key.pos[1] * params.height as i32) as f64
+                    * HEIGHTMAP_LEVEL_SCALE.powi(key.level as i32);
                 let pos = crate::vec2::Vec2::new(ix as f64, iy as f64);
                 let Value::Scalar(eval_res) = run(&ast, &pos)? else {
                     return Err("Eval result was not a scalar".to_string());
@@ -197,12 +207,12 @@ impl HeightMap {
 
     pub fn get_image(
         &mut self,
-        level: usize,
+        key: &HeightMapKey,
         slope_threshold: Option<f64>,
     ) -> Result<ColorImage, String> {
         let water_level = self.water_level;
         let shape = self.shape;
-        let map = self.get_map(level)?;
+        let map = self.get_map(key)?;
         let min_p = map
             .iter()
             .fold(None, |acc, cur| {
@@ -236,9 +246,9 @@ impl HeightMap {
                     let above_water = (p - water_level) / (max_p - water_level);
                     let white = above_water.powi(4) as f64;
                     let x = (i % shape.0 as usize) as f64;
-                    let y = (i / shape.1 as usize) as f64;
+                    let y = (i / shape.0 as usize) as f64;
                     let grad = Self::local_gradient(map, shape, &Vec2::new(x, y))
-                        / HEIGHTMAP_LEVEL_SCALE.powi(level as i32);
+                        / HEIGHTMAP_LEVEL_SCALE.powi(key.level as i32);
                     let slope = grad.length();
                     let dot = (grad.x - grad.y) * 10.;
                     let diffuse = (dot + 1.) / 2.5;
@@ -272,9 +282,11 @@ impl HeightMap {
     }
 
     pub(crate) fn gradient(&self, pos: &crate::vec2::Vec2<f64>) -> crate::vec2::Vec2<f64> {
-        self.maps.get(&0).map_or(Vec2::zero(), |map| {
-            Self::local_gradient(map, self.shape, pos)
-        })
+        self.maps
+            .get(&HeightMapKey::default())
+            .map_or(Vec2::zero(), |map| {
+                Self::local_gradient(map, self.shape, pos)
+            })
     }
 
     fn local_gradient(map: &[f32], shape: Shape, pos: &crate::vec2::Vec2) -> crate::vec2::Vec2 {
@@ -301,7 +313,7 @@ impl HeightMap {
             return false;
         }
         self.maps
-            .get(&0)
+            .get(&HeightMapKey::default())
             .map_or(true, |map| map[self.shape.idx(x, y)] < self.water_level)
     }
 }
@@ -310,7 +322,7 @@ impl std::ops::Index<(isize, isize)> for HeightMap {
     type Output = f32;
     fn index(&self, index: (isize, isize)) -> &Self::Output {
         self.maps
-            .get(&0)
+            .get(&HeightMapKey::default())
             .map_or(&0., |map| &map[self.shape.idx(index.0, index.1)])
     }
 }
