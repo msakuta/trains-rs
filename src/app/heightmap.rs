@@ -7,15 +7,17 @@ use eframe::egui::{self, Color32, ColorImage, Painter, Pos2, Ui, pos2};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    app::HEIGHTMAP_LEVEL_SCALE,
+    bg_image::BgImage,
     marching_squares::{
         Idx, Shape, border_pixel, cell_border_interpolated, pick_bits, pick_values,
     },
     perlin_noise::Xorshift64Star,
+    structure::BELT_MAX_SLOPE,
+    transform::PaintTransform,
     vec2::Vec2,
 };
 
-use super::{AREA_HEIGHT, AREA_WIDTH, TrainsApp};
+use super::{AREA_HEIGHT, AREA_WIDTH, ClickMode, TrainsApp};
 
 use self::{
     noise_expr::{Value, precompute, run},
@@ -31,6 +33,12 @@ const DEFAULT_WATER_LEVEL: f32 = 0.05;
 const BRIDGE_HEIGHT: f64 = 0.1;
 
 pub(super) const DOWNSAMPLE: usize = 16;
+
+pub(super) const HEIGHTMAP_LEVELS: usize = 4;
+pub(super) const HEIGHTMAP_LEVEL_SCALE: f64 = 2.;
+pub(super) const CHUNK_SIZE: usize = 128;
+const CHUNK_SIZE_I: isize = CHUNK_SIZE as isize;
+const CHUNK_SHAPE: Shape = (CHUNK_SIZE_I, CHUNK_SIZE_I);
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum NoiseType {
@@ -165,11 +173,11 @@ impl HeightMap {
         let mut ast = parse(&params.noise_expr)?;
         precompute(&mut ast, &mut rng)?;
 
-        let map: Vec<_> = (0..params.width * params.height)
+        let map: Vec<_> = (0..CHUNK_SIZE.pow(2))
             .map(|i| {
-                let ix = ((i % params.width) as i32 + key.pos[0] * params.width as i32) as f64
+                let ix = ((i % CHUNK_SIZE) as i32 + key.pos[0] * CHUNK_SIZE as i32) as f64
                     * HEIGHTMAP_LEVEL_SCALE.powi(key.level as i32);
-                let iy = ((i / params.width) as i32 + key.pos[1] * params.height as i32) as f64
+                let iy = ((i / CHUNK_SIZE) as i32 + key.pos[1] * CHUNK_SIZE as i32) as f64
                     * HEIGHTMAP_LEVEL_SCALE.powi(key.level as i32);
                 let pos = crate::vec2::Vec2::new(ix as f64, iy as f64);
                 let Value::Scalar(eval_res) = run(&ast, &pos)? else {
@@ -211,7 +219,6 @@ impl HeightMap {
         slope_threshold: Option<f64>,
     ) -> Result<ColorImage, String> {
         let water_level = self.water_level;
-        let shape = self.shape;
         let map = self.get_map(key)?;
         let min_p = map
             .iter()
@@ -245,9 +252,9 @@ impl HeightMap {
                 } else {
                     let above_water = (p - water_level) / (max_p - water_level);
                     let white = above_water.powi(4) as f64;
-                    let x = (i % shape.0 as usize) as f64;
-                    let y = (i / shape.0 as usize) as f64;
-                    let grad = Self::local_gradient(map, shape, &Vec2::new(x, y))
+                    let x = (i % CHUNK_SIZE) as f64;
+                    let y = (i / CHUNK_SIZE) as f64;
+                    let grad = Self::local_gradient(map, CHUNK_SHAPE, &Vec2::new(x, y))
                         / HEIGHTMAP_LEVEL_SCALE.powi(key.level as i32);
                     let slope = grad.length();
                     let dot = (grad.x - grad.y) * 10.;
@@ -277,7 +284,7 @@ impl HeightMap {
         //     self.shape.1 as u32,
         //     image::ColorType::L8,
         // );
-        let img = eframe::egui::ColorImage::from_rgb([shape.0 as usize, shape.1 as usize], &bitmap);
+        let img = eframe::egui::ColorImage::from_rgb([CHUNK_SIZE, CHUNK_SIZE], &bitmap);
         Ok(img)
     }
 
@@ -285,13 +292,13 @@ impl HeightMap {
         self.maps
             .get(&HeightMapKey::default())
             .map_or(Vec2::zero(), |map| {
-                Self::local_gradient(map, self.shape, pos)
+                Self::local_gradient(map, CHUNK_SHAPE, pos)
             })
     }
 
     fn local_gradient(map: &[f32], shape: Shape, pos: &crate::vec2::Vec2) -> crate::vec2::Vec2 {
         let [x, y] = [pos.x as isize, pos.y as isize];
-        if x < 0 || shape.0 <= x || y < 0 || shape.1 < y {
+        if x < 0 || CHUNK_SIZE_I <= x + 1 || y < 0 || CHUNK_SIZE_I <= y + 1 {
             return crate::vec2::Vec2::zero();
         }
 
@@ -393,6 +400,53 @@ impl TrainsApp {
 
         if let Some(cache) = &self.contours_cache {
             HeightMap::render_with_cache(painter, cache, to_pos2);
+        }
+    }
+
+    pub(super) fn render_heightmaps(
+        &mut self,
+        painter: &Painter,
+        paint_transform: &PaintTransform,
+    ) {
+        let level = (-(self.transform.scale().log2() / HEIGHTMAP_LEVEL_SCALE.log2() as f32).floor()
+            + 1.)
+            .clamp(0., HEIGHTMAP_LEVELS as f32) as usize;
+        let heightmap_scale = (HEIGHTMAP_LEVEL_SCALE as f32).powi(level as i32);
+        let lt = paint_transform.from_pos2(painter.clip_rect().left_top());
+        let rb = paint_transform.from_pos2(painter.clip_rect().right_bottom());
+        let divisor = CHUNK_SIZE as f64 * heightmap_scale as f64;
+        // top is greater than bottom in screen coordinates, which is flipped from Cartesian
+        let x0 = lt.x.div_euclid(divisor) as i32;
+        let y0 = rb.y.div_euclid(divisor) as i32;
+        let x1 = rb.x.div_euclid(divisor) as i32;
+        let y1 = lt.y.div_euclid(divisor) as i32;
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                let _ = self
+                    .bg
+                    .entry(HeightMapKey { level, pos: [x, y] })
+                    .or_insert_with(BgImage::new)
+                    .paint(
+                        &painter,
+                        (),
+                        |_| {
+                            self.heightmap.get_image(
+                                &HeightMapKey { level, pos: [x, y] },
+                                if matches!(self.click_mode, ClickMode::ConnectBelt) {
+                                    Some(BELT_MAX_SLOPE)
+                                } else {
+                                    None
+                                },
+                            )
+                        },
+                        &paint_transform,
+                        heightmap_scale,
+                        egui::pos2(
+                            x as f32 * heightmap_scale * CHUNK_SIZE as f32,
+                            (y + 1) as f32 * heightmap_scale * CHUNK_SIZE as f32,
+                        ),
+                    );
+            }
         }
     }
 }

@@ -39,8 +39,6 @@ const TRACKS_KEY: &str = "train_tracks";
 const HEIGHTMAP_KEY: &str = "heightmap";
 const STRUCTURES_KEY: &str = "structures";
 const CREDITS_KEY: &str = "credits";
-const HEIGHTMAP_LEVELS: usize = 4;
-const HEIGHTMAP_LEVEL_SCALE: f64 = 2.;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ClickMode {
@@ -451,47 +449,7 @@ impl TrainsApp {
             }
         }
 
-        let level = (-(self.transform.scale().log2() / HEIGHTMAP_LEVEL_SCALE.log2() as f32).floor()
-            + 1.)
-            .clamp(0., HEIGHTMAP_LEVELS as f32) as usize;
-        let heightmap_scale = (HEIGHTMAP_LEVEL_SCALE as f32).powi(level as i32);
-        let lt = paint_transform.from_pos2(painter.clip_rect().left_top());
-        let rb = paint_transform.from_pos2(painter.clip_rect().right_bottom());
-        let x_divisor = self.heightmap_params.width as f64 * heightmap_scale as f64;
-        let y_divisor = self.heightmap_params.height as f64 * heightmap_scale as f64;
-        // top is greater than bottom in screen coordinates, which is flipped from Cartesian
-        let x0 = lt.x.div_euclid(x_divisor) as i32;
-        let y0 = rb.y.div_euclid(y_divisor) as i32;
-        let x1 = rb.x.div_euclid(x_divisor) as i32;
-        let y1 = lt.y.div_euclid(y_divisor) as i32;
-        for y in y0..=y1 {
-            for x in x0..=x1 {
-                let _ = self
-                    .bg
-                    .entry(HeightMapKey { level, pos: [x, y] })
-                    .or_insert_with(BgImage::new)
-                    .paint(
-                        &painter,
-                        (),
-                        |_| {
-                            self.heightmap.get_image(
-                                &HeightMapKey { level, pos: [x, y] },
-                                if matches!(self.click_mode, ClickMode::ConnectBelt) {
-                                    Some(BELT_MAX_SLOPE)
-                                } else {
-                                    None
-                                },
-                            )
-                        },
-                        &paint_transform,
-                        heightmap_scale,
-                        egui::pos2(
-                            x as f32 * heightmap_scale * self.heightmap_params.width as f32,
-                            (y + 1) as f32 * heightmap_scale * self.heightmap_params.height as f32,
-                        ),
-                    );
-            }
-        }
+        self.render_heightmaps(&painter, &paint_transform);
 
         if self.use_cached_contours {
             self.render_contours_with_cache(
