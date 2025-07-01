@@ -1,7 +1,7 @@
 mod noise_expr;
 mod parser;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use eframe::egui::{self, Color32, ColorImage, Painter, Pos2, Ui, pos2};
 use serde::{Deserialize, Serialize};
@@ -149,6 +149,7 @@ pub(crate) struct HeightMap {
     pub(super) shape: Shape,
     pub(super) water_level: f32,
     params: HeightMapParams,
+    gen_queue: VecDeque<HeightMapKey>,
 }
 
 impl HeightMap {
@@ -158,20 +159,21 @@ impl HeightMap {
             shape: (params.width as isize, params.height as isize),
             water_level: params.water_level,
             params: params.clone(),
+            gen_queue: VecDeque::new(),
         })
     }
 
     /// Get or initialize a map at the given level.
     ///
     /// Heightmaps are lazily evaluated, so we may not have the data.
-    pub fn get_map(&mut self, key: &HeightMapKey) -> Result<&Vec<f32>, String> {
+    pub fn get_map(&mut self, key: &HeightMapKey) -> Result<Option<&Vec<f32>>, String> {
         // We could not use entry API due to a lifetime issue.
         if !self.maps.contains_key(key) {
-            self.maps.insert(*key, Self::new_map(&self.params, key)?);
+            if !self.gen_queue.iter().any(|queued| queued == key) {
+                self.gen_queue.push_back(*key);
+            }
         }
-        self.maps
-            .get(&key)
-            .ok_or_else(|| "Should exist".to_string())
+        Ok(self.maps.get(&key))
     }
 
     fn new_map(params: &HeightMapParams, key: &HeightMapKey) -> Result<Vec<f32>, String> {
@@ -228,7 +230,6 @@ impl HeightMap {
         let water_level = self.water_level;
 
         let divisor = 2usize.pow(key.level as u32);
-        // let real_tile_size = dbg!(CHUNK_SIZE * (HEIGHTMAP_LEVEL_SCALE as usize).pow(dbg!(key.level) as u32));
 
         // If the global map size is bounded, tiles on the edge can have size smaller than CHUNK_SIZE.
         let local_shape = if self.params.limited_size {
@@ -244,7 +245,7 @@ impl HeightMap {
             (CHUNK_SIZE, CHUNK_SIZE)
         };
 
-        let map = self.get_map(key)?;
+        let map = self.get_map(key)?.ok_or_else(|| "Tile not ready")?;
         let min_p = map
             .iter()
             .fold(None, |acc, cur| {
@@ -350,6 +351,15 @@ impl HeightMap {
         self.maps
             .get(&HeightMapKey::default())
             .map_or(true, |map| map[self.shape.idx(x, y)] < self.water_level)
+    }
+
+    pub(super) fn update(&mut self) -> Result<(), String> {
+        // We would like to offload the tile generation to another thread, but until we know if it works in wasm,
+        // we use the main thread to do it, but progressively.
+        if let Some(key) = self.gen_queue.pop_front() {
+            self.maps.insert(key, Self::new_map(&self.params, &key)?);
+        }
+        Ok(())
     }
 }
 

@@ -891,6 +891,9 @@ impl eframe::App for TrainsApp {
     fn update(&mut self, ctx: &eframe::egui::Context, _frame: &mut eframe::Frame) {
         ctx.request_repaint();
 
+        // Give the heightmap object an opportunity to process queued map generations
+        self.heightmap.update();
+
         // Decay error message even if paused
         if let Some((_, ref mut time)) = self.error_msg {
             let dt = ctx.input(|i| i.raw.predicted_dt);
