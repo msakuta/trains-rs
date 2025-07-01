@@ -49,6 +49,7 @@ pub(crate) enum NoiseType {
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct HeightMapParams {
     pub noise_type: NoiseType,
+    pub limited_size: bool,
     pub width: usize,
     pub height: usize,
     pub seed: u64,
@@ -63,6 +64,7 @@ impl HeightMapParams {
         let seed_buf = seed.to_string();
         Self {
             noise_type: NoiseType::Perlin,
+            limited_size: false,
             width: AREA_WIDTH,
             height: AREA_HEIGHT,
             seed,
@@ -98,13 +100,19 @@ softmax(
             ui.radio_value(&mut self.noise_type, NoiseType::Perlin, "Perlin");
             ui.radio_value(&mut self.noise_type, NoiseType::White, "White");
         });
-        ui.horizontal(|ui| {
-            ui.label("Width:");
-            ui.add(egui::Slider::new(&mut self.width, 1..=1024));
-        });
-        ui.horizontal(|ui| {
-            ui.label("Height:");
-            ui.add(egui::Slider::new(&mut self.height, 1..=1024));
+        ui.checkbox(&mut self.limited_size, "Limited world size");
+        ui.group(|ui| {
+            if !self.limited_size {
+                ui.disable();
+            }
+            ui.horizontal(|ui| {
+                ui.label("Width:");
+                ui.add(egui::Slider::new(&mut self.width, 128..=4096).logarithmic(true));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Height:");
+                ui.add(egui::Slider::new(&mut self.height, 128..=4096).logarithmic(true));
+            });
         });
         ui.horizontal(|ui| {
             ui.label("Seed:");
@@ -159,7 +167,6 @@ impl HeightMap {
     pub fn get_map(&mut self, key: &HeightMapKey) -> Result<&Vec<f32>, String> {
         // We could not use entry API due to a lifetime issue.
         if !self.maps.contains_key(key) {
-            println!("maps: {}", self.maps.len());
             self.maps.insert(*key, Self::new_map(&self.params, key)?);
         }
         self.maps
@@ -219,6 +226,24 @@ impl HeightMap {
         slope_threshold: Option<f64>,
     ) -> Result<ColorImage, String> {
         let water_level = self.water_level;
+
+        let divisor = 2usize.pow(key.level as u32);
+        // let real_tile_size = dbg!(CHUNK_SIZE * (HEIGHTMAP_LEVEL_SCALE as usize).pow(dbg!(key.level) as u32));
+
+        // If the global map size is bounded, tiles on the edge can have size smaller than CHUNK_SIZE.
+        let local_shape = if self.params.limited_size {
+            (
+                (self.params.width / divisor)
+                    .saturating_sub(key.pos[0].max(0) as usize * CHUNK_SIZE)
+                    .min(CHUNK_SIZE),
+                (self.params.height / divisor)
+                    .saturating_sub(key.pos[1].max(0) as usize * CHUNK_SIZE)
+                    .min(CHUNK_SIZE),
+            )
+        } else {
+            (CHUNK_SIZE, CHUNK_SIZE)
+        };
+
         let map = self.get_map(key)?;
         let min_p = map
             .iter()
@@ -245,15 +270,18 @@ impl HeightMap {
             .enumerate()
             .map(|(i, p)| {
                 let is_water = *p < water_level;
-                if is_water {
+                let x = (i % CHUNK_SIZE) as f64;
+                let y = (i / CHUNK_SIZE) as f64;
+                if local_shape.0 as f64 <= x || local_shape.1 as f64 <= y {
+                    // Outside of world
+                    [255, 255, 255]
+                } else if is_water {
                     let water_depth = (water_level - p) / (water_level - min_p);
                     let inten = 1. / (1. + 0.5 * water_depth);
                     [0, (95. * inten) as u8, (191. * inten) as u8]
                 } else {
                     let above_water = (p - water_level) / (max_p - water_level);
                     let white = above_water.powi(4) as f64;
-                    let x = (i % CHUNK_SIZE) as f64;
-                    let y = (i / CHUNK_SIZE) as f64;
                     let grad = Self::local_gradient(map, CHUNK_SHAPE, &Vec2::new(x, y))
                         / HEIGHTMAP_LEVEL_SCALE.powi(key.level as i32);
                     let slope = grad.length();
@@ -416,10 +444,22 @@ impl TrainsApp {
         let rb = paint_transform.from_pos2(painter.clip_rect().right_bottom());
         let divisor = CHUNK_SIZE as f64 * heightmap_scale as f64;
         // top is greater than bottom in screen coordinates, which is flipped from Cartesian
-        let x0 = lt.x.div_euclid(divisor) as i32;
-        let y0 = rb.y.div_euclid(divisor) as i32;
-        let x1 = rb.x.div_euclid(divisor) as i32;
-        let y1 = lt.y.div_euclid(divisor) as i32;
+        let (x0, y0, x1, y1);
+        if self.heightmap.params.limited_size {
+            x0 = lt.x.max(0.);
+            y0 = rb.y.max(0.);
+            x1 = rb.x.min(self.heightmap.params.width as f64);
+            y1 = lt.y.min(self.heightmap.params.height as f64);
+        } else {
+            x0 = lt.x;
+            y0 = rb.y;
+            x1 = rb.x;
+            y1 = lt.y;
+        }
+        let x0 = x0.div_euclid(divisor) as i32;
+        let y0 = y0.div_euclid(divisor) as i32;
+        let x1 = x1.div_euclid(divisor) as i32;
+        let y1 = y1.div_euclid(divisor) as i32;
         for y in y0..=y1 {
             for x in x0..=x1 {
                 let _ = self
