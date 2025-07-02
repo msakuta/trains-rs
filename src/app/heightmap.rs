@@ -32,7 +32,7 @@ const DEFAULT_WATER_LEVEL: f32 = 0.4;
 
 const BRIDGE_HEIGHT: f64 = 0.1;
 
-pub(super) const DOWNSAMPLE: usize = 16;
+pub(super) const CONTOURS_GRID_STEPE: usize = 8;
 
 pub(super) const HEIGHTMAP_LEVELS: usize = 4;
 pub(super) const HEIGHTMAP_LEVEL_SCALE: f64 = 2.;
@@ -144,8 +144,14 @@ pub(crate) struct HeightMapKey {
     pub pos: [i32; 2],
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct HeightMapTile {
+    pub map: Vec<f32>,
+    pub contours: ContoursCache,
+}
+
 pub(crate) struct HeightMap {
-    pub(super) maps: HashMap<HeightMapKey, Vec<f32>>,
+    pub(super) tiles: HashMap<HeightMapKey, HeightMapTile>,
     pub(super) shape: Shape,
     pub(super) water_level: f32,
     params: HeightMapParams,
@@ -155,7 +161,7 @@ pub(crate) struct HeightMap {
 impl HeightMap {
     pub(super) fn new(params: &HeightMapParams) -> Result<Self, String> {
         Ok(Self {
-            maps: HashMap::new(),
+            tiles: HashMap::new(),
             shape: (params.width as isize, params.height as isize),
             water_level: params.water_level,
             params: params.clone(),
@@ -166,14 +172,14 @@ impl HeightMap {
     /// Get or initialize a map at the given level.
     ///
     /// Heightmaps are lazily evaluated, so we may not have the data.
-    pub fn get_map(&mut self, key: &HeightMapKey) -> Result<Option<&Vec<f32>>, String> {
+    pub fn get_map(&mut self, key: &HeightMapKey) -> Result<Option<&HeightMapTile>, String> {
         // We could not use entry API due to a lifetime issue.
-        if !self.maps.contains_key(key) {
+        if !self.tiles.contains_key(key) {
             if !self.gen_queue.iter().any(|queued| queued == key) {
                 self.gen_queue.push_back(*key);
             }
         }
-        Ok(self.maps.get(&key))
+        Ok(self.tiles.get(&key))
     }
 
     fn new_map(params: &HeightMapParams, key: &HeightMapKey) -> Result<Vec<f32>, String> {
@@ -245,7 +251,7 @@ impl HeightMap {
             (TILE_SIZE, TILE_SIZE)
         };
 
-        let map = self.get_map(key)?.ok_or_else(|| "Tile not ready")?;
+        let map = &self.get_map(key)?.ok_or_else(|| "Tile not ready")?.map;
         let min_p = map
             .iter()
             .fold(None, |acc, cur| {
@@ -318,10 +324,10 @@ impl HeightMap {
     }
 
     pub(crate) fn gradient(&self, pos: &crate::vec2::Vec2<f64>) -> crate::vec2::Vec2<f64> {
-        self.maps
-            .get(&HeightMapKey::default())
-            .map_or(Vec2::zero(), |map| {
-                Self::local_gradient(map, TILE_SHAPE, pos)
+        self.tiles
+            .get(&Self::key_from_pos(pos))
+            .map_or(Vec2::zero(), |tile| {
+                Self::local_gradient(&tile.map, TILE_SHAPE, pos)
             })
     }
 
@@ -351,9 +357,9 @@ impl HeightMap {
         let key = Self::key_from_pos(pos);
         let ix = x.rem_euclid(TILE_SIZE_I);
         let iy = y.rem_euclid(TILE_SIZE_I);
-        self.maps
-            .get(&key)
-            .map_or(true, |map| map[TILE_SHAPE.idx(ix, iy)] < self.water_level)
+        self.tiles.get(&key).map_or(true, |tile| {
+            tile.map[TILE_SHAPE.idx(ix, iy)] < self.water_level
+        })
     }
 
     pub(super) fn key_from_pos(pos: &crate::vec2::Vec2) -> HeightMapKey {
@@ -366,11 +372,14 @@ impl HeightMap {
         }
     }
 
-    pub(super) fn update(&mut self) -> Result<(), String> {
+    pub(super) fn update(&mut self, contours_grid_step: usize) -> Result<(), String> {
         // We would like to offload the tile generation to another thread, but until we know if it works in wasm,
         // we use the main thread to do it, but progressively.
         if let Some(key) = self.gen_queue.pop_front() {
-            self.maps.insert(key, Self::new_map(&self.params, &key)?);
+            self.tiles.insert(
+                key,
+                HeightMapTile::new(Self::new_map(&self.params, &key)?, contours_grid_step),
+            );
         }
         Ok(())
     }
@@ -379,9 +388,12 @@ impl HeightMap {
 impl std::ops::Index<(isize, isize)> for HeightMap {
     type Output = f32;
     fn index(&self, index: (isize, isize)) -> &Self::Output {
-        self.maps
-            .get(&HeightMapKey::default())
-            .map_or(&0., |map| &map[TILE_SHAPE.idx(index.0, index.1)])
+        self.tiles
+            .get(&HeightMap::key_from_pos(&crate::vec2::Vec2::new(
+                index.0 as f64,
+                index.1 as f64,
+            )))
+            .map_or(&0., |tile| &tile.map[TILE_SHAPE.idx(index.0, index.1)])
     }
 }
 
@@ -391,6 +403,7 @@ impl std::ops::Index<(isize, isize)> for HeightMap {
 //     }
 // }
 
+#[derive(Clone, Debug)]
 pub struct ContoursCache {
     grid_step: usize,
     contours: HashMap<i32, Vec<[Pos2; 2]>>,
@@ -410,30 +423,31 @@ impl ContoursCache {
 }
 
 impl TrainsApp {
-    pub fn render_contours(
-        &self,
-        painter: &Painter,
-        to_pos2: &impl Fn(Pos2) -> Pos2,
-        contour_grid_step: usize,
-    ) {
-        if self.show_grid {
-            render_grid(painter, &self.heightmap.shape, to_pos2, contour_grid_step);
-        }
+    // Contours are always rendered with a cache now.
+    // pub fn render_contours(
+    //     &self,
+    //     painter: &Painter,
+    //     to_pos2: &impl Fn(Pos2) -> Pos2,
+    //     contour_grid_step: usize,
+    // ) {
+    //     if self.show_grid {
+    //         render_grid(painter, &self.heightmap.shape, to_pos2, contour_grid_step);
+    //     }
 
-        if !self.show_contours {
-            return;
-        }
+    //     if !self.show_contours {
+    //         return;
+    //     }
 
-        self.heightmap
-            .process_contours(contour_grid_step, |level, points| {
-                let points = [to_pos2(points[0]), to_pos2(points[1])];
+    //     self.heightmap
+    //         .process_contours(contour_grid_step, |level, points| {
+    //             let points = [to_pos2(points[0]), to_pos2(points[1])];
 
-                let line_width = if level % 4 == 0 { 1.5 } else { 1. };
-                let r = 127 + (level * 32).wrapping_rem_euclid(128);
+    //             let line_width = if level % 4 == 0 { 1.5 } else { 1. };
+    //             let r = 127 + (level * 32).wrapping_rem_euclid(128);
 
-                painter.line_segment(points, (line_width, Color32::from_rgb(r as u8, 0, 0)));
-            });
-    }
+    //             painter.line_segment(points, (line_width, Color32::from_rgb(r as u8, 0, 0)));
+    //         });
+    // }
 
     pub fn render_contours_with_cache(
         &self,
@@ -449,8 +463,19 @@ impl TrainsApp {
             return;
         }
 
-        if let Some(cache) = &self.contours_cache {
-            HeightMap::render_with_cache(painter, cache, to_pos2);
+        let level = (-(self.transform.scale().log2() / HEIGHTMAP_LEVEL_SCALE.log2() as f32).floor()
+            + 1.)
+            .clamp(0., HEIGHTMAP_LEVELS as f32) as usize;
+
+        for (key, tile) in &self.heightmap.tiles {
+            if key.level != level {
+                continue;
+            }
+            let scale = HEIGHTMAP_LEVEL_SCALE.powi(key.level as i32) as f32;
+            let offset =
+                egui::vec2(key.pos[0] as f32, key.pos[1] as f32) * TILE_SIZE as f32 * scale;
+            let cache = &tile.contours;
+            HeightMapTile::render_with_cache(painter, cache, &|pos| to_pos2(pos * scale + offset));
         }
     }
 
@@ -514,10 +539,15 @@ impl TrainsApp {
     }
 }
 
-impl HeightMap {
-    pub fn cache_contours(&self, contour_grid_step: usize) -> ContoursCache {
+impl HeightMapTile {
+    fn new(map: Vec<f32>, contour_grid_step: usize) -> Self {
+        let contours = Self::cache_contours(&map, contour_grid_step);
+        Self { map, contours }
+    }
+
+    pub fn cache_contours(map: &[f32], contour_grid_step: usize) -> ContoursCache {
         let mut ret = ContoursCache::new(contour_grid_step);
-        self.process_contours(contour_grid_step, |level, points| {
+        Self::process_contours(map, contour_grid_step, |level, points| {
             ret.contours.entry(level).or_default().push(*points);
         });
 
@@ -541,15 +571,15 @@ impl HeightMap {
         }
     }
 
-    fn process_contours(&self, contour_grid_step: usize, mut f: impl FnMut(i32, &[Pos2; 2])) {
-        let downsampled: Vec<_> =
-            (0..TILE_SIZE * TILE_SIZE / contour_grid_step / contour_grid_step)
-                .map(|i| {
-                    let x = (i % (TILE_SIZE as usize / contour_grid_step)) * contour_grid_step;
-                    let y = (i / (TILE_SIZE as usize / contour_grid_step)) * contour_grid_step;
-                    self[(x as isize, y as isize)]
-                })
-                .collect();
+    fn process_contours(map: &[f32], contour_grid_step: usize, mut f: impl FnMut(i32, &[Pos2; 2])) {
+        let contours_grid_size = TILE_SIZE / contour_grid_step;
+        let downsampled: Vec<_> = (0..contours_grid_size.pow(2))
+            .map(|i| {
+                let x = (i % contours_grid_size) * contour_grid_step;
+                let y = (i / contours_grid_size) * contour_grid_step;
+                map[x + y * TILE_SIZE]
+            })
+            .collect();
 
         let resol = contour_grid_step as f32;
 
@@ -574,8 +604,8 @@ impl HeightMap {
         let incr = num_levels / 10 + 1;
 
         let downsampled_shape = (
-            self.shape.0 / contour_grid_step as isize,
-            self.shape.1 / contour_grid_step as isize,
+            (TILE_SIZE / contour_grid_step) as isize,
+            (TILE_SIZE / contour_grid_step) as isize,
         );
 
         for i in min_i / incr..max_i / incr {

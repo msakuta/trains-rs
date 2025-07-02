@@ -11,7 +11,7 @@ use eframe::{
 
 pub(crate) use self::heightmap::HeightMap;
 use self::{
-    heightmap::{ContoursCache, DOWNSAMPLE, HeightMapKey, HeightMapParams},
+    heightmap::{CONTOURS_GRID_STEPE, HeightMapKey, HeightMapParams},
     structure::STRUCTURE_ICON_SIZE,
 };
 
@@ -60,12 +60,10 @@ pub(crate) struct TrainsApp {
     transform: Transform,
     heightmap: HeightMap,
     heightmap_params: HeightMapParams,
-    contours_cache: Option<ContoursCache>,
     contour_grid_step: usize,
     bg: HashMap<HeightMapKey, BgImage>,
     show_contours: bool,
     show_grid: bool,
-    use_cached_contours: bool,
     show_debug_slope: bool,
     focus_on_train: bool,
     click_mode: ClickMode,
@@ -84,7 +82,7 @@ pub(crate) struct TrainsApp {
 
 impl TrainsApp {
     pub fn new() -> Self {
-        let contour_grid_step = DOWNSAMPLE;
+        let contour_grid_step = CONTOURS_GRID_STEPE;
 
         let (train, tracks, heightmap_params, heightmap, structures, credits) = Self::deserialize()
             .unwrap_or_else(|e| {
@@ -126,18 +124,14 @@ impl TrainsApp {
                 )
             });
 
-        let contours_cache = heightmap.cache_contours(contour_grid_step);
-
         Self {
             transform: Transform::new(1.),
             heightmap,
             heightmap_params,
-            contours_cache: Some(contours_cache),
             contour_grid_step,
             bg: HashMap::new(),
             show_contours: true,
             show_grid: false,
-            use_cached_contours: true,
             show_debug_slope: false,
             focus_on_train: false,
             click_mode: ClickMode::None,
@@ -453,19 +447,20 @@ impl TrainsApp {
 
         self.render_heightmaps(&painter, &paint_transform);
 
-        if self.use_cached_contours {
-            self.render_contours_with_cache(
-                &painter,
-                &|p| paint_transform.transform_pos2(p),
-                self.contour_grid_step,
-            );
-        } else {
-            self.render_contours(
-                &painter,
-                &|p| paint_transform.transform_pos2(p),
-                self.contour_grid_step,
-            );
-        }
+        // Contours are always rendered with a cache now.
+        // if self.use_cached_contours {
+        self.render_contours_with_cache(
+            &painter,
+            &|p| paint_transform.transform_pos2(p),
+            self.contour_grid_step,
+        );
+        // } else {
+        //     self.render_contours(
+        //         &painter,
+        //         &|p| paint_transform.transform_pos2(p),
+        //         self.contour_grid_step,
+        //     );
+        // }
 
         self.render_track(&painter, &paint_transform);
 
@@ -780,15 +775,7 @@ impl TrainsApp {
                     1..=MAX_CONTOURS_GRID_STEP,
                 ));
             });
-            if self
-                .contours_cache
-                .as_ref()
-                .is_some_and(|c| c.grid_step() != self.contour_grid_step)
-            {
-                self.contours_cache = Some(self.heightmap.cache_contours(self.contour_grid_step));
-            }
             ui.checkbox(&mut self.show_grid, "Show grid");
-            ui.checkbox(&mut self.use_cached_contours, "Use cached contours");
             ui.checkbox(&mut self.show_debug_slope, "Show debug slope");
             ui.checkbox(&mut self.focus_on_train, "Focus on train");
             ui.horizontal(|ui| {
@@ -805,8 +792,6 @@ impl TrainsApp {
                 match HeightMap::new(&self.heightmap_params) {
                     Ok(map) => {
                         self.heightmap = map;
-                        self.contours_cache =
-                            Some(self.heightmap.cache_contours(self.contour_grid_step));
                         self.bg.clear();
                     }
                     Err(e) => {
@@ -910,7 +895,7 @@ impl eframe::App for TrainsApp {
         ctx.request_repaint();
 
         // Give the heightmap object an opportunity to process queued map generations
-        if let Err(e) = self.heightmap.update() {
+        if let Err(e) = self.heightmap.update(self.contour_grid_step) {
             eprintln!("Error heightmap update: {e}");
         }
 
