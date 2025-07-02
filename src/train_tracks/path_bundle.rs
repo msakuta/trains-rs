@@ -369,8 +369,7 @@ pub(super) fn compute_track_ps(path_segments: &[PathSegment]) -> (Vec<Vec2<f64>>
             Err(i) => {
                 if i == 0 {
                     i as f64
-                } else if let Some(prev_length) = cumulative_lengths.get(i - 1) {
-                    let next_length = cumulative_lengths[i];
+                } else if let Some([prev_length, next_length]) = cumulative_lengths.get(i - 1..=i) {
                     let segment_length = next_length - *prev_length;
                     i as f64 + ((dist - *prev_length) / segment_length).into_inner()
                 } else {
@@ -393,6 +392,11 @@ pub(super) fn compute_track_ps(path_segments: &[PathSegment]) -> (Vec<Vec2<f64>>
         .chain(std::iter::once(path_segments.last().unwrap().end()))
         .collect();
 
+    let mut resampled_track_ranges: Vec<_> = track_ranges
+        .iter()
+        .map(|d| (lookup(*d as f64 * SEGMENT_LENGTH) as usize).min(resampled_nodes.len() - 1))
+        .collect();
+
     // Recheck uniform distance
     // for (i, (node, next)) in resampled_nodes
     //     .iter()
@@ -403,8 +407,8 @@ pub(super) fn compute_track_ps(path_segments: &[PathSegment]) -> (Vec<Vec2<f64>>
     //     println!("re[{i}]: {dist}");
     // }
 
-    if last_idx != Some(path_nodes.len()) {
-        track_ranges.push(path_nodes.len());
+    if last_idx != Some(resampled_nodes.len()) {
+        resampled_track_ranges.push(resampled_nodes.len());
     }
     (
         resampled_nodes,
@@ -413,6 +417,6 @@ pub(super) fn compute_track_ps(path_segments: &[PathSegment]) -> (Vec<Vec2<f64>>
             .map(|v| v.into_inner())
             .unwrap_or(0.)
             / SEGMENT_LENGTH,
-        track_ranges,
+        resampled_track_ranges,
     )
 }

@@ -36,9 +36,9 @@ pub(super) const DOWNSAMPLE: usize = 16;
 
 pub(super) const HEIGHTMAP_LEVELS: usize = 4;
 pub(super) const HEIGHTMAP_LEVEL_SCALE: f64 = 2.;
-pub(super) const CHUNK_SIZE: usize = 128;
-const CHUNK_SIZE_I: isize = CHUNK_SIZE as isize;
-const CHUNK_SHAPE: Shape = (CHUNK_SIZE_I, CHUNK_SIZE_I);
+pub(super) const TILE_SIZE: usize = 128;
+const TILE_SIZE_I: isize = TILE_SIZE as isize;
+const TILE_SHAPE: Shape = (TILE_SIZE_I, TILE_SIZE_I);
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum NoiseType {
@@ -182,11 +182,11 @@ impl HeightMap {
         let mut ast = parse(&params.noise_expr)?;
         precompute(&mut ast, &mut rng)?;
 
-        let map: Vec<_> = (0..CHUNK_SIZE.pow(2))
+        let map: Vec<_> = (0..TILE_SIZE.pow(2))
             .map(|i| {
-                let ix = ((i % CHUNK_SIZE) as i32 + key.pos[0] * CHUNK_SIZE as i32) as f64
+                let ix = ((i % TILE_SIZE) as i32 + key.pos[0] * TILE_SIZE as i32) as f64
                     * HEIGHTMAP_LEVEL_SCALE.powi(key.level as i32);
-                let iy = ((i / CHUNK_SIZE) as i32 + key.pos[1] * CHUNK_SIZE as i32) as f64
+                let iy = ((i / TILE_SIZE) as i32 + key.pos[1] * TILE_SIZE as i32) as f64
                     * HEIGHTMAP_LEVEL_SCALE.powi(key.level as i32);
                 let pos = crate::vec2::Vec2::new(ix as f64, iy as f64);
                 let Value::Scalar(eval_res) = run(&ast, &pos)? else {
@@ -235,14 +235,14 @@ impl HeightMap {
         let local_shape = if self.params.limited_size {
             (
                 (self.params.width / divisor)
-                    .saturating_sub(key.pos[0].max(0) as usize * CHUNK_SIZE)
-                    .min(CHUNK_SIZE),
+                    .saturating_sub(key.pos[0].max(0) as usize * TILE_SIZE)
+                    .min(TILE_SIZE),
                 (self.params.height / divisor)
-                    .saturating_sub(key.pos[1].max(0) as usize * CHUNK_SIZE)
-                    .min(CHUNK_SIZE),
+                    .saturating_sub(key.pos[1].max(0) as usize * TILE_SIZE)
+                    .min(TILE_SIZE),
             )
         } else {
-            (CHUNK_SIZE, CHUNK_SIZE)
+            (TILE_SIZE, TILE_SIZE)
         };
 
         let map = self.get_map(key)?.ok_or_else(|| "Tile not ready")?;
@@ -271,8 +271,8 @@ impl HeightMap {
             .enumerate()
             .map(|(i, p)| {
                 let is_water = *p < water_level;
-                let x = (i % CHUNK_SIZE) as f64;
-                let y = (i / CHUNK_SIZE) as f64;
+                let x = (i % TILE_SIZE) as f64;
+                let y = (i / TILE_SIZE) as f64;
                 if local_shape.0 as f64 <= x || local_shape.1 as f64 <= y {
                     // Outside of world
                     [255, 255, 255]
@@ -283,7 +283,7 @@ impl HeightMap {
                 } else {
                     let above_water = (p - water_level) / (max_p - water_level);
                     let white = above_water.powi(4) as f64;
-                    let grad = Self::local_gradient(map, CHUNK_SHAPE, &Vec2::new(x, y))
+                    let grad = Self::local_gradient(map, TILE_SHAPE, &Vec2::new(x, y))
                         / HEIGHTMAP_LEVEL_SCALE.powi(key.level as i32);
                     let slope = grad.length();
                     let dot = (grad.x - grad.y) * 10.;
@@ -313,7 +313,7 @@ impl HeightMap {
         //     self.shape.1 as u32,
         //     image::ColorType::L8,
         // );
-        let img = eframe::egui::ColorImage::from_rgb([CHUNK_SIZE, CHUNK_SIZE], &bitmap);
+        let img = eframe::egui::ColorImage::from_rgb([TILE_SIZE, TILE_SIZE], &bitmap);
         Ok(img)
     }
 
@@ -321,13 +321,13 @@ impl HeightMap {
         self.maps
             .get(&HeightMapKey::default())
             .map_or(Vec2::zero(), |map| {
-                Self::local_gradient(map, CHUNK_SHAPE, pos)
+                Self::local_gradient(map, TILE_SHAPE, pos)
             })
     }
 
     fn local_gradient(map: &[f32], shape: Shape, pos: &crate::vec2::Vec2) -> crate::vec2::Vec2 {
         let [x, y] = [pos.x as isize, pos.y as isize];
-        if x < 0 || CHUNK_SIZE_I <= x + 1 || y < 0 || CHUNK_SIZE_I <= y + 1 {
+        if x < 0 || TILE_SIZE_I <= x + 1 || y < 0 || TILE_SIZE_I <= y + 1 {
             return crate::vec2::Vec2::zero();
         }
 
@@ -345,12 +345,25 @@ impl HeightMap {
 
     pub(crate) fn is_water(&self, pos: &crate::vec2::Vec2<f64>) -> bool {
         let [x, y] = [pos.x as isize, pos.y as isize];
-        if x < 0 || self.shape.0 <= x || y < 0 || self.shape.1 < y {
-            return false;
+        if self.params.limited_size && (x < 0 || self.shape.0 <= x || y < 0 || self.shape.1 < y) {
+            return true;
         }
+        let key = Self::key_from_pos(pos);
+        let ix = x.rem_euclid(TILE_SIZE_I);
+        let iy = y.rem_euclid(TILE_SIZE_I);
         self.maps
-            .get(&HeightMapKey::default())
-            .map_or(true, |map| map[self.shape.idx(x, y)] < self.water_level)
+            .get(&key)
+            .map_or(true, |map| map[TILE_SHAPE.idx(ix, iy)] < self.water_level)
+    }
+
+    pub(super) fn key_from_pos(pos: &crate::vec2::Vec2) -> HeightMapKey {
+        HeightMapKey {
+            level: 0,
+            pos: [
+                (pos.x as isize).div_euclid(TILE_SIZE_I) as i32,
+                (pos.y as isize).div_euclid(TILE_SIZE_I) as i32,
+            ],
+        }
     }
 
     pub(super) fn update(&mut self) -> Result<(), String> {
@@ -368,7 +381,7 @@ impl std::ops::Index<(isize, isize)> for HeightMap {
     fn index(&self, index: (isize, isize)) -> &Self::Output {
         self.maps
             .get(&HeightMapKey::default())
-            .map_or(&0., |map| &map[self.shape.idx(index.0, index.1)])
+            .map_or(&0., |map| &map[TILE_SHAPE.idx(index.0, index.1)])
     }
 }
 
@@ -452,7 +465,7 @@ impl TrainsApp {
         let heightmap_scale = (HEIGHTMAP_LEVEL_SCALE as f32).powi(level as i32);
         let lt = paint_transform.from_pos2(painter.clip_rect().left_top());
         let rb = paint_transform.from_pos2(painter.clip_rect().right_bottom());
-        let divisor = CHUNK_SIZE as f64 * heightmap_scale as f64;
+        let divisor = TILE_SIZE as f64 * heightmap_scale as f64;
         // top is greater than bottom in screen coordinates, which is flipped from Cartesian
         let (x0, y0, x1, y1);
         if self.heightmap.params.limited_size {
@@ -492,8 +505,8 @@ impl TrainsApp {
                         &paint_transform,
                         heightmap_scale,
                         egui::pos2(
-                            x as f32 * heightmap_scale * CHUNK_SIZE as f32,
-                            (y + 1) as f32 * heightmap_scale * CHUNK_SIZE as f32,
+                            x as f32 * heightmap_scale * TILE_SIZE as f32,
+                            (y + 1) as f32 * heightmap_scale * TILE_SIZE as f32,
                         ),
                     );
             }
@@ -529,15 +542,14 @@ impl HeightMap {
     }
 
     fn process_contours(&self, contour_grid_step: usize, mut f: impl FnMut(i32, &[Pos2; 2])) {
-        let downsampled: Vec<_> = (0..self.shape.0 as usize * self.shape.1 as usize
-            / contour_grid_step
-            / contour_grid_step)
-            .map(|i| {
-                let x = (i % (self.shape.0 as usize / contour_grid_step)) * contour_grid_step;
-                let y = (i / (self.shape.0 as usize / contour_grid_step)) * contour_grid_step;
-                self[(x as isize, y as isize)]
-            })
-            .collect();
+        let downsampled: Vec<_> =
+            (0..TILE_SIZE * TILE_SIZE / contour_grid_step / contour_grid_step)
+                .map(|i| {
+                    let x = (i % (TILE_SIZE as usize / contour_grid_step)) * contour_grid_step;
+                    let y = (i / (TILE_SIZE as usize / contour_grid_step)) * contour_grid_step;
+                    self[(x as isize, y as isize)]
+                })
+                .collect();
 
         let resol = contour_grid_step as f32;
 

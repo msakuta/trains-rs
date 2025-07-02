@@ -69,6 +69,7 @@ pub(crate) struct TrainsApp {
     show_debug_slope: bool,
     focus_on_train: bool,
     click_mode: ClickMode,
+    cursor: Option<Vec2>,
     belt_connection: Option<(BeltConnection, Vec2<f64>)>,
     building_structure: Option<Vec2>,
     tracks: TrainTracks,
@@ -140,6 +141,7 @@ impl TrainsApp {
             show_debug_slope: false,
             focus_on_train: false,
             click_mode: ClickMode::None,
+            cursor: None,
             belt_connection: None,
             building_structure: None,
             tracks,
@@ -468,6 +470,12 @@ impl TrainsApp {
         self.render_track(&painter, &paint_transform);
 
         self.render_structures(&painter, &paint_transform);
+
+        self.cursor = if let Some(pos) = response.hover_pos() {
+            Some(paint_transform.from_pos2(pos))
+        } else {
+            None
+        };
 
         match self.click_mode {
             ClickMode::None => self.tracks.ghost_path = None,
@@ -871,6 +879,16 @@ impl TrainsApp {
             });
         });
         ui.group(|ui| {
+            ui.label(if let Some(cursor) = &self.cursor {
+                format!(
+                    "Cursor: ({:.3},{:.3}) ({:?})",
+                    cursor.x,
+                    cursor.y,
+                    HeightMap::key_from_pos(cursor)
+                )
+            } else {
+                format!("Cursor: None")
+            });
             ui.label("Trains:");
             for (i, car) in self.train.cars.iter().enumerate() {
                 ui.label(&format!(
@@ -892,7 +910,9 @@ impl eframe::App for TrainsApp {
         ctx.request_repaint();
 
         // Give the heightmap object an opportunity to process queued map generations
-        self.heightmap.update();
+        if let Err(e) = self.heightmap.update() {
+            eprintln!("Error heightmap update: {e}");
+        }
 
         // Decay error message even if paused
         if let Some((_, ref mut time)) = self.error_msg {
