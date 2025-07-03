@@ -5,6 +5,9 @@ use eframe::{
     epaint::{Pos2, Rect, Vec2, pos2, vec2},
 };
 
+const MAX_ZOOM: f32 = 100.;
+const MIN_ZOOM: f32 = 0.1;
+
 /// A type representing transformation, including scale and offset.
 ///
 /// It does not include rotation.
@@ -107,6 +110,7 @@ impl Transform {
             } else if zoom_delta != 1. {
                 self.scale *= zoom_delta;
             }
+            self.scale = self.scale.clamp(MIN_ZOOM, MAX_ZOOM);
             let new_offset = self.inverse_transform_point(interact_pos_a);
             let diff = new_offset - old_offset;
             let diff = -Vector2::new(diff[0], diff[1]);
