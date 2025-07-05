@@ -36,9 +36,14 @@ pub(super) const CONTOURS_GRID_STEPE: usize = 8;
 
 pub(super) const HEIGHTMAP_LEVELS: usize = 4;
 pub(super) const HEIGHTMAP_LEVEL_SCALE: f64 = 2.;
+const HEIGHTMAP_LEVEL_SCALE_U: usize = HEIGHTMAP_LEVEL_SCALE as usize;
 pub(super) const TILE_SIZE: usize = 128;
 const TILE_SIZE_I: isize = TILE_SIZE as isize;
 const TILE_SHAPE: Shape = (TILE_SIZE_I, TILE_SIZE_I);
+
+const TILE_WITH_MARGIN_SIZE: usize = TILE_SIZE + 1;
+const TILE_WITH_MARGIN_SIZE_I: isize = TILE_WITH_MARGIN_SIZE as isize;
+const TILE_WITH_MARGIN_SHAPE: Shape = (TILE_WITH_MARGIN_SIZE_I, TILE_WITH_MARGIN_SIZE_I);
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum NoiseType {
@@ -188,11 +193,13 @@ impl HeightMap {
         let mut ast = parse(&params.noise_expr)?;
         precompute(&mut ast, &mut rng)?;
 
-        let map: Vec<_> = (0..TILE_SIZE.pow(2))
+        let map: Vec<_> = (0..TILE_WITH_MARGIN_SIZE.pow(2))
             .map(|i| {
-                let ix = ((i % TILE_SIZE) as i32 + key.pos[0] * TILE_SIZE as i32) as f64
+                let ix = ((i % TILE_WITH_MARGIN_SIZE) as i32
+                    + key.pos[0] * TILE_WITH_MARGIN_SIZE as i32) as f64
                     * HEIGHTMAP_LEVEL_SCALE.powi(key.level as i32);
-                let iy = ((i / TILE_SIZE) as i32 + key.pos[1] * TILE_SIZE as i32) as f64
+                let iy = ((i / TILE_WITH_MARGIN_SIZE) as i32
+                    + key.pos[1] * TILE_WITH_MARGIN_SIZE as i32) as f64
                     * HEIGHTMAP_LEVEL_SCALE.powi(key.level as i32);
                 let pos = crate::vec2::Vec2::new(ix as f64, iy as f64);
                 let Value::Scalar(eval_res) = run(&ast, &pos)? else {
@@ -235,9 +242,9 @@ impl HeightMap {
     ) -> Result<ColorImage, String> {
         let water_level = self.water_level;
 
-        let divisor = 2usize.pow(key.level as u32);
+        let divisor = HEIGHTMAP_LEVEL_SCALE_U.pow(key.level as u32);
 
-        // If the global map size is bounded, tiles on the edge can have size smaller than CHUNK_SIZE.
+        // If the global map size is bounded, tiles on the edge can have size smaller than TILE_SIZE.
         let local_shape = if self.params.limited_size {
             (
                 (self.params.width / divisor)
@@ -277,8 +284,8 @@ impl HeightMap {
             .enumerate()
             .map(|(i, p)| {
                 let is_water = *p < water_level;
-                let x = (i % TILE_SIZE) as f64;
-                let y = (i / TILE_SIZE) as f64;
+                let x = (i % TILE_WITH_MARGIN_SIZE) as f64;
+                let y = (i / TILE_WITH_MARGIN_SIZE) as f64;
                 if local_shape.0 as f64 <= x || local_shape.1 as f64 <= y {
                     // Outside of world
                     [255, 255, 255]
@@ -289,7 +296,7 @@ impl HeightMap {
                 } else {
                     let above_water = (p - water_level) / (max_p - water_level);
                     let white = above_water.powi(4) as f64;
-                    let grad = Self::local_gradient(map, TILE_SHAPE, &Vec2::new(x, y))
+                    let grad = Self::local_gradient(map, TILE_WITH_MARGIN_SHAPE, &Vec2::new(x, y))
                         / HEIGHTMAP_LEVEL_SCALE.powi(key.level as i32);
                     let slope = grad.length();
                     let dot = (grad.x - grad.y) * 10.;
@@ -319,7 +326,10 @@ impl HeightMap {
         //     self.shape.1 as u32,
         //     image::ColorType::L8,
         // );
-        let img = eframe::egui::ColorImage::from_rgb([TILE_SIZE, TILE_SIZE], &bitmap);
+        let img = eframe::egui::ColorImage::from_rgb(
+            [TILE_WITH_MARGIN_SIZE, TILE_WITH_MARGIN_SIZE],
+            &bitmap,
+        );
         Ok(img)
     }
 
@@ -333,7 +343,7 @@ impl HeightMap {
 
     fn local_gradient(map: &[f32], shape: Shape, pos: &crate::vec2::Vec2) -> crate::vec2::Vec2 {
         let [x, y] = [pos.x as isize, pos.y as isize];
-        if x < 0 || TILE_SIZE_I <= x + 1 || y < 0 || TILE_SIZE_I <= y + 1 {
+        if x < 0 || shape.0 <= x + 1 || y < 0 || shape.1 <= y + 1 {
             return crate::vec2::Vec2::zero();
         }
 
