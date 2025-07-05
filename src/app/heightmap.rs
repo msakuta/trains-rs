@@ -582,12 +582,12 @@ impl HeightMapTile {
     }
 
     fn process_contours(map: &[f32], contour_grid_step: usize, mut f: impl FnMut(i32, &[Pos2; 2])) {
-        let contours_grid_size = TILE_SIZE / contour_grid_step;
+        let contours_grid_size = TILE_SIZE / contour_grid_step + 1;
         let downsampled: Vec<_> = (0..contours_grid_size.pow(2))
             .map(|i| {
                 let x = (i % contours_grid_size) * contour_grid_step;
                 let y = (i / contours_grid_size) * contour_grid_step;
-                map[x + y * TILE_SIZE]
+                map[x + y * TILE_WITH_MARGIN_SIZE]
             })
             .collect();
 
@@ -614,8 +614,8 @@ impl HeightMapTile {
         let incr = num_levels / 10 + 1;
 
         let downsampled_shape = (
-            (TILE_SIZE / contour_grid_step) as isize,
-            (TILE_SIZE / contour_grid_step) as isize,
+            (TILE_SIZE / contour_grid_step) as isize + 1,
+            (TILE_SIZE / contour_grid_step) as isize + 1,
         );
 
         for i in min_i / incr..max_i / incr {
