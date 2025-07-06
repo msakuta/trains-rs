@@ -22,36 +22,22 @@ pub(crate) const RAIL_WIDTH: f64 = RAIL_HALFWIDTH * 2.;
 const MIN_RADIUS: f64 = 50.;
 const MAX_RADIUS: f64 = 10000.;
 pub(crate) const SEGMENT_LENGTH: f64 = 10.;
-pub(crate) const _C_POINTS: [Vec2<f64>; 11] = [
-    Vec2::new(0., 0.),
-    Vec2::new(50., 0.),
-    Vec2::new(100., 0.),
-    Vec2::new(200., 0.),
-    Vec2::new(300., 100.),
-    Vec2::new(400., 200.),
-    Vec2::new(500., 200.),
-    Vec2::new(550., 200.),
-    Vec2::new(600., 200.),
-    Vec2::new(700., 200.),
-    Vec2::new(700., 100.),
-];
 
-pub(crate) const PATH_SEGMENTS: [PathSegment; 5] = [
-    PathSegment::Line([Vec2::new(50., 50.), Vec2::new(150., 50.)]),
+pub(crate) const PATH_SEGMENTS: [PathSegment; 4] = [
     PathSegment::Arc(CircleArc::new(
-        Vec2::new(150., 150.),
-        100.,
-        std::f64::consts::PI * 1.5,
-        std::f64::consts::PI * 2.,
-    )),
-    PathSegment::Line([Vec2::new(250., 150.), Vec2::new(250., 250.)]),
-    PathSegment::Arc(CircleArc::new(
-        Vec2::new(150., 250.),
-        100.,
-        std::f64::consts::PI * 0.,
+        Vec2::new(-50., 0.),
+        50.,
         std::f64::consts::PI * 0.5,
+        std::f64::consts::PI * 1.5,
     )),
-    PathSegment::Line([Vec2::new(150., 350.), Vec2::new(50., 350.)]),
+    PathSegment::Line([Vec2::new(-50., -50.), Vec2::new(50., -50.)]),
+    PathSegment::Arc(CircleArc::new(
+        Vec2::new(50., 0.),
+        50.,
+        std::f64::consts::PI * 1.5,
+        std::f64::consts::PI * 2.5,
+    )),
+    PathSegment::Line([Vec2::new(50., 50.), Vec2::new(-50., 50.)]),
 ];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -106,7 +92,7 @@ impl TrainNode {
         }
     }
 
-    fn is_connected_to(&self, path_id: usize) -> bool {
+    fn _is_connected_to(&self, path_id: usize) -> bool {
         self.forward_paths.iter().any(|p| p.path_id == path_id)
             || self.backward_paths.iter().any(|p| p.path_id == path_id)
     }
@@ -169,7 +155,7 @@ impl TrainTracks {
             PathBundle::multi(
                 PATH_SEGMENTS.to_vec(),
                 NodeConnection::new(0, SegmentDirection::Forward),
-                NodeConnection::new(1, SegmentDirection::Backward),
+                NodeConnection::new(0, SegmentDirection::Backward),
             ),
         );
         let mut nodes = HashMap::new();
@@ -177,19 +163,16 @@ impl TrainTracks {
         first_node
             .forward_paths
             .push(PathConnection::new(0, ConnectPoint::Start));
-        nodes.insert(0, first_node);
-        let mut last_node = TrainNode::new(PATH_SEGMENTS.last().unwrap().end());
-        last_node
+        first_node
             .backward_paths
             .push(PathConnection::new(0, ConnectPoint::End));
-        nodes.insert(1, last_node);
+        nodes.insert(0, first_node);
         Self {
-            // control_points: C_POINTS.to_vec(),
             paths,
             path_id_gen: 1,
             selected_node: None,
             nodes,
-            node_id_gen: 2,
+            node_id_gen: 1,
             ghost_path: None,
             station_id_gen: 2,
             stations: [
@@ -200,15 +183,6 @@ impl TrainTracks {
             .enumerate()
             .collect(),
         }
-    }
-
-    pub fn control_points(&self) -> Vec<Vec2<f64>> {
-        self.paths
-            .values()
-            .map(|b| b.segments.iter())
-            .flatten()
-            .map(|seg| seg.end())
-            .collect()
     }
 
     pub fn s_pos(&self, path_id: usize, s: f64) -> Option<Vec2<f64>> {

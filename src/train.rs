@@ -36,10 +36,12 @@ pub(crate) struct Train {
 
 impl Train {
     pub fn new() -> Self {
-        let cars = (0..3)
+        let num_cars = 3;
+        let cars = (0..num_cars)
             .map(|i| TrainCar {
                 path_id: 0,
-                s: i as f64 * CAR_LENGTH,
+                // We leave some space at the beginning of a track
+                s: (num_cars - i) as f64 * CAR_LENGTH,
                 speed: 0.,
                 direction: SegmentDirection::Forward,
                 ty: if i == 0 {
@@ -351,8 +353,11 @@ impl TrainCar {
         }
     }
 
+    /// Forcefully adjust the train car positions to have a constant distance and synchronized speed.
+    /// TODO: If the train spans multiple paths, they are skipped, but they should be treated with different coordinates
+    /// considered.
     fn adjust_connected_cars(&mut self, other: &mut TrainCar, _tracks: &TrainTracks) {
-        if self.path_id == other.path_id {
+        if self.path_id == other.path_id && other.s < self.s {
             let delta = self.s - other.s;
             let avg_speed = (self.speed + other.speed) * 0.5;
             self.s -= (delta - CAR_LENGTH) * 0.5;
