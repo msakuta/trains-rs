@@ -26,6 +26,7 @@ pub(crate) struct Train {
     pub cars: Vec<TrainCar>,
     pub train_task: TrainTask,
     pub schedule: Vec<usize>,
+    pub auto_drive: bool,
     /// The index of the direction of the path in the next branch.
     #[serde(skip)]
     pub switch_path: usize,
@@ -57,14 +58,14 @@ impl Train {
             cars,
             train_task: TrainTask::Idle,
             schedule: vec![],
+            auto_drive: false,
             switch_path: 0,
             route: vec![],
             total_transported: 0,
         }
     }
 
-    pub fn update(&mut self, thrust: f64, heightmap: &HeightMap, tracks: &TrainTracks) {
-        let mut brake = false;
+    fn autonomous_logic(&mut self, tracks: &TrainTracks, brake: &mut bool) {
         if let TrainTask::Wait(timer, station) = &mut self.train_task {
             let mut wait_finished = true;
             if let Some(station) = tracks.stations.get(station) {
@@ -93,7 +94,7 @@ impl Train {
             if *timer <= 1 || wait_finished {
                 self.train_task = TrainTask::Idle;
             }
-            brake = true;
+            *brake = true;
         }
         if matches!(self.train_task, TrainTask::Idle) {
             if let Some(first) = self.schedule.first().cloned() {
@@ -115,6 +116,13 @@ impl Train {
                 self.schedule.pop();
                 self.train_task = TrainTask::Idle;
             }
+        }
+    }
+
+    pub fn update(&mut self, thrust: f64, heightmap: &HeightMap, tracks: &TrainTracks) {
+        let mut brake = false;
+        if self.auto_drive {
+            self.autonomous_logic(tracks, &mut brake);
         }
 
         // Acceleration from terrain slope

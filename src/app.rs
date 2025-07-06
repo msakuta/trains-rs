@@ -867,9 +867,11 @@ impl TrainsApp {
                     ),
                 );
             }
+            ui.checkbox(&mut self.train.auto_drive, "Auto drive");
             if ui.button("Schedule station").clicked() {
                 if let Some(target) = self.selected_station {
                     self.train.schedule.push(target);
+                    self.train.auto_drive = true;
                 }
             }
             if ui.button("Delete station").clicked() {
