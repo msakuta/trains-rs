@@ -298,26 +298,6 @@ impl HeightMap {
         };
 
         let map = &self.get_map(key)?.ok_or_else(|| "Tile not ready")?.map;
-        let min_p = map
-            .iter()
-            .fold(None, |acc, cur| {
-                if let Some(acc) = acc {
-                    if acc < *cur { Some(acc) } else { Some(*cur) }
-                } else {
-                    Some(*cur)
-                }
-            })
-            .ok_or_else(|| "Map has no pixel".to_string())?;
-        let max_p = map
-            .iter()
-            .fold(None, |acc, cur| {
-                if let Some(acc) = acc {
-                    if acc < *cur { Some(*cur) } else { Some(acc) }
-                } else {
-                    Some(*cur)
-                }
-            })
-            .ok_or_else(|| "Map has no pixel".to_string())?;
         let bitmap: Vec<_> = map
             .iter()
             .enumerate()
