@@ -326,33 +326,7 @@ impl TrainsApp {
                             );
                         }
                     }
-                    ClickMode::AddOreMine => 'out: {
-                        if let Some(pos) = self.building_structure {
-                            let delta = pos - paint_transform.from_pos2(pointer);
-                            let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
-                            let Some(ore_vein) = self.ore_veins.iter_mut().find(|ov| ov.pos == pos)
-                            else {
-                                eprintln!("ore vein expected");
-                                break 'out;
-                            };
-                            if ore_vein.occupied_miner.is_some() {
-                                eprintln!("ore vein already occupied");
-                                break 'out;
-                            }
-                            let st_id = self
-                                .structures
-                                .add_structure(Structure::new_ore_mine(pos, orient));
-                            ore_vein.occupied_miner = Some(st_id);
-                            if let Some(ore_vein) =
-                                self.ore_veins.iter_mut().find(|ov| ov.pos == pos)
-                            {
-                                ore_vein.occupied_miner = Some(st_id);
-                            }
-                            self.building_structure = None;
-                        } else {
-                            self.building_structure = Some(paint_transform.from_pos2(pointer));
-                        }
-                    }
+                    ClickMode::AddOreMine => self.add_ore_mine(paint_transform.from_pos2(pointer)),
                     ClickMode::AddSmelter => {
                         if let Some(pos) = self.building_structure {
                             let delta = pos - paint_transform.from_pos2(pointer);
