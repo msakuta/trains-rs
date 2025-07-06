@@ -12,6 +12,26 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 /// A path and its accompanying data. A path is a sequence of segments without a branch.
 /// `start_node` and `end_node` are the node ids at both ends.
+///
+/// ## Terminology
+///
+/// Since the data structure has confusing names with similar but subtly different concepts,
+/// we present the overview in the ASCII art below.
+///
+/// ```raw
+///   |<--------- PathBundle ------------------->|
+///   |                                          |
+///   * -+--+--+-+- * --+--+-+- * -+--+-+- * -+- *
+///   |             |           |       |
+///   |<- segment ->|           |    Segment node
+///                         Pathnode
+/// ```
+///
+/// * `PathBundle` is a set of `PathSegments`, split by `Pathnode`s.
+/// * `PathSegment` can contain multiple segment nodes.
+/// * The entire `PathBundle` is an _edge_ in the graph network. Therefore, it cannot contain branches.
+/// * Each of the start and the end of a PathBundle is connecting to a `Node`. The node is a _node_ in the graph network.
+///   Connections to the start and the end nodes have the node id and the direction of the node it's connecting.
 pub(crate) struct PathBundle {
     /// A segment is a continuous line or curve with the same curvature
     pub(super) segments: Vec<PathSegment>,
