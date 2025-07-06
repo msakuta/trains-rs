@@ -700,15 +700,31 @@ impl TrainsApp {
             let was_belt_mode = matches!(self.click_mode, ClickMode::ConnectBelt);
             ui.label("Click mode:");
             ui.radio_value(&mut self.click_mode, ClickMode::None, "None");
-            ui.radio_value(&mut self.click_mode, ClickMode::GentleCurve, "Gentle Curve");
-            ui.radio_value(&mut self.click_mode, ClickMode::TightCurve, "Tight Curve");
+            ui.radio_value(
+                &mut self.click_mode,
+                ClickMode::GentleCurve,
+                "Add Rail (Gentle Curve)",
+            );
+            ui.radio_value(
+                &mut self.click_mode,
+                ClickMode::TightCurve,
+                "Add Rail (Tight Curve)",
+            );
             ui.radio_value(
                 &mut self.click_mode,
                 ClickMode::StraightLine,
-                "Straight Line",
+                "Add Rail (Straight Line)",
             );
-            ui.radio_value(&mut self.click_mode, ClickMode::BezierCurve, "Bezier Curve");
-            ui.radio_value(&mut self.click_mode, ClickMode::DeleteSegment, "Delete");
+            ui.radio_value(
+                &mut self.click_mode,
+                ClickMode::BezierCurve,
+                "Add Rail (Bezier Curve)",
+            );
+            ui.radio_value(
+                &mut self.click_mode,
+                ClickMode::DeleteSegment,
+                "Delete Rail Segment",
+            );
             ui.radio_value(&mut self.click_mode, ClickMode::AddStation, "Add Station");
             ui.radio_value(&mut self.click_mode, ClickMode::AddOreMine, "Add Ore Mine");
             ui.radio_value(&mut self.click_mode, ClickMode::AddSmelter, "Add Smelter");
