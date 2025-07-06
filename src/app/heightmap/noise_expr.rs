@@ -1,3 +1,5 @@
+//! The noise expression evaluator logic
+
 use std::collections::HashMap;
 
 use crate::{
@@ -239,6 +241,20 @@ fn eval_fn(name: &str, args: &[Value], fn_ctx: Option<&FnContext>) -> Result<Val
                 Value::Scalar(vec.y)
             } else {
                 return Err("y only supports 1 vector argument".to_string());
+            }
+        }
+        "length" => {
+            if let Some(Value::Vec2(vec)) = args.get(0) {
+                Value::Scalar(vec.length())
+            } else {
+                return Err("length requires a vector argument".to_string());
+            }
+        }
+        "length2" => {
+            if let Some(Value::Vec2(vec)) = args.get(0) {
+                Value::Scalar(vec.length2())
+            } else {
+                return Err("length2 requires a vector argument".to_string());
             }
         }
         "softclamp" => {

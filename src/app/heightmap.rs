@@ -82,7 +82,10 @@ abs_rounding = 0.1;
 height_scale = 10;
 pers = perlin_noise(scaled_x, {}, 0.5);
 
-softmax(
+odist2 = length2(x) * 0.0075 * 0.0075;
+center_plateau = 0.2 / (1 + odist2);
+
+land_height = softmax(
   softabs(
     perlin_noise(scaled_x, octaves, pers),
     abs_rounding
@@ -94,7 +97,9 @@ softmax(
     ),
     abs_rounding
   )
-) * height_scale",
+);
+
+softmax(center_plateau, land_height) * height_scale",
                 DEFAULT_NOISE_OCTAVES, DEFAULT_PERSISTENCE_OCTAVES, BRIDGE_HEIGHT
             ),
         }

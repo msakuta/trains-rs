@@ -106,6 +106,8 @@ You can use one of the following built-in functions.
 * `vec2(x, y)` - a constructor for `Vec2` type. `x` and `y` must be scalars.
 * `x(x)` - a getter function to extract `x` component of a vector. Errors when applied to a scalar.
 * `y(x)` - a getter function, similar to `x()`, but for `y` component.
+* `length(x)` - calculates a length of a vector. Errors on a scalar.
+* `length2(x)` - calculates a squared length of a vector. Errors on a scalar.
 * `softclamp(x, max)` - a function that behaves like identity function in small `x`,  but converges asymptotically to `max` in a great `x`. You can use this function to limit a certain value, but with smooth saturation curve instead of sudden step.
 * `softabs(x, rounding)` - a function that acts like the `abs` function in a great `x`, but acts like a quadratic function in a smaller `x` than `rounding`.
 * `softmax(a, b)` - a function that acts like `max` if either `a` or `b` is much greater than the other, but behaves like an average when their values are similar.
