@@ -17,7 +17,6 @@ use self::{
 
 use crate::{
     bg_image::BgImage,
-    perlin_noise::Xorshift64Star,
     structure::{
         BELT_MAX_SLOPE, BeltConnection, MAX_BELT_LENGTH, Structure, StructureType, Structures,
     },
@@ -75,6 +74,7 @@ pub(crate) struct TrainsApp {
     selected_station: Option<usize>,
     new_station: String,
     station_type: StationType,
+    ore_veins: Vec<Vec2>,
     structures: Structures,
     credits: u32,
     error_msg: Option<(String, f64)>,
@@ -94,32 +94,12 @@ impl TrainsApp {
                     .or_else(|_| HeightMap::new(&HeightMapParams::new()))
                     .unwrap();
 
-                let mut rng = Xorshift64Star::new(40925612);
-                let structures = (0..15)
-                    .filter_map(|i| {
-                        let x = rng.next() * heightmap_params.width as f64;
-                        let y = rng.next() * heightmap_params.height as f64;
-                        let pos = Vec2::new(x, y);
-                        if heightmap.is_water(&pos) {
-                            None
-                        } else {
-                            Some((
-                                i,
-                                if i % 2 == 0 {
-                                    Structure::new_ore_mine(pos, 0.)
-                                } else {
-                                    Structure::new_sink(pos, 0.)
-                                },
-                            ))
-                        }
-                    })
-                    .collect();
                 (
                     Train::new(),
                     TrainTracks::new(),
                     heightmap_params,
                     heightmap,
-                    Structures::new(structures),
+                    Structures::new(HashMap::new()),
                     0,
                 )
             });
@@ -143,6 +123,7 @@ impl TrainsApp {
             selected_station: None,
             new_station: "New Station".to_string(),
             station_type: StationType::Loading,
+            ore_veins: vec![],
             structures,
             credits,
             error_msg: None,
@@ -465,6 +446,17 @@ impl TrainsApp {
         self.render_track(&painter, &paint_transform);
 
         self.render_structures(&painter, &paint_transform);
+
+        if 1. < self.transform.scale() {
+            for ore_vein in &self.ore_veins {
+                painter.circle(
+                    paint_transform.to_pos2(*ore_vein),
+                    10.,
+                    Color32::from_rgb(127, 127, 0),
+                    (2., Color32::BLACK),
+                );
+            }
+        }
 
         self.cursor = if let Some(pos) = response.hover_pos() {
             Some(paint_transform.from_pos2(pos))
@@ -895,8 +887,19 @@ impl eframe::App for TrainsApp {
         ctx.request_repaint();
 
         // Give the heightmap object an opportunity to process queued map generations
-        if let Err(e) = self.heightmap.update(self.contour_grid_step) {
-            eprintln!("Error heightmap update: {e}");
+        match self.heightmap.update(self.contour_grid_step) {
+            Ok(tiles_to_pdate) => {
+                for pos in tiles_to_pdate {
+                    if let Some(tile) = self.heightmap.tiles.get(&HeightMapKey { pos, level: 0 }) {
+                        for ov in self.heightmap.gen_ore_veins(pos, &tile) {
+                            self.ore_veins.push(ov);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Error heightmap update: {e}");
+            }
         }
 
         // Decay error message even if paused

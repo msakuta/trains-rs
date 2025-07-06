@@ -12,7 +12,7 @@ use crate::{
         Idx, Shape, border_pixel, cell_border_interpolated, pick_bits, pick_values,
     },
     perlin_noise::Xorshift64Star,
-    structure::BELT_MAX_SLOPE,
+    structure::{BELT_MAX_SLOPE, Structure, StructureId},
     transform::PaintTransform,
     vec2::Vec2,
 };
@@ -235,6 +235,36 @@ impl HeightMap {
         Ok(map)
     }
 
+    /// Generate structurs on a specified tile. Since the map is procedurally generated and has infinite size, we need
+    /// to delay the structures generation until
+    pub(super) fn gen_ore_veins(&self, tile_pos: [i32; 2], tile: &HeightMapTile) -> Vec<Vec2> {
+        let mut rng = Xorshift64Star::new(
+            (tile_pos[0] as u64)
+                .wrapping_add((tile_pos[1] as u64).wrapping_mul(209123))
+                .wrapping_mul(40925612),
+        );
+        let num_veins = rng.nexti() % 5;
+        (0..num_veins)
+            .filter_map(|_| {
+                let x = rng.next() * TILE_SIZE as f64;
+                let y = rng.next() * TILE_SIZE as f64;
+                let pos = Vec2::new(x, y);
+                let ix = x as isize;
+                let iy = y as isize;
+                let is_water = tile.map[TILE_SHAPE.idx(ix, iy)] < self.water_level;
+
+                if is_water {
+                    None
+                } else {
+                    Some(Vec2::new(
+                        pos.x + tile_pos[0] as f64 * TILE_SIZE as f64,
+                        pos.y + tile_pos[1] as f64 * TILE_SIZE as f64,
+                    ))
+                }
+            })
+            .collect()
+    }
+
     pub fn get_image(
         &mut self,
         key: &HeightMapKey,
@@ -382,16 +412,19 @@ impl HeightMap {
         }
     }
 
-    pub(super) fn update(&mut self, contours_grid_step: usize) -> Result<(), String> {
+    pub(super) fn update(&mut self, contours_grid_step: usize) -> Result<Vec<[i32; 2]>, String> {
+        let mut ret = vec![];
         // We would like to offload the tile generation to another thread, but until we know if it works in wasm,
         // we use the main thread to do it, but progressively.
         if let Some(key) = self.gen_queue.pop_front() {
-            self.tiles.insert(
-                key,
-                HeightMapTile::new(Self::new_map(&self.params, &key)?, contours_grid_step),
-            );
+            let tile = HeightMapTile::new(Self::new_map(&self.params, &key)?, contours_grid_step);
+            if key.level == 0 {
+                ret.push(key.pos);
+                // ret.extend_from_slice(&self.gen_structures(key.pos, &tile));
+            }
+            self.tiles.insert(key, tile);
         }
-        Ok(())
+        Ok(ret)
     }
 }
 
