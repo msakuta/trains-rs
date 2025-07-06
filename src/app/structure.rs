@@ -6,14 +6,14 @@ use ordered_float::NotNan;
 
 use crate::{
     structure::{
-        BeltConnection, INGOT_CAPACITY, ITEM_INTERVAL, Item, ORE_MINE_CAPACITY, Structure,
-        StructureOrBelt, StructureType,
+        BELT_MAX_SLOPE, BeltConnection, INGOT_CAPACITY, ITEM_INTERVAL, Item, MAX_BELT_LENGTH,
+        ORE_MINE_CAPACITY, Structure, StructureOrBelt, StructureType,
     },
     transform::PaintTransform,
     vec2::Vec2,
 };
 
-use super::TrainsApp;
+use super::{HeightMap, TrainsApp};
 
 pub(super) const STRUCTURE_ICON_SIZE: f32 = 10.;
 const SELECT_THRESHOLD: f64 = 10.;
@@ -279,4 +279,118 @@ impl TrainsApp {
             self.building_structure = None;
         }
     }
+
+    pub(super) fn add_belt(&mut self, pos: Vec2) -> Result<(), String> {
+        if let Some((start_con, start_pos)) = &self.belt_connection {
+            let (end_con, end_pos) = self.find_belt_con(pos, true);
+            // Disallow connection to itself and end-to-end
+            if matches!(end_con, BeltConnection::BeltEnd(_)) {
+                return Err("You cannot connect the end of a belt to another end".to_string());
+            }
+            if matches!((end_con, start_con), (BeltConnection::Structure(eid), BeltConnection::Structure(sid)) if eid == *sid)
+            {
+                return Err("You cannot connect a belt itself".to_string());
+            }
+            if MAX_BELT_LENGTH.powi(2) <= (end_pos - *start_pos).length2() {
+                return Err("Belt is too long".to_string());
+            }
+            if intersects_water(*start_pos, end_pos, &self.heightmap) {
+                return Err("Belt is intersecting water".to_string());
+            }
+            if exceeds_slope(*start_pos, end_pos, &self.heightmap) {
+                return Err("Belt is exceeding maximum slope".to_string());
+            }
+            let belt_id = self
+                .structures
+                .add_belt(*start_pos, *start_con, end_pos, end_con);
+            match start_con {
+                BeltConnection::Structure(start_st) => {
+                    if let Some(st) = self.structures.structures.get_mut(start_st) {
+                        st.output_belts.insert(belt_id);
+                        println!("Added belt {belt_id} to output_belts");
+                    }
+                }
+                // If we connect to a belt, we add a reference to the upstream belt.
+                BeltConnection::BeltEnd(upstream_belt) => {
+                    if let Some(upstream_belt) = self.structures.belts.get_mut(upstream_belt) {
+                        upstream_belt.end_con = BeltConnection::BeltStart(belt_id);
+                        println!("Added belt {belt_id} to upstream belt");
+                    }
+                }
+                _ => {}
+            }
+            self.belt_connection = None;
+        } else {
+            self.belt_connection = Some(self.find_belt_con(pos, false));
+        }
+        Ok(())
+    }
+
+    pub(super) fn preview_belt(
+        &mut self,
+        pos: Vec2,
+        painter: &Painter,
+        paint_transform: &PaintTransform,
+    ) {
+        if let Some((start_con, start_pos)) = &self.belt_connection {
+            let (end_con, end_pos) = self.find_belt_con(pos, true);
+            if matches!(end_con, BeltConnection::Structure(_)) && end_con != *start_con {
+                painter.rect_filled(
+                    Rect::from_center_size(
+                        paint_transform.to_pos2(end_pos),
+                        vec2(STRUCTURE_ICON_SIZE, STRUCTURE_ICON_SIZE),
+                    ),
+                    0.,
+                    Color32::from_rgb(255, 127, 191),
+                );
+            }
+            let color = if (end_pos - *start_pos).length2() < MAX_BELT_LENGTH.powi(2)
+                && !intersects_water(*start_pos, end_pos, &self.heightmap)
+                && !exceeds_slope(*start_pos, end_pos, &self.heightmap)
+            {
+                Color32::from_rgba_premultiplied(127, 0, 255, 191)
+            } else {
+                Color32::RED
+            };
+            painter.line_segment(
+                [
+                    paint_transform.to_pos2(end_pos),
+                    paint_transform.to_pos2(*start_pos),
+                ],
+                (2., color),
+            );
+        } else if let (BeltConnection::Structure(_), end_pos) = self.find_belt_con(pos, false) {
+            painter.rect_filled(
+                Rect::from_center_size(
+                    paint_transform.to_pos2(end_pos),
+                    vec2(STRUCTURE_ICON_SIZE, STRUCTURE_ICON_SIZE),
+                ),
+                0.,
+                Color32::from_rgb(255, 127, 191),
+            );
+        }
+    }
+}
+
+fn intersects_water(start_pos: Vec2, end_pos: Vec2, heightmap: &HeightMap) -> bool {
+    let interpolations = (start_pos.x - end_pos.x)
+        .abs()
+        .ceil()
+        .max((start_pos.y - end_pos.y).abs().ceil()) as usize;
+    (0..interpolations).any(|i| {
+        let pos = start_pos.lerp(end_pos, i as f64 / interpolations as f64);
+        heightmap.is_water(&pos)
+    })
+}
+
+/// Checks if the line segment between start_pos and end_pos has a point that exceeds maximum slope.
+fn exceeds_slope(start_pos: Vec2, end_pos: Vec2, heightmap: &HeightMap) -> bool {
+    let interpolations = (start_pos.x - end_pos.x)
+        .abs()
+        .ceil()
+        .max((start_pos.y - end_pos.y).abs().ceil()) as usize;
+    (0..interpolations).any(|i| {
+        let pos = start_pos.lerp(end_pos, i as f64 / interpolations as f64);
+        BELT_MAX_SLOPE.powi(2) < heightmap.gradient(&pos).length2()
+    })
 }
