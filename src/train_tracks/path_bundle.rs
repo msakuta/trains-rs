@@ -155,34 +155,45 @@ impl PathBundle {
     /// Deletes a segment, optionally splitting the path that contains the segment.
     ///
     /// Returns a new path created by splitting this one, if the segment was in the middle of a path.
-    /// `add_node` parameter is called when adding a node becomes necessary by the splitting.
+    ///
+    /// Since this PathBundle is isolated from the container, but deleting a segment may modify nodes in the graph,
+    /// we accept a couple of callbacks to give the container an opportunity to reflect that.
+    ///
+    /// * `add_node` parameter is called when adding a node becomes necessary by the splitting.
+    /// * `remove_node` is called when either start or end of the path has been deleted and a reference to this path
+    ///    bundle has to be removed from the node.
     ///
     /// Note that deleting a node by isolation doesn't make sense, because a node is a interpolated cached position
     /// from a segment parameters.
     pub(super) fn delete_segment(
         &mut self,
         seg: usize,
-        mut add_node: impl FnMut(Vec2<f64>) -> NodeConnection,
+        mut add_node: impl FnMut(Vec2<f64>, ConnectPoint) -> NodeConnection,
+        mut remove_node: impl FnMut(NodeConnection),
     ) -> Option<PathBundle> {
         let mut new_path = vec![];
         let prev_end_node = self.end_node;
         if seg == 0 {
             self.segments.remove(0);
+            remove_node(self.start_node);
             if let Some(first_seg) = self.segments.first() {
                 // Keep old node which will accumulate as garbage
-                let new_start = add_node(first_seg.start());
+                let new_start = add_node(first_seg.start(), ConnectPoint::Start);
                 self.start_node = new_start;
             }
         } else {
             new_path = self.segments[seg + 1..].to_vec();
+            remove_node(self.end_node);
             self.segments.truncate(seg);
             if let Some(last_seg) = self.segments.last() {
-                self.end_node = add_node(last_seg.end());
+                self.end_node = add_node(last_seg.end(), ConnectPoint::End);
             }
         }
         (self.track, self.s_length, self.track_ranges) = compute_track_ps(&self.segments);
         if !new_path.is_empty() {
-            let prev_node = new_path.first().map(|seg| add_node(seg.start()));
+            let prev_node = new_path
+                .first()
+                .map(|seg| add_node(seg.start(), ConnectPoint::Start));
             prev_node.map(|prev_node| Self::multi(new_path, prev_node, prev_end_node))
         } else {
             None

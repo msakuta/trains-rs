@@ -699,12 +699,38 @@ impl TrainTracks {
             };
             let delete_end = path.track_ranges[seg] as f64;
             println!("Delete node range: {}, {}", delete_begin, delete_end);
-            let new_path = path.delete_segment(seg, |added_node| {
-                let node_id = self.node_id_gen;
-                self.nodes.insert(node_id, TrainNode::new(added_node));
-                self.node_id_gen += 1;
-                NodeConnection::new(node_id, SegmentDirection::Forward)
-            });
+
+            // We accumulate added nodes in a temporary buffer since a mutable borrow cannot be shared among
+            // add_node and remove_node callbacks.
+            let mut node_id_gen = self.node_id_gen;
+            let mut added_nodes = vec![];
+
+            let new_path = path.delete_segment(
+                seg,
+                |added_node, con_point| {
+                    let node_id = node_id_gen;
+                    added_nodes.push((node_id, added_node, con_point));
+                    node_id_gen += 1;
+                    NodeConnection::new(node_id, SegmentDirection::Forward)
+                },
+                |node_con| {
+                    if let Some(node) = self.nodes.get_mut(&node_con.node_id) {
+                        node.paths_in_direction_mut(node_con.direction)
+                            .retain(|path_con| path_con.path_id != path_id);
+                    }
+                },
+            );
+
+            // Postprocess after deleting a segment to update nodes, if it creates new nodes
+            for (node_id, node_pos, con_point) in added_nodes {
+                let mut node = TrainNode::new(node_pos);
+                node.forward_paths
+                    .push(PathConnection::new(path_id, con_point));
+                self.nodes.insert(node_id, node);
+            }
+
+            self.node_id_gen = node_id_gen;
+
             let path_len = path.segments.len();
             if let Some(new_path) = new_path {
                 let new_id = self.path_id_gen;
