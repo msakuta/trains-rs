@@ -761,6 +761,17 @@ impl TrainsApp {
                 ui.radio_value(&mut self.station_type, StationType::Loading, "Loading");
                 ui.radio_value(&mut self.station_type, StationType::Unloading, "Unloading");
             });
+            ui.label("Train schedule:");
+            for (i, sched) in self.train.schedule.iter().rev().enumerate() {
+                ui.label(&format!(
+                    "  {}{}",
+                    if i == 0 { "* " } else { "  " },
+                    self.tracks
+                        .stations
+                        .get(sched)
+                        .map_or("(None)", |st| &st.name)
+                ));
+            }
         });
         ui.group(|ui| {
             ui.label(if let Some(cursor) = &self.cursor {
