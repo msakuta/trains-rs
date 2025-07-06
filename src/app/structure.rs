@@ -217,22 +217,18 @@ impl TrainsApp {
         }
     }
 
-    pub(super) fn add_ore_mine(&mut self, pointer_pos: Vec2) {
+    pub(super) fn add_ore_mine(&mut self, pointer_pos: Vec2) -> Result<(), String> {
         let Some(pos) = self.building_structure else {
             self.building_structure = Some(pointer_pos);
-            return;
+            return Ok(());
         };
         let delta = pos - pointer_pos;
         let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
         let Some(ore_vein) = self.ore_veins.iter_mut().find(|ov| ov.pos == pos) else {
-            // Not a hard error, report and bail
-            eprintln!("ore vein expected");
-            return;
+            return Err("ore vein expected".to_string());
         };
         if ore_vein.occupied_miner.is_some() {
-            // Not a hard error, report and bail
-            eprintln!("ore vein already occupied");
-            return;
+            return Err("ore vein already occupied".to_string());
         }
         let st_id = self
             .structures
@@ -242,5 +238,6 @@ impl TrainsApp {
             ore_vein.occupied_miner = Some(st_id);
         }
         self.building_structure = None;
+        Ok(())
     }
 }

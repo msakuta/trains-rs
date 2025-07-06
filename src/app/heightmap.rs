@@ -12,7 +12,7 @@ use crate::{
         Idx, Shape, border_pixel, cell_border_interpolated, pick_bits, pick_values,
     },
     perlin_noise::Xorshift64Star,
-    structure::{BELT_MAX_SLOPE, Structure, StructureId},
+    structure::BELT_MAX_SLOPE,
     transform::PaintTransform,
     vec2::Vec2,
 };
@@ -448,20 +448,16 @@ impl std::ops::Index<(isize, isize)> for HeightMap {
 
 #[derive(Clone, Debug)]
 pub struct ContoursCache {
-    grid_step: usize,
+    // grid_step: usize,
     contours: HashMap<i32, Vec<[Pos2; 2]>>,
 }
 
 impl ContoursCache {
-    fn new(grid_step: usize) -> Self {
+    fn new() -> Self {
         Self {
-            grid_step,
+            // grid_step,
             contours: HashMap::new(),
         }
-    }
-
-    pub(super) fn grid_step(&self) -> usize {
-        self.grid_step
     }
 }
 
@@ -589,7 +585,7 @@ impl HeightMapTile {
     }
 
     pub fn cache_contours(map: &[f32], contour_grid_step: usize) -> ContoursCache {
-        let mut ret = ContoursCache::new(contour_grid_step);
+        let mut ret = ContoursCache::new();
         Self::process_contours(map, contour_grid_step, |level, points| {
             ret.contours.entry(level).or_default().push(*points);
         });

@@ -326,13 +326,19 @@ impl TrainsApp {
                             );
                         }
                     }
-                    ClickMode::AddOreMine => self.add_ore_mine(paint_transform.from_pos2(pointer)),
+                    ClickMode::AddOreMine => {
+                        if let Err(e) = self.add_ore_mine(paint_transform.from_pos2(pointer)) {
+                            self.error_msg = Some((e, 10.));
+                        }
+                    }
                     ClickMode::AddSmelter => {
                         if let Some(pos) = self.building_structure {
                             let delta = pos - paint_transform.from_pos2(pointer);
                             let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
                             self.structures
                                 .add_structure(Structure::new_smelter(pos, orient));
+                        } else {
+                            self.building_structure = Some(paint_transform.from_pos2(pointer));
                         }
                     }
                     ClickMode::AddLoader | ClickMode::AddUnloader => {
@@ -564,6 +570,15 @@ impl TrainsApp {
                         Self::render_structure(
                             paint_transform.to_pos2(pos),
                             orient,
+                            true,
+                            StructureType::Smelter,
+                            &painter,
+                            &paint_transform,
+                        );
+                    } else {
+                        Self::render_structure(
+                            pointer,
+                            0.,
                             true,
                             StructureType::Smelter,
                             &painter,
