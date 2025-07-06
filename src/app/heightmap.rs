@@ -357,7 +357,14 @@ impl HeightMap {
         self.tiles
             .get(&Self::key_from_pos(pos))
             .map_or(Vec2::zero(), |tile| {
-                Self::local_gradient(&tile.map, TILE_WITH_MARGIN_SHAPE, pos)
+                Self::local_gradient(
+                    &tile.map,
+                    TILE_WITH_MARGIN_SHAPE,
+                    &crate::vec2::Vec2::new(
+                        pos.x.rem_euclid(TILE_SIZE as f64),
+                        pos.y.rem_euclid(TILE_SIZE as f64),
+                    ),
+                )
             })
     }
 

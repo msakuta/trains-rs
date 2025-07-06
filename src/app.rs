@@ -338,8 +338,7 @@ impl TrainsApp {
                         }
                     }
                     ClickMode::ConnectBelt => {
-                        let pos = paint_transform.from_pos2(pointer);
-                        if let Err(e) = self.add_belt(pos) {
+                        if let Err(e) = self.add_belt(paint_transform.from_pos2(pointer)) {
                             self.error_msg = Some((e, 10.));
                         }
                     }

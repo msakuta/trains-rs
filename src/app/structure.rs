@@ -373,10 +373,8 @@ impl TrainsApp {
 }
 
 fn intersects_water(start_pos: Vec2, end_pos: Vec2, heightmap: &HeightMap) -> bool {
-    let interpolations = (start_pos.x - end_pos.x)
-        .abs()
-        .ceil()
-        .max((start_pos.y - end_pos.y).abs().ceil()) as usize;
+    let delta = start_pos - end_pos;
+    let interpolations = delta.x.abs().ceil().max(delta.y.abs().ceil()) as usize;
     (0..interpolations).any(|i| {
         let pos = start_pos.lerp(end_pos, i as f64 / interpolations as f64);
         heightmap.is_water(&pos)
@@ -385,10 +383,8 @@ fn intersects_water(start_pos: Vec2, end_pos: Vec2, heightmap: &HeightMap) -> bo
 
 /// Checks if the line segment between start_pos and end_pos has a point that exceeds maximum slope.
 fn exceeds_slope(start_pos: Vec2, end_pos: Vec2, heightmap: &HeightMap) -> bool {
-    let interpolations = (start_pos.x - end_pos.x)
-        .abs()
-        .ceil()
-        .max((start_pos.y - end_pos.y).abs().ceil()) as usize;
+    let delta = start_pos - end_pos;
+    let interpolations = delta.x.abs().ceil().max(delta.y.abs().ceil()) as usize;
     (0..interpolations).any(|i| {
         let pos = start_pos.lerp(end_pos, i as f64 / interpolations as f64);
         BELT_MAX_SLOPE.powi(2) < heightmap.gradient(&pos).length2()
