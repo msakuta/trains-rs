@@ -12,9 +12,29 @@ Install Rust.
 
 Run `cargo r`
 
+
+## Controls
+
+You can control the train directly with WASD keys:
+
+* W - forward acceleration
+* D - reverse acceleration
+* A - Switch direction of track left
+* D - Switch direction of track right
+
+Currently we have only one train, but we may add multiple trains in the future, in which case we need to specify which train to control.
+
+The train can also be operated autonomously if you select a station and schedule it.
+
 ## Terrain generation and noise expression
 
-We use a concept called noise expression to generate terrain procedurally.
+In this game, the terrain is procedurally generated and has infinite size (unless it is limited by the parameter). You can zoom out to see the scale of it, but you will eventually run out of memory.
+
+![](images/screenshot01.jpg)
+
+We want to generate _interesting_ terrain, which has a lot of water to block train tracks and conveyor belts in order to introduce logistic challenges, but the land should be connected as much as possible. A plain Perlin noise would not work that way.
+
+Therefore, we use a concept called noise expression to generate terrain procedurally.
 A noise expression is kind of a mini-programming language that has very limited features but designed to be concise
 to describe a noise function.
 It is an idea stolen from Factorio.
