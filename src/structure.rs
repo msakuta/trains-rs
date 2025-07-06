@@ -303,10 +303,16 @@ impl Structures {
         (BeltConnection::Pos, pos)
     }
 
+    pub fn find_by_id(&self, id: StructureId) -> Option<&Structure> {
+        self.structures
+            .iter()
+            .find_map(|(scan_id, st)| if *scan_id == id { Some(st) } else { None })
+    }
+
     pub fn add_structure(&mut self, st: Structure) -> StructureId {
         let ret = self.structure_id_gen;
-        self.structures.insert(self.belt_id_gen, st);
-        self.belt_id_gen += 1;
+        self.structures.insert(self.structure_id_gen, st);
+        self.structure_id_gen += 1;
         ret
     }
 

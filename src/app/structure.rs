@@ -2,6 +2,7 @@ use eframe::{
     egui::{self, Color32, Painter, Pos2, Rect, pos2, vec2},
     epaint::PathShape,
 };
+use ordered_float::NotNan;
 
 use crate::{
     structure::{
@@ -16,6 +17,8 @@ use super::TrainsApp;
 
 pub(super) const STRUCTURE_ICON_SIZE: f32 = 10.;
 const SELECT_THRESHOLD: f64 = 10.;
+/// The distance to determine if the mouse cursor is close enough to an ore vein
+const ORE_MINE_DISTANCE_THRESHOLD: f64 = 30.;
 
 impl TrainsApp {
     pub(super) fn render_structures(&self, painter: &Painter, paint_transform: &PaintTransform) {
@@ -227,17 +230,50 @@ impl TrainsApp {
         let Some(ore_vein) = self.ore_veins.iter_mut().find(|ov| ov.pos == pos) else {
             return Err("ore vein expected".to_string());
         };
-        if ore_vein.occupied_miner.is_some() {
+        if ore_vein
+            .occupied_miner
+            .is_some_and(|id| self.structures.find_by_id(dbg!(id)).is_some())
+        {
             return Err("ore vein already occupied".to_string());
         }
         let st_id = self
             .structures
             .add_structure(Structure::new_ore_mine(pos, orient));
         ore_vein.occupied_miner = Some(st_id);
-        if let Some(ore_vein) = self.ore_veins.iter_mut().find(|ov| ov.pos == pos) {
-            ore_vein.occupied_miner = Some(st_id);
-        }
         self.building_structure = None;
         Ok(())
+    }
+
+    pub(super) fn preview_ore_mine(
+        &mut self,
+        pointer: Pos2,
+        painter: &Painter,
+        paint_transform: &PaintTransform,
+    ) {
+        let pos = paint_transform.from_pos2(pointer);
+        let scan_range2 =
+            NotNan::new((ORE_MINE_DISTANCE_THRESHOLD / paint_transform.scale() as f64).powi(2))
+                .unwrap();
+        if let Some((ore_vein, _)) = self
+            .ore_veins
+            .iter()
+            .map(|ov| (ov, NotNan::new((ov.pos - pos).length2()).unwrap()))
+            .filter(|(_, dist2)| *dist2 < scan_range2)
+            .min_by_key(|(_, dist2)| *dist2)
+        {
+            let delta = ore_vein.pos - paint_transform.from_pos2(pointer);
+            let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
+            Self::render_structure(
+                paint_transform.to_pos2(ore_vein.pos),
+                orient,
+                true,
+                StructureType::OreMine,
+                &painter,
+                &paint_transform,
+            );
+            self.building_structure = Some(ore_vein.pos);
+        } else {
+            self.building_structure = None;
+        }
     }
 }

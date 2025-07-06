@@ -8,7 +8,6 @@ use eframe::{
     egui::{self, Align2, Color32, FontId, Frame, Painter, Rect, Ui, vec2},
     epaint::PathShape,
 };
-use ordered_float::NotNan;
 
 pub(crate) use self::heightmap::HeightMap;
 use self::{
@@ -538,28 +537,7 @@ impl TrainsApp {
             }
             ClickMode::AddOreMine => {
                 if let Some(pointer) = response.hover_pos() {
-                    let pos = paint_transform.from_pos2(pointer);
-                    let scan_range2 =
-                        NotNan::new((30. / paint_transform.scale() as f64).powi(2)).unwrap();
-                    if let Some((ore_vein, _)) = self
-                        .ore_veins
-                        .iter()
-                        .map(|ov| (ov, NotNan::new((ov.pos - pos).length2()).unwrap()))
-                        .filter(|(_, dist2)| *dist2 < scan_range2)
-                        .min_by_key(|(_, dist2)| *dist2)
-                    {
-                        let delta = ore_vein.pos - paint_transform.from_pos2(pointer);
-                        let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
-                        Self::render_structure(
-                            paint_transform.to_pos2(ore_vein.pos),
-                            orient,
-                            true,
-                            StructureType::OreMine,
-                            &painter,
-                            &paint_transform,
-                        );
-                        self.building_structure = Some(ore_vein.pos)
-                    }
+                    self.preview_ore_mine(pointer, &painter, &paint_transform);
                 }
             }
             ClickMode::AddSmelter => {
