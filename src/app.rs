@@ -96,12 +96,15 @@ impl TrainsApp {
                     .or_else(|_| HeightMap::new(&HeightMapParams::new()))
                     .unwrap();
 
+                let mut structures = Structures::new(HashMap::new());
+                structures.add_structure(Structure::new_sink(Vec2::new(0., 0.), 0.));
+
                 (
                     Train::new(),
                     TrainTracks::new(),
                     heightmap_params,
                     heightmap,
-                    Structures::new(HashMap::new()),
+                    structures,
                     0,
                 )
             });
