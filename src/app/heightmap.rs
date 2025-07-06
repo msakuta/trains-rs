@@ -329,25 +329,26 @@ impl HeightMap {
                     // Outside of world
                     [255, 255, 255]
                 } else if is_water {
-                    let water_depth = (water_level - p) / (water_level - min_p);
+                    let water_depth = water_level - p;
                     let inten = 1. / (1. + 0.5 * water_depth);
                     [0, (95. * inten) as u8, (191. * inten) as u8]
                 } else {
-                    let above_water = (p - water_level) / (max_p - water_level);
-                    let white = above_water.powi(4) as f64;
+                    let above_water = p - water_level;
+                    let white = 1. - (-above_water * 0.5).exp() as f64;
                     let grad = Self::local_gradient(map, TILE_WITH_MARGIN_SHAPE, &Vec2::new(x, y))
                         / HEIGHTMAP_LEVEL_SCALE.powi(key.level as i32);
                     let slope = grad.length();
                     let dot = (grad.x - grad.y) * 10.;
                     let diffuse = (dot + 1.) / 2.5;
-                    let greenness = (1. - white) / (1. + 1000. * grad.length2());
-                    let redness = 0.5 - greenness * 0.5;
-                    let red = ((diffuse * (1. + redness - 0.5 * greenness as f64) + 0.2)
-                        .clamp(0., 1.)
-                        * 255.) as u8;
-                    let blue = ((diffuse * (1. - 0.5 * greenness as f64) + 0.2).clamp(0., 1.)
-                        * 255.) as u8;
-                    let green = ((diffuse + 0.2).clamp(0., 1.) * 255.) as u8;
+                    let greenness = 1. / (1. + 1000. * grad.length2());
+                    let redness = 1.5 - greenness;
+                    let blueness = 1. - 0.5 * greenness;
+                    let greenness2 = white + (1. - white);
+                    let redness2 = white + redness * (1. - white);
+                    let blueness2 = white + blueness * (1. - white);
+                    let red = ((diffuse * redness2 + 0.2).clamp(0., 1.) * 255.) as u8;
+                    let blue = ((diffuse * blueness2 + 0.2).clamp(0., 1.) * 255.) as u8;
+                    let green = ((diffuse * greenness2 + 0.2).clamp(0., 1.) * 255.) as u8;
                     if slope_threshold.is_some_and(|threshold| threshold < slope) {
                         [red / 2 + 127, green / 2, blue / 2]
                     } else {
@@ -376,7 +377,7 @@ impl HeightMap {
         self.tiles
             .get(&Self::key_from_pos(pos))
             .map_or(Vec2::zero(), |tile| {
-                Self::local_gradient(&tile.map, TILE_SHAPE, pos)
+                Self::local_gradient(&tile.map, TILE_WITH_MARGIN_SHAPE, pos)
             })
     }
 
@@ -398,17 +399,21 @@ impl HeightMap {
         // lerp(heightmap[shape.idx(x, y + 1)], heightmap[shape.idx(x + 1, y + 1)], fx), fy)
     }
 
-    pub(crate) fn is_water(&self, pos: &crate::vec2::Vec2<f64>) -> bool {
+    pub(crate) fn get_height(&self, pos: &crate::vec2::Vec2<f64>) -> f32 {
         let [x, y] = [pos.x as isize, pos.y as isize];
         if self.params.limited_size && (x < 0 || self.shape.0 <= x || y < 0 || self.shape.1 < y) {
-            return true;
+            return 0.;
         }
         let key = Self::key_from_pos(pos);
         let ix = x.rem_euclid(TILE_SIZE_I);
         let iy = y.rem_euclid(TILE_SIZE_I);
-        self.tiles.get(&key).map_or(true, |tile| {
-            tile.map[TILE_SHAPE.idx(ix, iy)] < self.water_level
-        })
+        self.tiles
+            .get(&key)
+            .map_or(0., |tile| tile.map[TILE_WITH_MARGIN_SHAPE.idx(ix, iy)])
+    }
+
+    pub(crate) fn is_water(&self, pos: &crate::vec2::Vec2<f64>) -> bool {
+        self.get_height(pos) < self.water_level
     }
 
     pub(super) fn key_from_pos(pos: &crate::vec2::Vec2) -> HeightMapKey {

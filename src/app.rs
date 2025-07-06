@@ -881,14 +881,18 @@ impl TrainsApp {
         ui.group(|ui| {
             ui.label(if let Some(cursor) = &self.cursor {
                 format!(
-                    "Cursor: ({:.3},{:.3}) ({:?})",
+                    "Cursor: ({:.3},{:.3}) ({:?})\nheight: {:.3}\nis_water: {}",
                     cursor.x,
                     cursor.y,
-                    HeightMap::key_from_pos(cursor)
+                    HeightMap::key_from_pos(cursor),
+                    self.heightmap.get_height(cursor),
+                    self.heightmap.is_water(cursor)
                 )
             } else {
                 format!("Cursor: None")
             });
+        });
+        ui.group(|ui| {
             ui.label("Trains:");
             for (i, car) in self.train.cars.iter().enumerate() {
                 ui.label(&format!(
