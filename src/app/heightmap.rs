@@ -235,8 +235,8 @@ impl HeightMap {
         Ok(map)
     }
 
-    /// Generate structurs on a specified tile. Since the map is procedurally generated and has infinite size, we need
-    /// to delay the structures generation until
+    /// Generate ore veins on a specified tile. Since the map is procedurally generated and has infinite size, we need
+    /// to delay the ore generation until the tile is generated.
     pub(super) fn gen_ore_veins(&self, tile_pos: [i32; 2], tile: &HeightMapTile) -> Vec<Vec2> {
         let mut rng = Xorshift64Star::new(
             (tile_pos[0] as u64)

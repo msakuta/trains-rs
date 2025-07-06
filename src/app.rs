@@ -8,6 +8,7 @@ use eframe::{
     egui::{self, Align2, Color32, FontId, Frame, Painter, Rect, Ui, vec2},
     epaint::PathShape,
 };
+use ordered_float::NotNan;
 
 pub(crate) use self::heightmap::HeightMap;
 use self::{
@@ -48,6 +49,7 @@ enum ClickMode {
     BezierCurve,
     DeleteSegment,
     AddStation,
+    AddOreMine,
     AddSmelter,
     AddLoader,
     AddUnloader,
@@ -323,13 +325,16 @@ impl TrainsApp {
                             );
                         }
                     }
-                    ClickMode::AddSmelter => {
+                    ClickMode::AddOreMine | ClickMode::AddSmelter => {
                         let pos = paint_transform.from_pos2(pointer);
                         if let Some(pos) = self.building_structure {
                             let delta = pos - paint_transform.from_pos2(pointer);
                             let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
-                            self.structures
-                                .add_structure(Structure::new_smelter(pos, orient));
+                            self.structures.add_structure(match self.click_mode {
+                                ClickMode::AddOreMine => Structure::new_ore_mine(pos, orient),
+                                ClickMode::AddSmelter => Structure::new_smelter(pos, orient),
+                                _ => unreachable!(),
+                            });
                             self.building_structure = None;
                         } else {
                             self.building_structure = Some(pos);
@@ -451,7 +456,7 @@ impl TrainsApp {
             for ore_vein in &self.ore_veins {
                 painter.circle(
                     paint_transform.to_pos2(*ore_vein),
-                    10.,
+                    7.5,
                     Color32::from_rgb(127, 127, 0),
                     (2., Color32::BLACK),
                 );
@@ -527,6 +532,32 @@ impl TrainsApp {
                             self.station_type,
                         );
                         self.render_station(&painter, &paint_transform, &station, false, true);
+                    }
+                }
+            }
+            ClickMode::AddOreMine => {
+                if let Some(pointer) = response.hover_pos() {
+                    let pos = paint_transform.from_pos2(pointer);
+                    let scan_range2 =
+                        NotNan::new((30. / paint_transform.scale() as f64).powi(2)).unwrap();
+                    if let Some((ore_vein, _)) = self
+                        .ore_veins
+                        .iter()
+                        .map(|ov| (ov, NotNan::new((*ov - pos).length2()).unwrap()))
+                        .filter(|(_, dist2)| *dist2 < scan_range2)
+                        .min_by_key(|(_, dist2)| *dist2)
+                    {
+                        let delta = *ore_vein - paint_transform.from_pos2(pointer);
+                        let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
+                        Self::render_structure(
+                            paint_transform.to_pos2(*ore_vein),
+                            orient,
+                            true,
+                            StructureType::OreMine,
+                            &painter,
+                            &paint_transform,
+                        );
+                        self.building_structure = Some(*ore_vein)
                     }
                 }
             }
@@ -619,7 +650,10 @@ impl TrainsApp {
         }
 
         // Clear the state of inserting structure when the player select another mode
-        if !matches!(self.click_mode, ClickMode::AddSmelter) {
+        if !matches!(
+            self.click_mode,
+            ClickMode::AddOreMine | ClickMode::AddSmelter
+        ) {
             self.building_structure = None;
         }
 
@@ -806,6 +840,7 @@ impl TrainsApp {
             ui.radio_value(&mut self.click_mode, ClickMode::BezierCurve, "Bezier Curve");
             ui.radio_value(&mut self.click_mode, ClickMode::DeleteSegment, "Delete");
             ui.radio_value(&mut self.click_mode, ClickMode::AddStation, "Add Station");
+            ui.radio_value(&mut self.click_mode, ClickMode::AddOreMine, "Add Ore Mine");
             ui.radio_value(&mut self.click_mode, ClickMode::AddSmelter, "Add Smelter");
             ui.radio_value(&mut self.click_mode, ClickMode::AddLoader, "Add Loader");
             ui.radio_value(&mut self.click_mode, ClickMode::AddUnloader, "Add Unloader");
