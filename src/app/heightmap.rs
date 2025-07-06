@@ -45,6 +45,10 @@ const TILE_WITH_MARGIN_SIZE: usize = TILE_SIZE + 1;
 const TILE_WITH_MARGIN_SIZE_I: isize = TILE_WITH_MARGIN_SIZE as isize;
 const TILE_WITH_MARGIN_SHAPE: Shape = (TILE_WITH_MARGIN_SIZE_I, TILE_WITH_MARGIN_SIZE_I);
 
+/// How many ore veins per tile on average. The actual number of ore veins are drawn from a Poission distribution,
+/// and also may be filtered out if it is in water.
+const ORE_VEIN_DENSITY: f64 = 0.2;
+
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum NoiseType {
     White,
@@ -248,7 +252,7 @@ impl HeightMap {
                 .wrapping_add((tile_pos[1] as u64).wrapping_mul(209123))
                 .wrapping_mul(40925612),
         );
-        let num_veins = rng.nexti() % 5;
+        let num_veins = gen_poisson(&mut rng, ORE_VEIN_DENSITY);
         (0..num_veins)
             .filter_map(|_| {
                 let x = rng.next() * TILE_SIZE as f64;
@@ -730,4 +734,21 @@ fn softabs(a: f64, rounding: f64) -> f64 {
 
 fn softclamp(x: f64, max: f64) -> f64 {
     (x / max).tanh() * max
+}
+
+/// Generate a random variable with a Poisson distribution.
+/// Uses Knuth's algorithm: https://en.wikipedia.org/wiki/Poisson_distribution#Random_variate_generation
+/// It may not be the fastest algorithm, but we call it relatively infrequently.
+fn gen_poisson(rng: &mut Xorshift64Star, avg: f64) -> u32 {
+    assert!(0. < avg);
+    let l = (-avg).exp();
+    let mut k = 0;
+    let mut p = 1.;
+    loop {
+        p *= rng.next();
+        if p < l {
+            return k;
+        }
+        k += 1;
+    }
 }
