@@ -346,8 +346,9 @@ impl TrainCar {
     pub fn update_pos(&mut self, switch_path: usize, tracks: &TrainTracks) {
         // Acquire path again because it may have changed
         *self = self.update_speed(switch_path, tracks);
-        let path = &tracks.paths[&self.path_id];
-        self.s = (self.s + self.speed).clamp(0., path.s_length);
+        if let Some(path) = tracks.paths.get(&self.path_id) {
+            self.s = (self.s + self.speed).clamp(0., path.s_length);
+        }
     }
 
     fn adjust_connected_cars(&mut self, other: &mut TrainCar, _tracks: &TrainTracks) {

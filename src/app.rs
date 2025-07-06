@@ -19,7 +19,8 @@ use self::{
 use crate::{
     bg_image::BgImage,
     structure::{
-        BELT_MAX_SLOPE, BeltConnection, MAX_BELT_LENGTH, Structure, StructureType, Structures,
+        BELT_MAX_SLOPE, BeltConnection, MAX_BELT_LENGTH, Structure, StructureId, StructureType,
+        Structures,
     },
     train::Train,
     train_tracks::{SelectedPathNode, Station, StationType, TrainTracks},
@@ -76,7 +77,7 @@ pub(crate) struct TrainsApp {
     selected_station: Option<usize>,
     new_station: String,
     station_type: StationType,
-    ore_veins: Vec<Vec2>,
+    ore_veins: Vec<OreVein>,
     structures: Structures,
     credits: u32,
     error_msg: Option<(String, f64)>,
@@ -325,19 +326,39 @@ impl TrainsApp {
                             );
                         }
                     }
-                    ClickMode::AddOreMine | ClickMode::AddSmelter => {
-                        let pos = paint_transform.from_pos2(pointer);
+                    ClickMode::AddOreMine => 'out: {
                         if let Some(pos) = self.building_structure {
                             let delta = pos - paint_transform.from_pos2(pointer);
                             let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
-                            self.structures.add_structure(match self.click_mode {
-                                ClickMode::AddOreMine => Structure::new_ore_mine(pos, orient),
-                                ClickMode::AddSmelter => Structure::new_smelter(pos, orient),
-                                _ => unreachable!(),
-                            });
+                            let Some(ore_vein) = self.ore_veins.iter_mut().find(|ov| ov.pos == pos)
+                            else {
+                                eprintln!("ore vein expected");
+                                break 'out;
+                            };
+                            if ore_vein.occupied_miner.is_some() {
+                                eprintln!("ore vein already occupied");
+                                break 'out;
+                            }
+                            let st_id = self
+                                .structures
+                                .add_structure(Structure::new_ore_mine(pos, orient));
+                            ore_vein.occupied_miner = Some(st_id);
+                            if let Some(ore_vein) =
+                                self.ore_veins.iter_mut().find(|ov| ov.pos == pos)
+                            {
+                                ore_vein.occupied_miner = Some(st_id);
+                            }
                             self.building_structure = None;
                         } else {
-                            self.building_structure = Some(pos);
+                            self.building_structure = Some(paint_transform.from_pos2(pointer));
+                        }
+                    }
+                    ClickMode::AddSmelter => {
+                        if let Some(pos) = self.building_structure {
+                            let delta = pos - paint_transform.from_pos2(pointer);
+                            let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
+                            self.structures
+                                .add_structure(Structure::new_smelter(pos, orient));
                         }
                     }
                     ClickMode::AddLoader | ClickMode::AddUnloader => {
@@ -448,20 +469,20 @@ impl TrainsApp {
         //     );
         // }
 
-        self.render_track(&painter, &paint_transform);
-
-        self.render_structures(&painter, &paint_transform);
-
         if 1. < self.transform.scale() {
             for ore_vein in &self.ore_veins {
                 painter.circle(
-                    paint_transform.to_pos2(*ore_vein),
+                    paint_transform.to_pos2(ore_vein.pos),
                     7.5,
                     Color32::from_rgb(127, 127, 0),
                     (2., Color32::BLACK),
                 );
             }
         }
+
+        self.render_track(&painter, &paint_transform);
+
+        self.render_structures(&painter, &paint_transform);
 
         self.cursor = if let Some(pos) = response.hover_pos() {
             Some(paint_transform.from_pos2(pos))
@@ -543,21 +564,21 @@ impl TrainsApp {
                     if let Some((ore_vein, _)) = self
                         .ore_veins
                         .iter()
-                        .map(|ov| (ov, NotNan::new((*ov - pos).length2()).unwrap()))
+                        .map(|ov| (ov, NotNan::new((ov.pos - pos).length2()).unwrap()))
                         .filter(|(_, dist2)| *dist2 < scan_range2)
                         .min_by_key(|(_, dist2)| *dist2)
                     {
-                        let delta = *ore_vein - paint_transform.from_pos2(pointer);
+                        let delta = ore_vein.pos - paint_transform.from_pos2(pointer);
                         let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
                         Self::render_structure(
-                            paint_transform.to_pos2(*ore_vein),
+                            paint_transform.to_pos2(ore_vein.pos),
                             orient,
                             true,
                             StructureType::OreMine,
                             &painter,
                             &paint_transform,
                         );
-                        self.building_structure = Some(*ore_vein)
+                        self.building_structure = Some(ore_vein.pos)
                     }
                 }
             }
@@ -927,7 +948,14 @@ impl eframe::App for TrainsApp {
                 for pos in tiles_to_pdate {
                     if let Some(tile) = self.heightmap.tiles.get(&HeightMapKey { pos, level: 0 }) {
                         for ov in self.heightmap.gen_ore_veins(pos, &tile) {
-                            self.ore_veins.push(ov);
+                            let occupied_miner =
+                                self.structures.structures.iter().find_map(|(id, st)| {
+                                    if st.pos == ov { Some(*id) } else { None }
+                                });
+                            self.ore_veins.push(OreVein {
+                                pos: ov,
+                                occupied_miner,
+                            });
                         }
                     }
                 }
@@ -1012,4 +1040,10 @@ impl std::ops::Drop for TrainsApp {
             &map,
         );
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct OreVein {
+    pos: Vec2,
+    occupied_miner: Option<StructureId>,
 }
