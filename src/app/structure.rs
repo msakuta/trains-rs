@@ -222,6 +222,9 @@ impl TrainsApp {
 
     pub(super) fn add_ore_mine(&mut self, pointer_pos: Vec2) -> Result<(), String> {
         let Some(pos) = self.building_structure else {
+            if self.heightmap.is_water(&pointer_pos) {
+                return Err("Cannot build in water".to_string());
+            }
             self.building_structure = Some(pointer_pos);
             return Ok(());
         };

@@ -336,8 +336,11 @@ impl TrainsApp {
                             let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
                             self.structures
                                 .add_structure(Structure::new_smelter(pos, orient));
-                        } else {
+                            self.building_structure = None;
+                        } else if !self.heightmap.is_water(&paint_transform.from_pos2(pointer)) {
                             self.building_structure = Some(paint_transform.from_pos2(pointer));
+                        } else {
+                            self.error_msg = Some(("Cannot build in water".to_string(), 10.));
                         }
                     }
                     ClickMode::AddLoader | ClickMode::AddUnloader => {
