@@ -68,7 +68,7 @@ pub(crate) enum StationType {
 
 pub(crate) type StationId = usize;
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) enum TrainTask {
     #[default]
     Idle,
