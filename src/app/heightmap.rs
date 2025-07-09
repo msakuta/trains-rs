@@ -1,7 +1,7 @@
 mod noise_expr;
 mod parser;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet};
 
 use eframe::egui::{self, Color32, ColorImage, Painter, Pos2, Ui, pos2};
 use serde::{Deserialize, Serialize};
@@ -169,29 +169,57 @@ pub(crate) struct HeightMap {
     pub(super) shape: Shape,
     pub(super) water_level: f32,
     params: HeightMapParams,
-    gen_queue: VecDeque<HeightMapKey>,
+    requested: HashSet<HeightMapKey>,
+    gen_queue: std::sync::mpsc::Sender<(HeightMapKey, usize)>,
+    // We should join the handles, but we can also leave them and kill the process, since the threads only interact
+    // with memory.
+    _workers: Vec<std::thread::JoinHandle<()>>,
+    finished: std::sync::mpsc::Receiver<(HeightMapKey, HeightMapTile)>,
 }
 
 impl HeightMap {
     pub(super) fn new(params: &HeightMapParams) -> Result<Self, String> {
+        let (request_tx, request_rx) = std::sync::mpsc::channel::<(HeightMapKey, usize)>();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let params_copy = params.clone();
+        let workers = vec![std::thread::spawn(move || {
+            loop {
+                for req in request_rx.iter() {
+                    let tile =
+                        HeightMapTile::new(Self::new_map(&params_copy, &req.0).unwrap(), req.1);
+                    // let ret = key.level == 0;
+                    // ret.extend_from_slice(&self.gen_structures(key.pos, &tile));
+                    finished_tx.send((req.0, tile)).unwrap();
+                }
+            }
+        })];
         Ok(Self {
             tiles: HashMap::new(),
             shape: (params.width as isize, params.height as isize),
             water_level: params.water_level,
             params: params.clone(),
-            gen_queue: VecDeque::new(),
+            requested: HashSet::new(),
+            gen_queue: request_tx,
+            _workers: workers,
+            finished: finished_rx,
         })
     }
 
     /// Get or initialize a map at the given level.
     ///
     /// Heightmaps are lazily evaluated, so we may not have the data.
-    pub fn get_map(&mut self, key: &HeightMapKey) -> Result<Option<&HeightMapTile>, String> {
+    pub fn get_map(
+        &mut self,
+        key: &HeightMapKey,
+        contours_grid_step: usize,
+    ) -> Result<Option<&HeightMapTile>, String> {
         // We could not use entry API due to a lifetime issue.
-        if !self.tiles.contains_key(key) {
-            if !self.gen_queue.iter().any(|queued| queued == key) {
-                self.gen_queue.push_back(*key);
-            }
+        if !self.tiles.contains_key(key) && !self.requested.contains(key) {
+            let _ = self.gen_queue.send((*key, contours_grid_step));
+            self.requested.insert(*key);
+            // if !queue.iter().any(|queued| queued == key) {
+            //     queue.push_back(*key);
+            // }
         }
         Ok(self.tiles.get(&key))
     }
@@ -278,6 +306,7 @@ impl HeightMap {
         &mut self,
         key: &HeightMapKey,
         slope_threshold: Option<f64>,
+        contours_grid_step: usize,
     ) -> Result<ColorImage, String> {
         let water_level = self.water_level;
 
@@ -297,7 +326,10 @@ impl HeightMap {
             (TILE_SIZE, TILE_SIZE)
         };
 
-        let map = &self.get_map(key)?.ok_or_else(|| "Tile not ready")?.map;
+        let map = &self
+            .get_map(key, contours_grid_step)?
+            .ok_or_else(|| "Tile not ready")?
+            .map;
         let bitmap: Vec<_> = map
             .iter()
             .enumerate()
@@ -413,18 +445,29 @@ impl HeightMap {
         }
     }
 
-    pub(super) fn update(&mut self, contours_grid_step: usize) -> Result<Vec<[i32; 2]>, String> {
-        let mut ret = vec![];
+    pub(super) fn update(&mut self, _contours_grid_step: usize) -> Result<Vec<[i32; 2]>, String> {
+        // let mut ret = vec![];
         // We would like to offload the tile generation to another thread, but until we know if it works in wasm,
         // we use the main thread to do it, but progressively.
-        if let Some(key) = self.gen_queue.pop_front() {
-            let tile = HeightMapTile::new(Self::new_map(&self.params, &key)?, contours_grid_step);
-            if key.level == 0 {
-                ret.push(key.pos);
-                // ret.extend_from_slice(&self.gen_structures(key.pos, &tile));
-            }
-            self.tiles.insert(key, tile);
-        }
+        // let tiles = std::mem::take(&mut self.gen_queue)
+        //     .into_par_iter()
+        //     .map(|key| {
+        //         let tile = HeightMapTile::new(
+        //             Self::new_map(&self.params, &key).unwrap(),
+        //             contours_grid_step,
+        //         );
+        //         // let ret = key.level == 0;
+        //         // ret.extend_from_slice(&self.gen_structures(key.pos, &tile));
+        //         (key, tile)
+        //     })
+        //     .collect::<Vec<_>>();
+
+        let tiles = self.finished.try_iter().collect::<Vec<_>>();
+
+        let ret = tiles.iter().map(|(key, _)| key.pos).collect();
+
+        self.tiles.extend(tiles.into_iter());
+
         Ok(ret)
     }
 }
@@ -565,6 +608,7 @@ impl TrainsApp {
                                 } else {
                                     None
                                 },
+                                self.contour_grid_step,
                             )
                         },
                         &paint_transform,

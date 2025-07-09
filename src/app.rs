@@ -827,8 +827,8 @@ impl eframe::App for TrainsApp {
 
         // Give the heightmap object an opportunity to process queued map generations
         match self.heightmap.update(self.contour_grid_step) {
-            Ok(tiles_to_pdate) => {
-                for pos in tiles_to_pdate {
+            Ok(tiles_to_update) => {
+                for pos in tiles_to_update {
                     if let Some(tile) = self.heightmap.tiles.get(&HeightMapKey { pos, level: 0 }) {
                         for ov in self.heightmap.gen_ore_veins(pos, &tile) {
                             let occupied_miner =
