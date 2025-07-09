@@ -170,7 +170,7 @@ pub(crate) struct HeightMap {
     pub(super) water_level: f32,
     params: HeightMapParams,
     requested: HashSet<HeightMapKey>,
-    gen_queue: std::sync::mpsc::Sender<(HeightMapKey, usize)>,
+    gen_queue: std::sync::mpmc::Sender<(HeightMapKey, usize)>,
     // We should join the handles, but we can also leave them and kill the process, since the threads only interact
     // with memory.
     _workers: Vec<std::thread::JoinHandle<()>>,
@@ -179,20 +179,26 @@ pub(crate) struct HeightMap {
 
 impl HeightMap {
     pub(super) fn new(params: &HeightMapParams) -> Result<Self, String> {
-        let (request_tx, request_rx) = std::sync::mpsc::channel::<(HeightMapKey, usize)>();
+        let (request_tx, request_rx) = std::sync::mpmc::channel::<(HeightMapKey, usize)>();
         let (finished_tx, finished_rx) = std::sync::mpsc::channel();
-        let params_copy = params.clone();
-        let workers = vec![std::thread::spawn(move || {
-            loop {
-                for req in request_rx.iter() {
-                    let tile =
-                        HeightMapTile::new(Self::new_map(&params_copy, &req.0).unwrap(), req.1);
-                    // let ret = key.level == 0;
-                    // ret.extend_from_slice(&self.gen_structures(key.pos, &tile));
-                    finished_tx.send((req.0, tile)).unwrap();
-                }
-            }
-        })];
+        let workers = (0..8)
+            .map(|_| {
+                let params_copy = params.clone();
+                let request_rx_copy = request_rx.clone();
+                let finished_tx_copy = finished_tx.clone();
+                std::thread::spawn(move || {
+                    loop {
+                        for req in request_rx_copy.iter() {
+                            let tile = HeightMapTile::new(
+                                Self::new_map(&params_copy, &req.0).unwrap(),
+                                req.1,
+                            );
+                            finished_tx_copy.send((req.0, tile)).unwrap();
+                        }
+                    }
+                })
+            })
+            .collect();
         Ok(Self {
             tiles: HashMap::new(),
             shape: (params.width as isize, params.height as isize),

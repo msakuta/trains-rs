@@ -1,3 +1,4 @@
+#![feature(mpmc_channel)]
 mod app;
 mod bg_image;
 mod marching_squares;
