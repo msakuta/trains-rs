@@ -173,8 +173,7 @@ pub(crate) struct HeightMap {
     pub(super) water_level: f32,
     params: HeightMapParams,
     requested: HashSet<HeightMapKey>,
-    gen_queue: Arc<Mutex<VecDeque<(HeightMapKey, usize)>>>,
-    notify: Arc<(Mutex<u32>, Condvar)>,
+    notify: Arc<(Mutex<VecDeque<(HeightMapKey, usize)>>, Condvar)>,
     // We should join the handles, but we can also leave them and kill the process, since the threads only interact
     // with memory.
     _workers: Vec<std::thread::JoinHandle<()>>,
@@ -183,28 +182,21 @@ pub(crate) struct HeightMap {
 
 impl HeightMap {
     pub(super) fn new(params: &HeightMapParams) -> Result<Self, String> {
-        let gen_queue = Arc::new(Mutex::new(VecDeque::<(HeightMapKey, usize)>::new()));
-        let notify = Arc::new((Mutex::new(0), Condvar::new()));
+        let notify = Arc::new((Mutex::new(VecDeque::new()), Condvar::new()));
         let (finished_tx, finished_rx) = std::sync::mpsc::channel();
         let workers = (0..8)
             .map(|_| {
                 let params_copy = params.clone();
-                let gen_queue_copy = gen_queue.clone();
                 let notify_copy = notify.clone();
                 let finished_tx_copy = finished_tx.clone();
                 std::thread::spawn(move || {
                     let (lock, cvar) = &*notify_copy;
                     loop {
-                        let mut started = lock.lock().unwrap();
-                        while *started == 0 {
-                            started = cvar.wait(started).unwrap();
+                        let mut queue = lock.lock().unwrap();
+                        while queue.is_empty() {
+                            queue = cvar.wait(queue).unwrap();
                         }
 
-                        // Decrement the queue count and drop the notifier as soon as possible
-                        *started -= 1;
-                        drop(started);
-
-                        let mut queue = gen_queue_copy.lock().unwrap();
                         if let Some((key, contour_grid_step)) = queue.pop_back() {
                             // Drop the lock just before heavy lifting
                             drop(queue);
@@ -224,7 +216,6 @@ impl HeightMap {
             water_level: params.water_level,
             params: params.clone(),
             requested: HashSet::new(),
-            gen_queue,
             notify,
             _workers: workers,
             finished: finished_rx,
@@ -242,10 +233,8 @@ impl HeightMap {
         // We could not use entry API due to a lifetime issue.
         if !self.tiles.contains_key(key) && !self.requested.contains(key) {
             let (lock, cvar) = &*self.notify;
-            let mut started = lock.lock().unwrap();
-            let mut queue = self.gen_queue.lock().unwrap();
+            let mut queue = lock.lock().unwrap();
             queue.push_back((*key, contours_grid_step));
-            *started += 1;
             cvar.notify_one();
             self.requested.insert(*key);
         }
