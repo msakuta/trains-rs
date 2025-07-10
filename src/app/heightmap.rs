@@ -1,7 +1,10 @@
 mod noise_expr;
 mod parser;
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    sync::{Arc, Condvar, Mutex},
+};
 
 use eframe::egui::{self, Color32, ColorImage, Painter, Pos2, Ui, pos2};
 use serde::{Deserialize, Serialize};
@@ -170,7 +173,8 @@ pub(crate) struct HeightMap {
     pub(super) water_level: f32,
     params: HeightMapParams,
     requested: HashSet<HeightMapKey>,
-    gen_queue: std::sync::mpmc::Sender<(HeightMapKey, usize)>,
+    gen_queue: Arc<Mutex<VecDeque<(HeightMapKey, usize)>>>,
+    notify: Arc<(Mutex<u32>, Condvar)>,
     // We should join the handles, but we can also leave them and kill the process, since the threads only interact
     // with memory.
     _workers: Vec<std::thread::JoinHandle<()>>,
@@ -179,21 +183,36 @@ pub(crate) struct HeightMap {
 
 impl HeightMap {
     pub(super) fn new(params: &HeightMapParams) -> Result<Self, String> {
-        let (request_tx, request_rx) = std::sync::mpmc::channel::<(HeightMapKey, usize)>();
+        let gen_queue = Arc::new(Mutex::new(VecDeque::<(HeightMapKey, usize)>::new()));
+        let notify = Arc::new((Mutex::new(0), Condvar::new()));
         let (finished_tx, finished_rx) = std::sync::mpsc::channel();
         let workers = (0..8)
             .map(|_| {
                 let params_copy = params.clone();
-                let request_rx_copy = request_rx.clone();
+                let gen_queue_copy = gen_queue.clone();
+                let notify_copy = notify.clone();
                 let finished_tx_copy = finished_tx.clone();
                 std::thread::spawn(move || {
+                    let (lock, cvar) = &*notify_copy;
                     loop {
-                        for req in request_rx_copy.iter() {
+                        let mut started = lock.lock().unwrap();
+                        while *started == 0 {
+                            started = cvar.wait(started).unwrap();
+                        }
+
+                        // Decrement the queue count and drop the notifier as soon as possible
+                        *started -= 1;
+                        drop(started);
+
+                        let mut queue = gen_queue_copy.lock().unwrap();
+                        if let Some((key, contour_grid_step)) = queue.pop_back() {
+                            // Drop the lock just before heavy lifting
+                            drop(queue);
                             let tile = HeightMapTile::new(
-                                Self::new_map(&params_copy, &req.0).unwrap(),
-                                req.1,
+                                Self::new_map(&params_copy, &key).unwrap(),
+                                contour_grid_step,
                             );
-                            finished_tx_copy.send((req.0, tile)).unwrap();
+                            finished_tx_copy.send((key, tile)).unwrap();
                         }
                     }
                 })
@@ -205,7 +224,8 @@ impl HeightMap {
             water_level: params.water_level,
             params: params.clone(),
             requested: HashSet::new(),
-            gen_queue: request_tx,
+            gen_queue,
+            notify,
             _workers: workers,
             finished: finished_rx,
         })
@@ -221,11 +241,13 @@ impl HeightMap {
     ) -> Result<Option<&HeightMapTile>, String> {
         // We could not use entry API due to a lifetime issue.
         if !self.tiles.contains_key(key) && !self.requested.contains(key) {
-            let _ = self.gen_queue.send((*key, contours_grid_step));
+            let (lock, cvar) = &*self.notify;
+            let mut started = lock.lock().unwrap();
+            let mut queue = self.gen_queue.lock().unwrap();
+            queue.push_back((*key, contours_grid_step));
+            *started += 1;
+            cvar.notify_one();
             self.requested.insert(*key);
-            // if !queue.iter().any(|queued| queued == key) {
-            //     queue.push_back(*key);
-            // }
         }
         Ok(self.tiles.get(&key))
     }
