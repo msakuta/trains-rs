@@ -1,10 +1,8 @@
 mod noise_expr;
+mod parallel_tile_gen;
 mod parser;
 
-use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    sync::{Arc, Condvar, Mutex},
-};
+use std::collections::HashMap;
 
 use eframe::egui::{self, Color32, ColorImage, Painter, Pos2, Ui, pos2};
 use serde::{Deserialize, Serialize};
@@ -26,6 +24,9 @@ use self::{
     noise_expr::{Value, precompute, run},
     parser::parse,
 };
+
+#[cfg(not(target_arch = "wasm32"))]
+use self::parallel_tile_gen::TileGen;
 
 const DEFAULT_PERSISTENCE_OCTAVES: u32 = 3;
 
@@ -172,53 +173,17 @@ pub(crate) struct HeightMap {
     pub(super) shape: Shape,
     pub(super) water_level: f32,
     params: HeightMapParams,
-    requested: HashSet<HeightMapKey>,
-    notify: Arc<(Mutex<VecDeque<(HeightMapKey, usize)>>, Condvar)>,
-    // We should join the handles, but we can also leave them and kill the process, since the threads only interact
-    // with memory.
-    _workers: Vec<std::thread::JoinHandle<()>>,
-    finished: std::sync::mpsc::Receiver<(HeightMapKey, HeightMapTile)>,
+    tile_gen: TileGen,
 }
 
 impl HeightMap {
     pub(super) fn new(params: &HeightMapParams) -> Result<Self, String> {
-        let notify = Arc::new((Mutex::new(VecDeque::new()), Condvar::new()));
-        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
-        let workers = (0..8)
-            .map(|_| {
-                let params_copy = params.clone();
-                let notify_copy = notify.clone();
-                let finished_tx_copy = finished_tx.clone();
-                std::thread::spawn(move || {
-                    let (lock, cvar) = &*notify_copy;
-                    loop {
-                        let mut queue = lock.lock().unwrap();
-                        while queue.is_empty() {
-                            queue = cvar.wait(queue).unwrap();
-                        }
-
-                        if let Some((key, contour_grid_step)) = queue.pop_back() {
-                            // Drop the lock just before heavy lifting
-                            drop(queue);
-                            let tile = HeightMapTile::new(
-                                Self::new_map(&params_copy, &key).unwrap(),
-                                contour_grid_step,
-                            );
-                            finished_tx_copy.send((key, tile)).unwrap();
-                        }
-                    }
-                })
-            })
-            .collect();
         Ok(Self {
             tiles: HashMap::new(),
             shape: (params.width as isize, params.height as isize),
             water_level: params.water_level,
             params: params.clone(),
-            requested: HashSet::new(),
-            notify,
-            _workers: workers,
-            finished: finished_rx,
+            tile_gen: TileGen::new(params),
         })
     }
 
@@ -230,13 +195,8 @@ impl HeightMap {
         key: &HeightMapKey,
         contours_grid_step: usize,
     ) -> Result<Option<&HeightMapTile>, String> {
-        // We could not use entry API due to a lifetime issue.
-        if !self.tiles.contains_key(key) && !self.requested.contains(key) {
-            let (lock, cvar) = &*self.notify;
-            let mut queue = lock.lock().unwrap();
-            queue.push_back((*key, contours_grid_step));
-            cvar.notify_one();
-            self.requested.insert(*key);
+        if !self.tiles.contains_key(key) {
+            self.tile_gen.request_tile(key, contours_grid_step);
         }
         Ok(self.tiles.get(&key))
     }
@@ -463,24 +423,7 @@ impl HeightMap {
     }
 
     pub(super) fn update(&mut self, _contours_grid_step: usize) -> Result<Vec<[i32; 2]>, String> {
-        // let mut ret = vec![];
-        // We would like to offload the tile generation to another thread, but until we know if it works in wasm,
-        // we use the main thread to do it, but progressively.
-        // let tiles = std::mem::take(&mut self.gen_queue)
-        //     .into_par_iter()
-        //     .map(|key| {
-        //         let tile = HeightMapTile::new(
-        //             Self::new_map(&self.params, &key).unwrap(),
-        //             contours_grid_step,
-        //         );
-        //         // let ret = key.level == 0;
-        //         // ret.extend_from_slice(&self.gen_structures(key.pos, &tile));
-        //         (key, tile)
-        //     })
-        //     .collect::<Vec<_>>();
-
-        let tiles = self.finished.try_iter().collect::<Vec<_>>();
-
+        let tiles = self.tile_gen.update()?;
         let ret = tiles.iter().map(|(key, _)| key.pos).collect();
 
         self.tiles.extend(tiles.into_iter());
