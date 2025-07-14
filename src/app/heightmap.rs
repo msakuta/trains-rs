@@ -1,7 +1,9 @@
 mod noise_expr;
+mod parallel_tile_gen;
 mod parser;
+mod progressive_tile_gen;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 use eframe::egui::{self, Color32, ColorImage, Painter, Pos2, Ui, pos2};
 use serde::{Deserialize, Serialize};
@@ -23,6 +25,12 @@ use self::{
     noise_expr::{Value, precompute, run},
     parser::parse,
 };
+
+#[cfg(not(target_arch = "wasm32"))]
+use self::parallel_tile_gen::TileGen;
+
+#[cfg(target_arch = "wasm32")]
+use self::progressive_tile_gen::TileGen;
 
 const DEFAULT_PERSISTENCE_OCTAVES: u32 = 3;
 
@@ -169,7 +177,7 @@ pub(crate) struct HeightMap {
     pub(super) shape: Shape,
     pub(super) water_level: f32,
     params: HeightMapParams,
-    gen_queue: VecDeque<HeightMapKey>,
+    tile_gen: TileGen,
 }
 
 impl HeightMap {
@@ -179,19 +187,20 @@ impl HeightMap {
             shape: (params.width as isize, params.height as isize),
             water_level: params.water_level,
             params: params.clone(),
-            gen_queue: VecDeque::new(),
+            tile_gen: TileGen::new(params),
         })
     }
 
     /// Get or initialize a map at the given level.
     ///
     /// Heightmaps are lazily evaluated, so we may not have the data.
-    pub fn get_map(&mut self, key: &HeightMapKey) -> Result<Option<&HeightMapTile>, String> {
-        // We could not use entry API due to a lifetime issue.
+    pub fn get_map(
+        &mut self,
+        key: &HeightMapKey,
+        contours_grid_step: usize,
+    ) -> Result<Option<&HeightMapTile>, String> {
         if !self.tiles.contains_key(key) {
-            if !self.gen_queue.iter().any(|queued| queued == key) {
-                self.gen_queue.push_back(*key);
-            }
+            self.tile_gen.request_tile(key, contours_grid_step);
         }
         Ok(self.tiles.get(&key))
     }
@@ -278,6 +287,7 @@ impl HeightMap {
         &mut self,
         key: &HeightMapKey,
         slope_threshold: Option<f64>,
+        contours_grid_step: usize,
     ) -> Result<ColorImage, String> {
         let water_level = self.water_level;
 
@@ -297,7 +307,10 @@ impl HeightMap {
             (TILE_SIZE, TILE_SIZE)
         };
 
-        let map = &self.get_map(key)?.ok_or_else(|| "Tile not ready")?.map;
+        let map = &self
+            .get_map(key, contours_grid_step)?
+            .ok_or_else(|| "Tile not ready")?
+            .map;
         let bitmap: Vec<_> = map
             .iter()
             .enumerate()
@@ -413,18 +426,12 @@ impl HeightMap {
         }
     }
 
-    pub(super) fn update(&mut self, contours_grid_step: usize) -> Result<Vec<[i32; 2]>, String> {
-        let mut ret = vec![];
-        // We would like to offload the tile generation to another thread, but until we know if it works in wasm,
-        // we use the main thread to do it, but progressively.
-        if let Some(key) = self.gen_queue.pop_front() {
-            let tile = HeightMapTile::new(Self::new_map(&self.params, &key)?, contours_grid_step);
-            if key.level == 0 {
-                ret.push(key.pos);
-                // ret.extend_from_slice(&self.gen_structures(key.pos, &tile));
-            }
-            self.tiles.insert(key, tile);
-        }
+    pub(super) fn update(&mut self, _contours_grid_step: usize) -> Result<Vec<[i32; 2]>, String> {
+        let tiles = self.tile_gen.update()?;
+        let ret = tiles.iter().map(|(key, _)| key.pos).collect();
+
+        self.tiles.extend(tiles.into_iter());
+
         Ok(ret)
     }
 }
@@ -565,6 +572,7 @@ impl TrainsApp {
                                 } else {
                                     None
                                 },
+                                self.contour_grid_step,
                             )
                         },
                         &paint_transform,
