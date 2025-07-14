@@ -6,10 +6,10 @@ use serde::{Deserialize, Serialize};
 use crate::{
     app::HeightMap,
     path_utils::{interpolate_path, interpolate_path_heading, interpolate_path_tangent},
-    structure::Item,
+    structure::{INGOT_CAPACITY, Item, ORE_MINE_CAPACITY, StructureType, Structures},
     train_tracks::{
-        ConnectPoint, PathBundle, PathConnection, Paths, SegmentDirection, StationId, StationType,
-        TrainTask, TrainTracks,
+        ConnectPoint, PathBundle, PathConnection, Paths, SegmentDirection, StationId, TrainTask,
+        TrainTracks,
     },
     vec2::Vec2,
 };
@@ -65,26 +65,59 @@ impl Train {
         }
     }
 
-    fn autonomous_logic(&mut self, tracks: &TrainTracks, brake: &mut bool) {
+    fn autonomous_logic(
+        &mut self,
+        tracks: &TrainTracks,
+        brake: &mut bool,
+        structures: &mut Structures,
+    ) {
         if let TrainTask::Wait(timer, station) = &mut self.train_task {
             let mut wait_finished = true;
-            if let Some(station) = tracks.stations.get(station) {
-                match station.ty {
-                    StationType::Loading => {
-                        for car in &mut self.cars {
-                            if matches!(car.ty, CarType::Freight) {
-                                if car.iron < CAR_CAPACITY {
-                                    wait_finished = false;
-                                }
+            // Station itself does not have information on which loader or unloader connects the cars.
+            if let Some(_station) = tracks.stations.get(station) {
+                for (car_idx, car) in self.cars.iter_mut().enumerate() {
+                    // Find matching loader structure
+                    if let Some((_, loader)) = structures
+                        .structures
+                        .iter_mut()
+                        .find(|(_, st)| matches!(st.ty, StructureType::Loader))
+                    {
+                        if loader
+                            .connected_station
+                            .is_some_and(|(_, st_idx)| st_idx == car_idx)
+                            && matches!(car.ty, CarType::Freight)
+                        {
+                            if car.iron < CAR_CAPACITY && 0 < loader.iron {
+                                car.iron += 1;
+                                loader.iron -= 1;
+                                wait_finished = false;
+                            } else if car.ingot < CAR_CAPACITY && 0 < loader.iron {
+                                car.ingot += 1;
+                                loader.ingot -= 1;
+                                wait_finished = false;
                             }
                         }
                     }
-                    StationType::Unloading => {
-                        for car in &mut self.cars {
-                            if matches!(car.ty, CarType::Freight) {
-                                if 0 < car.iron {
-                                    wait_finished = false;
-                                }
+
+                    // Find matching unloader structure
+                    if let Some((_, unloader)) = structures
+                        .structures
+                        .iter_mut()
+                        .find(|(_, st)| matches!(st.ty, StructureType::Unloader))
+                    {
+                        if unloader
+                            .connected_station
+                            .is_some_and(|(_, st_idx)| st_idx == car_idx)
+                            && matches!(car.ty, CarType::Freight)
+                        {
+                            if 0 < car.iron && unloader.iron < ORE_MINE_CAPACITY {
+                                car.iron -= 1;
+                                unloader.iron += 1;
+                                wait_finished = false;
+                            } else if 0 < car.ingot && unloader.ingot < INGOT_CAPACITY {
+                                car.ingot -= 1;
+                                unloader.ingot += 1;
+                                wait_finished = false;
                             }
                         }
                     }
@@ -119,10 +152,16 @@ impl Train {
         }
     }
 
-    pub fn update(&mut self, thrust: f64, heightmap: &HeightMap, tracks: &TrainTracks) {
+    pub fn update(
+        &mut self,
+        thrust: f64,
+        heightmap: &HeightMap,
+        tracks: &TrainTracks,
+        structures: &mut Structures,
+    ) {
         let mut brake = false;
         if self.auto_drive {
-            self.autonomous_logic(tracks, &mut brake);
+            self.autonomous_logic(tracks, &mut brake, structures);
         }
 
         // Acceleration from terrain slope

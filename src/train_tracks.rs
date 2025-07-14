@@ -45,25 +45,16 @@ pub(crate) struct Station {
     pub name: String,
     pub path_id: usize,
     pub s: f64,
-    pub ty: StationType,
 }
 
 impl Station {
-    pub fn new(name: impl Into<String>, path_id: usize, s: f64, ty: StationType) -> Self {
+    pub fn new(name: impl Into<String>, path_id: usize, s: f64) -> Self {
         Self {
             name: name.into(),
             path_id,
             s,
-            ty,
         }
     }
-}
-
-/// This could be a part of TrainTask instead.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) enum StationType {
-    Loading,
-    Unloading,
 }
 
 pub(crate) type StationId = usize;
@@ -175,13 +166,10 @@ impl TrainTracks {
             node_id_gen: 1,
             ghost_path: None,
             station_id_gen: 2,
-            stations: [
-                Station::new("Start", 0, 10., StationType::Loading),
-                Station::new("Goal", 0, 30., StationType::Unloading),
-            ]
-            .into_iter()
-            .enumerate()
-            .collect(),
+            stations: [Station::new("Start", 0, 10.), Station::new("Goal", 0, 30.)]
+                .into_iter()
+                .enumerate()
+                .collect(),
         }
     }
 
@@ -189,19 +177,13 @@ impl TrainTracks {
         interpolate_path(&self.paths.get(&path_id)?.track, s)
     }
 
-    pub fn add_station(
-        &mut self,
-        name: impl Into<String>,
-        pos: Vec2<f64>,
-        thresh: f64,
-        ty: StationType,
-    ) {
+    pub fn add_station(&mut self, name: impl Into<String>, pos: Vec2<f64>, thresh: f64) {
         let Some((path_id, _seg_id, node_id)) = self.find_path_node(pos, thresh) else {
             return;
         };
         self.stations.insert(
             self.station_id_gen,
-            Station::new(name, path_id, node_id as f64, ty),
+            Station::new(name, path_id, node_id as f64),
         );
         self.station_id_gen += 1;
     }

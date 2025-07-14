@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashSet, VecDeque},
-    sync::{Arc, Condvar, Mutex},
-};
+use std::collections::{HashSet, VecDeque};
 
 use super::{HeightMap, HeightMapKey, HeightMapParams, HeightMapTile};
 
