@@ -69,22 +69,6 @@ impl TileGen {
     }
 
     pub fn update(&mut self) -> Result<Vec<(HeightMapKey, HeightMapTile)>, String> {
-        // let mut ret = vec![];
-        // We would like to offload the tile generation to another thread, but until we know if it works in wasm,
-        // we use the main thread to do it, but progressively.
-        // let tiles = std::mem::take(&mut self.gen_queue)
-        //     .into_par_iter()
-        //     .map(|key| {
-        //         let tile = HeightMapTile::new(
-        //             Self::new_map(&self.params, &key).unwrap(),
-        //             contours_grid_step,
-        //         );
-        //         // let ret = key.level == 0;
-        //         // ret.extend_from_slice(&self.gen_structures(key.pos, &tile));
-        //         (key, tile)
-        //     })
-        //     .collect::<Vec<_>>();
-
         let tiles = self.finished.try_iter().collect::<Vec<_>>();
 
         Ok(tiles)

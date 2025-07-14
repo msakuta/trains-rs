@@ -2,10 +2,8 @@ use std::collections::{HashSet, VecDeque};
 
 use super::{HeightMap, HeightMapKey, HeightMapParams, HeightMapTile};
 
-/// The tile generator that can run tasks in parallel threads.
-/// It is very high performance but does not work in Wasm.
-/// (Maybe there is a way to use it on Wasm with SharedMemoryBuffer,
-/// but it seems tooling and browser situations are not)
+/// The tile generator that cannot run tasks in parallel threads.
+/// It has very low performance but works in Wasm.
 pub(super) struct TileGen {
     params: HeightMapParams,
     requested: HashSet<HeightMapKey>,
@@ -31,10 +29,11 @@ impl TileGen {
 
     pub fn update(&mut self) -> Result<Vec<(HeightMapKey, HeightMapTile)>, String> {
         let mut ret = vec![];
-        // We would like to offload the tile generation to another thread, but until we know if it works in wasm,
-        // we use the main thread to do it, but progressively.
+        // We use the main thread but proceed with tile generation one at a time, in order to avoid blocking the main
+        // thread for too long. However, it can be too conservative and the progress may be slower than necessary, or
+        // vice versa. The optimal amount of progress per frame should be determined by the platform parallelism, which
+        // is what parallel_tile_gen does.
         if let Some((key, contour_grid_step)) = self.gen_queue.pop_back() {
-            // Drop the lock just before heavy lifting
             ret.push((
                 key,
                 HeightMapTile::new(
