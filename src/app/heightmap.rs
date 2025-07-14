@@ -1,6 +1,7 @@
 mod noise_expr;
 mod parallel_tile_gen;
 mod parser;
+mod progressive_tile_gen;
 
 use std::collections::HashMap;
 
@@ -27,6 +28,9 @@ use self::{
 
 #[cfg(not(target_arch = "wasm32"))]
 use self::parallel_tile_gen::TileGen;
+
+#[cfg(target_arch = "wasm32")]
+use self::progressive_tile_gen::TileGen;
 
 const DEFAULT_PERSISTENCE_OCTAVES: u32 = 3;
 
