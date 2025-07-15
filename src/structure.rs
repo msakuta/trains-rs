@@ -131,7 +131,7 @@ impl Structure {
                 if self.cooldown == 0 && 0 < self.ingot {
                     self.ingot -= 1;
                     *score += 1;
-                    self.cooldown = ORE_MINE_FREQUENCY;
+                    self.cooldown = 1;
                 } else {
                     self.cooldown = self.cooldown.saturating_sub(1);
                 }
@@ -149,10 +149,13 @@ impl Structure {
             }
             StructureType::Unloader => {
                 if let Some((station, car_idx)) = self.connected_station {
+                    // Attempt to unload both item types.
+                    // TODO: avoid heap allocations
                     if self.iron < ORE_MINE_CAPACITY {
                         ret.remove_items
                             .push((EntityId::Station(station, car_idx), Item::IronOre));
-                    } else if self.ingot < INGOT_CAPACITY {
+                    }
+                    if self.ingot < INGOT_CAPACITY {
                         ret.remove_items
                             .push((EntityId::Station(station, car_idx), Item::Ingot));
                     }
@@ -367,12 +370,8 @@ impl Structures {
                     }
                     EntityId::Station(st_id, car_idx) => {
                         if let TrainTask::Wait(_, wait_station) = train.train_task {
-                            if wait_station == st_id {
-                                if let Some(car) = train.cars.get_mut(car_idx) {
-                                    if car.try_insert(item) {
-                                        record_moved(item, 1);
-                                    }
-                                }
+                            if wait_station == st_id && train.try_insert(car_idx, item) {
+                                record_moved(item, 1);
                             }
                         }
                     }
@@ -397,12 +396,8 @@ impl Structures {
                     }
                     EntityId::Station(station_id, car_idx) => {
                         if let TrainTask::Wait(_, wait_station) = train.train_task {
-                            if wait_station == station_id {
-                                if let Some(car) = train.cars.get_mut(car_idx) {
-                                    if car.remove_item(item) {
-                                        record_moved(item, -1);
-                                    }
-                                }
+                            if wait_station == station_id && train.try_remove(car_idx, item) {
+                                record_moved(item, -1);
                             }
                         }
                     }

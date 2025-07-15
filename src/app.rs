@@ -873,8 +873,7 @@ impl eframe::App for TrainsApp {
             }
         });
 
-        self.train
-            .update(thrust, &self.heightmap, &self.tracks, &mut self.structures);
+        self.train.update(thrust, &self.heightmap, &self.tracks);
 
         self.structures.update(&mut self.credits, &mut self.train);
     }
