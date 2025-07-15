@@ -15,7 +15,7 @@ const ORE_MINE_FREQUENCY: usize = 120;
 pub(crate) const INGOT_CAPACITY: u32 = 20;
 pub(crate) const MAX_BELT_LENGTH: f64 = 20.;
 pub(crate) const ITEM_INTERVAL: f64 = 1.0;
-const BELT_SPEED: f64 = 0.05; // length per tick
+pub(crate) const BELT_SPEED: f64 = 0.05; // length per tick
 pub(crate) const BELT_MAX_SLOPE: f64 = 0.1;
 
 pub(crate) type StructureId = usize;

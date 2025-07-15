@@ -72,6 +72,7 @@ pub(crate) struct TrainsApp {
     ore_veins: Vec<OreVein>,
     structures: Structures,
     credits: u32,
+    time: u32,
     error_msg: Option<(String, f64)>,
 }
 
@@ -123,6 +124,7 @@ impl TrainsApp {
             ore_veins: vec![],
             structures,
             credits,
+            time: 0,
             error_msg: None,
         }
     }
@@ -841,6 +843,8 @@ impl eframe::App for TrainsApp {
                 self.error_msg = None;
             }
         }
+
+        self.time += 1;
 
         eframe::egui::SidePanel::right("side_panel")
             .min_width(200.)

@@ -6,8 +6,8 @@ use ordered_float::NotNan;
 
 use crate::{
     structure::{
-        BELT_MAX_SLOPE, BeltConnection, INGOT_CAPACITY, ITEM_INTERVAL, Item, MAX_BELT_LENGTH,
-        ORE_MINE_CAPACITY, Structure, StructureOrBelt, StructureType,
+        BELT_MAX_SLOPE, BELT_SPEED, BeltConnection, INGOT_CAPACITY, ITEM_INTERVAL, Item,
+        MAX_BELT_LENGTH, ORE_MINE_CAPACITY, Structure, StructureOrBelt, StructureType,
     },
     transform::PaintTransform,
     vec2::Vec2,
@@ -80,7 +80,43 @@ impl TrainsApp {
         for belt in self.structures.belts.values() {
             let start = paint_transform.to_pos2(belt.start);
             let end = paint_transform.to_pos2(belt.end);
-            painter.arrow(start, end - start, (2., Color32::BLUE));
+
+            if scale < 2. {
+                painter.arrow(start, end - start, (2., Color32::BLUE));
+            } else {
+                let delta = belt.end - belt.start;
+                let length = delta.length();
+                let tangent = delta / length;
+                let normal = tangent.left90();
+                let width = 0.5;
+                let stroke_color = Color32::from_rgb(0, 63, 127);
+                painter.add(PathShape::convex_polygon(
+                    [
+                        belt.start + normal * width,
+                        belt.end + normal * width,
+                        belt.end - normal * width,
+                        belt.start - normal * width,
+                    ]
+                    .into_iter()
+                    .map(|p| paint_transform.to_pos2(p))
+                    .collect(),
+                    Color32::from_rgb(0, 127, 255),
+                    (1., stroke_color),
+                ));
+
+                let interval = 3.;
+                for t in 0..(length / interval).ceil() as u32 {
+                    let s = interval * t as f64 + (self.time as f64 * BELT_SPEED) % interval;
+                    if length < s {
+                        break;
+                    }
+                    let pos = belt.start + tangent * s;
+                    let center = paint_transform.to_pos2(pos);
+                    let left = paint_transform.to_pos2(pos + normal * width - tangent * 0.5);
+                    let right = paint_transform.to_pos2(pos - normal * width - tangent * 0.5);
+                    painter.line(vec![left, center, right], (1., stroke_color));
+                }
+            }
 
             // Render items only when they are likely more than 1 pixels
             if ITEM_INTERVAL < scale as f64 {
