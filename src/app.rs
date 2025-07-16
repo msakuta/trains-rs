@@ -48,6 +48,7 @@ enum ClickMode {
     AddLoader,
     AddUnloader,
     AddSplitter,
+    AddMerger,
     ConnectBelt,
     DeleteStructure,
 }
@@ -330,19 +331,26 @@ impl TrainsApp {
                                         pos,
                                         orient + std::f64::consts::PI,
                                         st_id,
-                                        1,
+                                        car_idx,
                                     )
                                 },
                             );
                             self.building_structure = None;
                         }
                     }
-                    ClickMode::AddSplitter => {
+                    ClickMode::AddSplitter | ClickMode::AddMerger => {
                         if let Some(pos) = self.building_structure {
                             let delta = pos - paint_transform.from_pos2(pointer);
                             let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
-                            self.structures
-                                .add_structure(Structure::new_splitter(pos, orient));
+                            self.structures.add_structure(Structure::new_structure(
+                                match self.click_mode {
+                                    ClickMode::AddSplitter => StructureType::Splitter,
+                                    ClickMode::AddMerger => StructureType::Merger,
+                                    _ => unreachable!(),
+                                },
+                                pos,
+                                orient,
+                            ));
                             self.building_structure = None;
                         } else if !self.heightmap.is_water(&paint_transform.from_pos2(pointer)) {
                             self.building_structure = Some(paint_transform.from_pos2(pointer));
@@ -470,11 +478,12 @@ impl TrainsApp {
                     self.preview_ore_mine(pointer, &painter, &paint_transform);
                 }
             }
-            ClickMode::AddSmelter | ClickMode::AddSplitter => {
+            ClickMode::AddSmelter | ClickMode::AddSplitter | ClickMode::AddMerger => {
                 if let Some(pointer) = response.hover_pos() {
                     let ty = match self.click_mode {
                         ClickMode::AddSmelter => StructureType::Smelter,
                         ClickMode::AddSplitter => StructureType::Splitter,
+                        ClickMode::AddMerger => StructureType::Merger,
                         _ => unreachable!(),
                     };
                     if let Some(pos) = self.building_structure {
@@ -529,7 +538,10 @@ impl TrainsApp {
         // Clear the state of inserting structure when the player select another mode
         if !matches!(
             self.click_mode,
-            ClickMode::AddOreMine | ClickMode::AddSmelter | ClickMode::AddSplitter
+            ClickMode::AddOreMine
+                | ClickMode::AddSmelter
+                | ClickMode::AddSplitter
+                | ClickMode::AddMerger
         ) {
             self.building_structure = None;
         }
@@ -738,6 +750,7 @@ impl TrainsApp {
             ui.radio_value(&mut self.click_mode, ClickMode::AddLoader, "Add Loader");
             ui.radio_value(&mut self.click_mode, ClickMode::AddUnloader, "Add Unloader");
             ui.radio_value(&mut self.click_mode, ClickMode::AddSplitter, "Add Splitter");
+            ui.radio_value(&mut self.click_mode, ClickMode::AddMerger, "Add Merger");
             ui.radio_value(&mut self.click_mode, ClickMode::ConnectBelt, "Connect Belt");
             ui.radio_value(
                 &mut self.click_mode,

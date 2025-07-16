@@ -168,7 +168,8 @@ impl TrainsApp {
                 StructureType::Sink => Color32::from_rgb(127, 0, 127),
                 StructureType::Loader => Color32::from_rgb(127, 127, 0),
                 StructureType::Unloader => Color32::from_rgb(0, 63, 127),
-                StructureType::Splitter => Color32::from_rgb(127, 191, 0),
+                StructureType::Splitter => Color32::from_rgb(95, 191, 0),
+                StructureType::Merger => Color32::from_rgb(191, 95, 0),
             }
         };
         let line_color = Color32::from_rgb(0, 63, 31);
@@ -209,24 +210,38 @@ impl TrainsApp {
 
             render_triangle(
                 Matrix3::from_angle_z(Rad(orient))
-                    * Matrix3::from_translation(-1.2 * Vector2::unit_y()),
+                    * Matrix3::from_translation(-1.3 * Vector2::unit_y()),
             );
 
             render_triangle(
                 Matrix3::from_angle_z(Rad(orient))
-                    * Matrix3::from_translation(1.2 * Vector2::unit_y()),
+                    * Matrix3::from_translation(1.3 * Vector2::unit_y()),
             );
 
-            if matches!(ty, StructureType::Splitter) {
-                render_triangle(
-                    Matrix3::from_angle_z(Rad(orient + std::f64::consts::PI / 2.0))
-                        * Matrix3::from_translation(-1.2 * Vector2::unit_y()),
-                );
+            match ty {
+                StructureType::Splitter => {
+                    render_triangle(
+                        Matrix3::from_angle_z(Rad(orient + std::f64::consts::PI / 2.0))
+                            * Matrix3::from_translation(-1.3 * Vector2::unit_y()),
+                    );
 
-                render_triangle(
-                    Matrix3::from_angle_z(Rad(orient - std::f64::consts::PI / 2.0))
-                        * Matrix3::from_translation(-1.2 * Vector2::unit_y()),
-                );
+                    render_triangle(
+                        Matrix3::from_angle_z(Rad(orient - std::f64::consts::PI / 2.0))
+                            * Matrix3::from_translation(-1.3 * Vector2::unit_y()),
+                    );
+                }
+                StructureType::Merger => {
+                    render_triangle(
+                        Matrix3::from_angle_z(Rad(orient + std::f64::consts::PI / 2.0))
+                            * Matrix3::from_translation(1.3 * Vector2::unit_y()),
+                    );
+
+                    render_triangle(
+                        Matrix3::from_angle_z(Rad(orient - std::f64::consts::PI / 2.0))
+                            * Matrix3::from_translation(1.3 * Vector2::unit_y()),
+                    );
+                }
+                _ => {}
             }
         } else {
             // render icon that does not shink if zoomed out

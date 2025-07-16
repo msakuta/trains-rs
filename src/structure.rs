@@ -45,6 +45,7 @@ pub(crate) enum StructureType {
     Loader,
     Unloader,
     Splitter,
+    Merger,
 }
 
 impl Structure {
@@ -95,10 +96,10 @@ impl Structure {
         }
     }
 
-    pub fn new_splitter(pos: Vec2, orientation: f64) -> Self {
+    pub fn new_structure(ty: StructureType, pos: Vec2, orientation: f64) -> Self {
         Self {
             pos,
-            ty: StructureType::Splitter,
+            ty,
             orientation,
             ..Self::default()
         }
@@ -194,13 +195,22 @@ impl Structure {
                     if 0 < self.iron {
                         ret.insert_items
                             .push((EntityId::Belt(belt_id), Item::IronOre));
-                        self.iron -= 1;
                     } else if 0 < self.ingot {
                         ret.insert_items
                             .push((EntityId::Belt(belt_id), Item::Ingot));
-                        self.ingot -= 1;
                     }
                     self.next_output = (self.next_output + 1) % self.output_belts.len() as u32;
+                }
+            }
+            StructureType::Merger => {
+                if let Some(belt_id) = self.output_belts[0] {
+                    if 0 < self.iron {
+                        ret.insert_items
+                            .push((EntityId::Belt(belt_id), Item::IronOre));
+                    } else if 0 < self.ingot {
+                        ret.insert_items
+                            .push((EntityId::Belt(belt_id), Item::Ingot));
+                    }
                 }
             }
         }
@@ -216,8 +226,13 @@ impl Structure {
                 }
             }
             Item::Ingot => {
-                if matches!(self.ty, StructureType::Sink | StructureType::Loader)
-                    && self.ingot < INGOT_CAPACITY
+                if matches!(
+                    self.ty,
+                    StructureType::Sink
+                        | StructureType::Loader
+                        | StructureType::Splitter
+                        | StructureType::Merger
+                ) && self.ingot < INGOT_CAPACITY
                 {
                     self.ingot += 1;
                     return true;
@@ -314,7 +329,11 @@ impl Structures {
     ) -> (BeltConnection, Vec2<f64>) {
         for (i, structure) in &self.structures {
             if input {
-                let num_inputs = 1; //matches!(structure.ty, StructureType::Splitter)
+                let num_inputs = if matches!(structure.ty, StructureType::Merger) {
+                    3
+                } else {
+                    1
+                };
                 for idx in 0..num_inputs {
                     let con_pos = structure.input_pos(idx);
                     let dist2 = (con_pos - pos).length2();
