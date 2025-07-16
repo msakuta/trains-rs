@@ -8,8 +8,11 @@ use crate::{
     vec2::Vec2,
 };
 
-pub(crate) const STRUCTURE_INPUT_POS: Vec2 = Vec2::new(0., 1.);
-pub(crate) const STRUCTURE_OUTPUT_POS: Vec2 = Vec2::new(0., -1.);
+/// This should depend on the type of the structure.
+pub(crate) const STRUCTURE_INPUT_POS: [Vec2; 3] =
+    [Vec2::new(0., 1.), Vec2::new(-1., 0.), Vec2::new(1., 0.)];
+pub(crate) const STRUCTURE_OUTPUT_POS: [Vec2; 3] =
+    [Vec2::new(0., -1.), Vec2::new(-1., 0.), Vec2::new(1., 0.)];
 pub(crate) const ORE_MINE_CAPACITY: u32 = 10;
 const ORE_MINE_FREQUENCY: usize = 120;
 pub(crate) const INGOT_CAPACITY: u32 = 20;
@@ -27,9 +30,10 @@ pub(crate) struct Structure {
     pub iron: u32,
     pub ingot: u32,
     cooldown: usize,
-    pub output_belts: HashSet<BeltId>,
+    pub output_belts: [Option<BeltId>; 3],
     pub orientation: f64,
     pub connected_station: Option<(StationId, usize)>,
+    pub next_output: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
@@ -40,6 +44,7 @@ pub(crate) enum StructureType {
     Sink,
     Loader,
     Unloader,
+    Splitter,
 }
 
 impl Structure {
@@ -90,6 +95,15 @@ impl Structure {
         }
     }
 
+    pub fn new_splitter(pos: Vec2, orientation: f64) -> Self {
+        Self {
+            pos,
+            ty: StructureType::Splitter,
+            orientation,
+            ..Self::default()
+        }
+    }
+
     pub fn update(&mut self, score: &mut u32) -> StructureUpdateResult {
         let mut ret = StructureUpdateResult {
             insert_items: vec![],
@@ -105,7 +119,7 @@ impl Structure {
                 }
 
                 if 0 < self.iron {
-                    if let Some(belt_id) = self.output_belts.iter().next() {
+                    if let Some(belt_id) = self.output_belts.iter().find_map(|belt| belt.as_ref()) {
                         ret.insert_items
                             .push((EntityId::Belt(*belt_id), Item::IronOre));
                     }
@@ -121,7 +135,7 @@ impl Structure {
                 }
 
                 if 0 < self.ingot {
-                    if let Some(belt_id) = self.output_belts.iter().next() {
+                    if let Some(belt_id) = self.output_belts.iter().find_map(|belt| belt.as_ref()) {
                         ret.insert_items
                             .push((EntityId::Belt(*belt_id), Item::Ingot));
                     }
@@ -162,17 +176,31 @@ impl Structure {
                 }
 
                 if 0 < self.iron {
-                    if let Some(belt_id) = self.output_belts.iter().next() {
+                    if let Some(belt_id) = self.output_belts.iter().find_map(|belt| belt.as_ref()) {
                         ret.insert_items
                             .push((EntityId::Belt(*belt_id), Item::IronOre));
                     }
                 }
 
                 if 0 < self.ingot {
-                    if let Some(belt_id) = self.output_belts.iter().next() {
+                    if let Some(belt_id) = self.output_belts.iter().find_map(|belt| belt.as_ref()) {
                         ret.insert_items
                             .push((EntityId::Belt(*belt_id), Item::Ingot));
                     }
+                }
+            }
+            StructureType::Splitter => {
+                if let Some(belt_id) = self.output_belts[self.next_output as usize] {
+                    if 0 < self.iron {
+                        ret.insert_items
+                            .push((EntityId::Belt(belt_id), Item::IronOre));
+                        self.iron -= 1;
+                    } else if 0 < self.ingot {
+                        ret.insert_items
+                            .push((EntityId::Belt(belt_id), Item::Ingot));
+                        self.ingot -= 1;
+                    }
+                    self.next_output = (self.next_output + 1) % self.output_belts.len() as u32;
                 }
             }
         }
@@ -205,12 +233,14 @@ impl Structure {
         self.ingot = (self.ingot as i32 - remove_ingots).max(0) as u32;
     }
 
-    pub fn input_pos(&self) -> Vec2 {
-        self.relative_pos(&STRUCTURE_INPUT_POS)
+    /// Returns the position of the input belt connection.
+    /// `idx` indicates the input port index in [0..3).
+    pub fn input_pos(&self, idx: usize) -> Vec2 {
+        self.relative_pos(&STRUCTURE_INPUT_POS[idx])
     }
 
-    pub fn output_pos(&self) -> Vec2 {
-        self.relative_pos(&STRUCTURE_OUTPUT_POS)
+    pub fn output_pos(&self, idx: usize) -> Vec2 {
+        self.relative_pos(&STRUCTURE_OUTPUT_POS[idx])
     }
 
     fn relative_pos(&self, ofs: &Vec2) -> Vec2 {
@@ -283,14 +313,28 @@ impl Structures {
         input: bool,
     ) -> (BeltConnection, Vec2<f64>) {
         for (i, structure) in &self.structures {
-            let con_pos = if input {
-                structure.input_pos()
+            if input {
+                let num_inputs = 1; //matches!(structure.ty, StructureType::Splitter)
+                for idx in 0..num_inputs {
+                    let con_pos = structure.input_pos(idx);
+                    let dist2 = (con_pos - pos).length2();
+                    if dist2 < search_radius.powi(2) {
+                        return (BeltConnection::Structure(*i, idx), con_pos);
+                    }
+                }
             } else {
-                structure.output_pos()
-            };
-            let dist2 = (con_pos - pos).length2();
-            if dist2 < search_radius.powi(2) {
-                return (BeltConnection::Structure(*i), con_pos);
+                let num_outputs = if matches!(structure.ty, StructureType::Splitter) {
+                    3
+                } else {
+                    1
+                };
+                for idx in 0..num_outputs {
+                    let con_pos = structure.output_pos(idx);
+                    let dist2 = (con_pos - pos).length2();
+                    if dist2 < search_radius.powi(2) {
+                        return (BeltConnection::Structure(*i, idx), con_pos);
+                    }
+                }
             }
         }
         for (i, belt) in &self.belts {
@@ -550,7 +594,7 @@ impl Belt {
                         ret.insert_items.push((EntityId::Belt(belt_id), *item));
                         remove_idx = Some(i);
                     }
-                    BeltConnection::Structure(st) => {
+                    BeltConnection::Structure(st, _) => {
                         ret.insert_items.push((EntityId::Structure(st), *item));
                         remove_idx = Some(i);
                     }
@@ -583,7 +627,7 @@ impl Belt {
 pub(crate) enum BeltConnection {
     /// An end of a belt that connects to nothing.
     Pos,
-    Structure(StructureId),
+    Structure(StructureId, usize),
     /// Belt start can only connect to end and vice versa
     BeltStart(BeltId),
     BeltEnd(BeltId),

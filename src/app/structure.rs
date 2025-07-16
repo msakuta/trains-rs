@@ -1,3 +1,4 @@
+use cgmath::{Matrix3, Rad, Transform, Vector2, Vector3};
 use eframe::{
     egui::{self, Color32, Painter, Pos2, Rect, pos2, vec2},
     epaint::PathShape,
@@ -167,9 +168,25 @@ impl TrainsApp {
                 StructureType::Sink => Color32::from_rgb(127, 0, 127),
                 StructureType::Loader => Color32::from_rgb(127, 127, 0),
                 StructureType::Unloader => Color32::from_rgb(0, 63, 127),
+                StructureType::Splitter => Color32::from_rgb(127, 191, 0),
             }
         };
         let line_color = Color32::from_rgb(0, 63, 31);
+
+        let render_triangle = |transform: Matrix3<f64>| {
+            painter.add(PathShape::convex_polygon(
+                [[0., -0.3], [-0.3, 0.2], [0.3, 0.2]]
+                    .into_iter()
+                    .map(|v| -> Pos2 {
+                        let local_pos: [f64; 2] =
+                            (transform * Vector2::from(v).extend(1.)).truncate().into();
+                        pos + paint_transform.to_vec2(local_pos.into())
+                    })
+                    .collect(),
+                color,
+                (1., line_color),
+            ));
+        };
 
         // Render the real size with enough zoom
         if 2. < paint_transform.scale() {
@@ -190,23 +207,27 @@ impl TrainsApp {
                 (1., line_color),
             ));
 
-            painter.add(PathShape::convex_polygon(
-                [[0., -1.5], [-0.3, -1.2], [0.3, -1.2]]
-                    .into_iter()
-                    .map(rotate)
-                    .collect(),
-                color,
-                (1., line_color),
-            ));
+            render_triangle(
+                Matrix3::from_angle_z(Rad(orient))
+                    * Matrix3::from_translation(-1.2 * Vector2::unit_y()),
+            );
 
-            painter.add(PathShape::convex_polygon(
-                [[0., 1.2], [-0.3, 1.5], [0.3, 1.5]]
-                    .into_iter()
-                    .map(rotate)
-                    .collect(),
-                color,
-                (1., line_color),
-            ));
+            render_triangle(
+                Matrix3::from_angle_z(Rad(orient))
+                    * Matrix3::from_translation(1.2 * Vector2::unit_y()),
+            );
+
+            if matches!(ty, StructureType::Splitter) {
+                render_triangle(
+                    Matrix3::from_angle_z(Rad(orient + std::f64::consts::PI / 2.0))
+                        * Matrix3::from_translation(-1.2 * Vector2::unit_y()),
+                );
+
+                render_triangle(
+                    Matrix3::from_angle_z(Rad(orient - std::f64::consts::PI / 2.0))
+                        * Matrix3::from_translation(-1.2 * Vector2::unit_y()),
+                );
+            }
         } else {
             // render icon that does not shink if zoomed out
             painter.rect_filled(
@@ -323,7 +344,7 @@ impl TrainsApp {
             if matches!(end_con, BeltConnection::BeltEnd(_)) {
                 return Err("You cannot connect the end of a belt to another end".to_string());
             }
-            if matches!((end_con, start_con), (BeltConnection::Structure(eid), BeltConnection::Structure(sid)) if eid == *sid)
+            if matches!((end_con, start_con), (BeltConnection::Structure(eid, eidx), BeltConnection::Structure(sid, sidx)) if eid == *sid && eidx == *sidx)
             {
                 return Err("You cannot connect a belt itself".to_string());
             }
@@ -340,10 +361,10 @@ impl TrainsApp {
                 .structures
                 .add_belt(*start_pos, *start_con, end_pos, end_con);
             match start_con {
-                BeltConnection::Structure(start_st) => {
+                BeltConnection::Structure(start_st, con_idx) => {
                     if let Some(st) = self.structures.structures.get_mut(start_st) {
-                        st.output_belts.insert(belt_id);
-                        println!("Added belt {belt_id} to output_belts");
+                        st.output_belts[*con_idx] = Some(belt_id);
+                        println!("Added belt {belt_id} to output_belts[{con_idx}]");
                     }
                 }
                 // If we connect to a belt, we add a reference to the upstream belt.
@@ -370,7 +391,7 @@ impl TrainsApp {
     ) {
         if let Some((start_con, start_pos)) = &self.belt_connection {
             let (end_con, end_pos) = self.find_belt_con(pos, true);
-            if matches!(end_con, BeltConnection::Structure(_)) && end_con != *start_con {
+            if matches!(end_con, BeltConnection::Structure(_, _)) && end_con != *start_con {
                 painter.rect_filled(
                     Rect::from_center_size(
                         paint_transform.to_pos2(end_pos),
@@ -395,7 +416,7 @@ impl TrainsApp {
                 ],
                 (2., color),
             );
-        } else if let (BeltConnection::Structure(_), end_pos) = self.find_belt_con(pos, false) {
+        } else if let (BeltConnection::Structure(_, _), end_pos) = self.find_belt_con(pos, false) {
             painter.rect_filled(
                 Rect::from_center_size(
                     paint_transform.to_pos2(end_pos),

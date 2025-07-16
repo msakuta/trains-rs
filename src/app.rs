@@ -47,6 +47,7 @@ enum ClickMode {
     AddSmelter,
     AddLoader,
     AddUnloader,
+    AddSplitter,
     ConnectBelt,
     DeleteStructure,
 }
@@ -336,6 +337,19 @@ impl TrainsApp {
                             self.building_structure = None;
                         }
                     }
+                    ClickMode::AddSplitter => {
+                        if let Some(pos) = self.building_structure {
+                            let delta = pos - paint_transform.from_pos2(pointer);
+                            let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
+                            self.structures
+                                .add_structure(Structure::new_splitter(pos, orient));
+                            self.building_structure = None;
+                        } else if !self.heightmap.is_water(&paint_transform.from_pos2(pointer)) {
+                            self.building_structure = Some(paint_transform.from_pos2(pointer));
+                        } else {
+                            self.error_msg = Some(("Cannot build in water".to_string(), 10.));
+                        }
+                    }
                     ClickMode::ConnectBelt => {
                         if let Err(e) = self.add_belt(paint_transform.from_pos2(pointer)) {
                             self.error_msg = Some((e, 10.));
@@ -456,8 +470,13 @@ impl TrainsApp {
                     self.preview_ore_mine(pointer, &painter, &paint_transform);
                 }
             }
-            ClickMode::AddSmelter => {
+            ClickMode::AddSmelter | ClickMode::AddSplitter => {
                 if let Some(pointer) = response.hover_pos() {
+                    let ty = match self.click_mode {
+                        ClickMode::AddSmelter => StructureType::Smelter,
+                        ClickMode::AddSplitter => StructureType::Splitter,
+                        _ => unreachable!(),
+                    };
                     if let Some(pos) = self.building_structure {
                         let delta = pos - paint_transform.from_pos2(pointer);
                         let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
@@ -465,19 +484,12 @@ impl TrainsApp {
                             paint_transform.to_pos2(pos),
                             orient,
                             true,
-                            StructureType::Smelter,
+                            ty,
                             &painter,
                             &paint_transform,
                         );
                     } else {
-                        Self::render_structure(
-                            pointer,
-                            0.,
-                            true,
-                            StructureType::Smelter,
-                            &painter,
-                            &paint_transform,
-                        );
+                        Self::render_structure(pointer, 0., true, ty, &painter, &paint_transform);
                     }
                 }
             }
@@ -517,7 +529,7 @@ impl TrainsApp {
         // Clear the state of inserting structure when the player select another mode
         if !matches!(
             self.click_mode,
-            ClickMode::AddOreMine | ClickMode::AddSmelter
+            ClickMode::AddOreMine | ClickMode::AddSmelter | ClickMode::AddSplitter
         ) {
             self.building_structure = None;
         }
@@ -725,6 +737,7 @@ impl TrainsApp {
             ui.radio_value(&mut self.click_mode, ClickMode::AddSmelter, "Add Smelter");
             ui.radio_value(&mut self.click_mode, ClickMode::AddLoader, "Add Loader");
             ui.radio_value(&mut self.click_mode, ClickMode::AddUnloader, "Add Unloader");
+            ui.radio_value(&mut self.click_mode, ClickMode::AddSplitter, "Add Splitter");
             ui.radio_value(&mut self.click_mode, ClickMode::ConnectBelt, "Connect Belt");
             ui.radio_value(
                 &mut self.click_mode,
