@@ -8,13 +8,16 @@ use super::{HeightMap, HeightMapKey, HeightMapParams, HeightMapTile};
 /// The tile generator that can run tasks in parallel threads.
 /// It is very high performance but does not work in Wasm.
 /// (Maybe there is a way to use it on Wasm with SharedMemoryBuffer,
-/// but it seems tooling and browser situations are not)
+/// but it seems tooling and browser support are not readily available.)
 pub(super) struct TileGen {
+    /// The set of already requested tiles, used to avoid duplicate requests.
     requested: HashSet<HeightMapKey>,
+    /// Request queue and the event to notify workers.
     notify: Arc<(Mutex<VecDeque<(HeightMapKey, usize)>>, Condvar)>,
     // We should join the handles, but we can also leave them and kill the process, since the threads only interact
     // with memory.
     _workers: Vec<std::thread::JoinHandle<()>>,
+    /// The channel to receive finished tiles.
     finished: std::sync::mpsc::Receiver<(HeightMapKey, HeightMapTile)>,
 }
 
