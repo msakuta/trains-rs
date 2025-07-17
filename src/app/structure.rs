@@ -94,10 +94,11 @@ impl TrainsApp {
             let tangent = delta / length;
             let normal = tangent.left90();
             let width = 0.5;
-            let fill_color = Color32::from_rgb(
+            let fill_color = Color32::from_rgba_premultiplied(
                 color.r() / 2 + 127,
                 color.g() / 2 + 127,
                 color.b() / 2 + 127,
+                color.a(),
             );
             painter.add(PathShape::convex_polygon(
                 [
@@ -441,13 +442,9 @@ impl TrainsApp {
             } else {
                 Color32::RED
             };
-            painter.line_segment(
-                [
-                    paint_transform.to_pos2(end_pos),
-                    paint_transform.to_pos2(*start_pos),
-                ],
-                (2., color),
-            );
+            // Fake belt object to preview
+            let belt = Belt::new(*start_pos, *start_con, end_pos, end_con);
+            self.render_belt(&belt, painter, paint_transform, color);
         } else if let (BeltConnection::Structure(_, _), end_pos) = self.find_belt_con(pos, false) {
             painter.rect_filled(
                 Rect::from_center_size(
