@@ -7,7 +7,7 @@ use ordered_float::NotNan;
 
 use crate::{
     structure::{
-        BELT_MAX_SLOPE, BELT_SPEED, BeltConnection, INGOT_CAPACITY, ITEM_INTERVAL, Item,
+        BELT_MAX_SLOPE, BELT_SPEED, Belt, BeltConnection, INGOT_CAPACITY, ITEM_INTERVAL, Item,
         MAX_BELT_LENGTH, ORE_MINE_CAPACITY, Structure, StructureOrBelt, StructureType,
     },
     transform::PaintTransform,
@@ -76,48 +76,62 @@ impl TrainsApp {
         }
     }
 
+    fn render_belt(
+        &self,
+        belt: &Belt,
+        painter: &Painter,
+        paint_transform: &PaintTransform,
+        color: Color32,
+    ) {
+        let start = paint_transform.to_pos2(belt.start);
+        let end = paint_transform.to_pos2(belt.end);
+
+        if self.transform.scale() < 2. {
+            painter.arrow(start, end - start, (2., color));
+        } else {
+            let delta = belt.end - belt.start;
+            let length = delta.length();
+            let tangent = delta / length;
+            let normal = tangent.left90();
+            let width = 0.5;
+            let fill_color = Color32::from_rgb(
+                color.r() / 2 + 127,
+                color.g() / 2 + 127,
+                color.b() / 2 + 127,
+            );
+            painter.add(PathShape::convex_polygon(
+                [
+                    belt.start + normal * width,
+                    belt.end + normal * width,
+                    belt.end - normal * width,
+                    belt.start - normal * width,
+                ]
+                .into_iter()
+                .map(|p| paint_transform.to_pos2(p))
+                .collect(),
+                fill_color,
+                (1., color),
+            ));
+
+            let interval = 3.;
+            for t in 0..(length / interval).ceil() as u32 {
+                let s = interval * t as f64 + (self.time as f64 * BELT_SPEED) % interval;
+                if length < s {
+                    break;
+                }
+                let pos = belt.start + tangent * s;
+                let center = paint_transform.to_pos2(pos);
+                let left = paint_transform.to_pos2(pos + normal * width - tangent * 0.5);
+                let right = paint_transform.to_pos2(pos - normal * width - tangent * 0.5);
+                painter.line(vec![left, center, right], (1., color));
+            }
+        }
+    }
+
     pub(super) fn render_belts(&self, painter: &Painter, paint_transform: &PaintTransform) {
         let scale = self.transform.scale();
         for belt in self.structures.belts.values() {
-            let start = paint_transform.to_pos2(belt.start);
-            let end = paint_transform.to_pos2(belt.end);
-
-            if scale < 2. {
-                painter.arrow(start, end - start, (2., Color32::BLUE));
-            } else {
-                let delta = belt.end - belt.start;
-                let length = delta.length();
-                let tangent = delta / length;
-                let normal = tangent.left90();
-                let width = 0.5;
-                let stroke_color = Color32::from_rgb(0, 63, 127);
-                painter.add(PathShape::convex_polygon(
-                    [
-                        belt.start + normal * width,
-                        belt.end + normal * width,
-                        belt.end - normal * width,
-                        belt.start - normal * width,
-                    ]
-                    .into_iter()
-                    .map(|p| paint_transform.to_pos2(p))
-                    .collect(),
-                    Color32::from_rgb(0, 127, 255),
-                    (1., stroke_color),
-                ));
-
-                let interval = 3.;
-                for t in 0..(length / interval).ceil() as u32 {
-                    let s = interval * t as f64 + (self.time as f64 * BELT_SPEED) % interval;
-                    if length < s {
-                        break;
-                    }
-                    let pos = belt.start + tangent * s;
-                    let center = paint_transform.to_pos2(pos);
-                    let left = paint_transform.to_pos2(pos + normal * width - tangent * 0.5);
-                    let right = paint_transform.to_pos2(pos - normal * width - tangent * 0.5);
-                    painter.line(vec![left, center, right], (1., stroke_color));
-                }
-            }
+            self.render_belt(belt, painter, paint_transform, Color32::BLUE);
 
             // Render items only when they are likely more than 1 pixels
             if ITEM_INTERVAL < scale as f64 {
@@ -283,9 +297,12 @@ impl TrainsApp {
                 }
                 StructureOrBelt::Belt(id) => {
                     if let Some(belt) = self.structures.belts.get(&id) {
-                        let start = paint_transform.to_pos2(belt.start);
-                        let end = paint_transform.to_pos2(belt.end);
-                        painter.arrow(start, end - start, (4., Color32::from_rgb(255, 0, 255)));
+                        self.render_belt(
+                            belt,
+                            painter,
+                            paint_transform,
+                            Color32::from_rgb(255, 0, 255),
+                        );
                     }
                 }
             }

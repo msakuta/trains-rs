@@ -405,6 +405,8 @@ impl TrainsApp {
 
         self.render_structures(&painter, &paint_transform);
 
+        self.render_belts(&painter, &paint_transform);
+
         self.cursor = if let Some(pos) = response.hover_pos() {
             Some(paint_transform.from_pos2(pos))
         } else {
@@ -575,8 +577,6 @@ impl TrainsApp {
                 egui::StrokeKind::Middle,
             );
         }
-
-        self.render_belts(&painter, &paint_transform);
 
         for station in self.tracks.stations.values() {
             // let i_ptr = &*station.borrow() as *const _;
