@@ -215,10 +215,15 @@ impl TrainsApp {
             };
 
             painter.add(PathShape::convex_polygon(
-                [[-1., -1.], [1., -1.], [1., 1.], [-1., 1.]]
-                    .into_iter()
-                    .map(rotate)
-                    .collect(),
+                match ty {
+                    StructureType::Loader | StructureType::Unloader => {
+                        [[-4., -1.], [4., -1.], [4., 1.], [-4., 1.]]
+                    }
+                    _ => [[-1., -1.], [1., -1.], [1., 1.], [-1., 1.]],
+                }
+                .into_iter()
+                .map(rotate)
+                .collect(),
                 color,
                 (1., line_color),
             ));
