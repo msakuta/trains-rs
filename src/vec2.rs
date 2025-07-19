@@ -3,6 +3,7 @@ use std::{
     ops::{Add, AddAssign, Div, Mul, Neg, Sub, SubAssign},
 };
 
+use cgmath::Zero;
 use serde::{Deserialize, Serialize};
 
 /// A generic custom 2D vector type that can take f64 or TapeTerm as a type argument.
@@ -114,6 +115,17 @@ impl Vec2<f64> {
 
     pub fn lerp(&self, rhs: Self, f: f64) -> Self {
         *self * (1. - f) + rhs * f
+    }
+}
+
+/// Bridges to cgmath types
+impl<T: Clone + Copy + Zero> Vec2<T> {
+    pub fn to_vector2(&self) -> cgmath::Vector2<T> {
+        cgmath::Vector2::new(self.x, self.y)
+    }
+
+    pub fn to_vector3(&self) -> cgmath::Vector3<T> {
+        cgmath::Vector3::new(self.x, self.y, T::zero())
     }
 }
 

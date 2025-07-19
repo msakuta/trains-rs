@@ -8,11 +8,19 @@ use crate::{
     vec2::Vec2,
 };
 
+use std::f64::consts::PI;
+
 /// This should depend on the type of the structure.
-pub(crate) const STRUCTURE_INPUT_POS: [Vec2; 3] =
-    [Vec2::new(0., 1.), Vec2::new(-1., 0.), Vec2::new(1., 0.)];
-pub(crate) const STRUCTURE_OUTPUT_POS: [Vec2; 3] =
-    [Vec2::new(0., -1.), Vec2::new(-1., 0.), Vec2::new(1., 0.)];
+pub(crate) const STRUCTURE_INPUT_POS: [(Vec2, f64); 3] = [
+    (Vec2::new(0., 1.), 0.),
+    (Vec2::new(-1., 0.), PI / 2.),
+    (Vec2::new(1., 0.), -PI / 2.),
+];
+pub(crate) const STRUCTURE_OUTPUT_POS: [(Vec2, f64); 3] = [
+    (Vec2::new(0., -1.), 0.),
+    (Vec2::new(1., 0.), PI / 2.),
+    (Vec2::new(-1., 0.), -PI / 2.),
+];
 pub(crate) const ORE_MINE_CAPACITY: u32 = 10;
 const ORE_MINE_FREQUENCY: usize = 120;
 pub(crate) const INGOT_CAPACITY: u32 = 20;
@@ -46,6 +54,36 @@ pub(crate) enum StructureType {
     Unloader,
     Splitter,
     Merger,
+}
+
+impl StructureType {
+    pub fn input_ports(&self) -> &'static [(Vec2, f64)] {
+        const SINK: &[(Vec2, f64)] = &[
+            (Vec2::new(0., 4.), 0.),
+            (Vec2::new(-1., 4.), 0.),
+            (Vec2::new(-2., 4.), 0.),
+            (Vec2::new(1., 4.), 0.),
+            (Vec2::new(2., 4.), 0.),
+        ];
+        match self {
+            Self::OreMine | Self::Smelter | Self::Loader | Self::Splitter => {
+                &STRUCTURE_INPUT_POS[0..1]
+            }
+            Self::Merger => &STRUCTURE_INPUT_POS[..],
+            Self::Sink => SINK,
+            Self::Unloader => &[],
+        }
+    }
+
+    pub fn output_ports(&self) -> &'static [(Vec2, f64)] {
+        match self {
+            Self::OreMine | Self::Smelter | Self::Unloader | Self::Merger => {
+                &STRUCTURE_OUTPUT_POS[0..1]
+            }
+            Self::Splitter => &STRUCTURE_OUTPUT_POS[..],
+            Self::Loader | Self::Sink => &[],
+        }
+    }
 }
 
 impl Structure {
@@ -248,14 +286,19 @@ impl Structure {
         self.ingot = (self.ingot as i32 - remove_ingots).max(0) as u32;
     }
 
-    /// Returns the position of the input belt connection.
-    /// `idx` indicates the input port index in [0..3).
-    pub fn input_pos(&self, idx: usize) -> Vec2 {
-        self.relative_pos(&STRUCTURE_INPUT_POS[idx])
+    /// Returns an iterator for the positions of the input belt connection.
+    pub fn input_pos(&self) -> impl Iterator<Item = Vec2> {
+        self.ty
+            .input_ports()
+            .iter()
+            .map(|(pos, _)| self.relative_pos(&pos))
     }
 
-    pub fn output_pos(&self, idx: usize) -> Vec2 {
-        self.relative_pos(&STRUCTURE_OUTPUT_POS[idx])
+    pub fn output_pos(&self) -> impl Iterator<Item = Vec2> {
+        self.ty
+            .output_ports()
+            .iter()
+            .map(|(pos, _)| self.relative_pos(&pos))
     }
 
     fn relative_pos(&self, ofs: &Vec2) -> Vec2 {
@@ -329,26 +372,14 @@ impl Structures {
     ) -> (BeltConnection, Vec2<f64>) {
         for (i, structure) in &self.structures {
             if input {
-                let num_inputs = if matches!(structure.ty, StructureType::Merger) {
-                    3
-                } else {
-                    1
-                };
-                for idx in 0..num_inputs {
-                    let con_pos = structure.input_pos(idx);
+                for (idx, con_pos) in structure.input_pos().enumerate() {
                     let dist2 = (con_pos - pos).length2();
                     if dist2 < search_radius.powi(2) {
                         return (BeltConnection::Structure(*i, idx), con_pos);
                     }
                 }
             } else {
-                let num_outputs = if matches!(structure.ty, StructureType::Splitter) {
-                    3
-                } else {
-                    1
-                };
-                for idx in 0..num_outputs {
-                    let con_pos = structure.output_pos(idx);
+                for (idx, con_pos) in structure.output_pos().enumerate() {
                     let dist2 = (con_pos - pos).length2();
                     if dist2 < search_radius.powi(2) {
                         return (BeltConnection::Structure(*i, idx), con_pos);
