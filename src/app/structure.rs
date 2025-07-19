@@ -1,4 +1,4 @@
-use cgmath::{Matrix3, Rad, Transform, Vector2, Vector3};
+use cgmath::{Matrix3, Rad, Vector2};
 use eframe::{
     egui::{self, Color32, Painter, Pos2, Rect, pos2, vec2},
     epaint::PathShape,

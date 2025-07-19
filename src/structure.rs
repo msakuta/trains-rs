@@ -1,10 +1,10 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 
 use serde::{Deserialize, Serialize};
 
 use crate::{
     train::Train,
-    train_tracks::{StationId, TrainTask},
+    train_tracks::{SegmentDirection, StationId, TrainTask},
     vec2::Vec2,
 };
 
@@ -32,7 +32,7 @@ pub(crate) struct Structure {
     cooldown: usize,
     pub output_belts: [Option<BeltId>; 3],
     pub orientation: f64,
-    pub connected_station: Option<(StationId, usize)>,
+    pub connected_station: Option<(StationId, i32)>,
     pub next_output: u32,
 }
 
@@ -76,7 +76,7 @@ impl Structure {
         }
     }
 
-    pub fn new_loader(pos: Vec2, orientation: f64, station: StationId, car_idx: usize) -> Self {
+    pub fn new_loader(pos: Vec2, orientation: f64, station: StationId, car_idx: i32) -> Self {
         Self {
             pos,
             ty: StructureType::Loader,
@@ -86,7 +86,7 @@ impl Structure {
         }
     }
 
-    pub fn new_unloader(pos: Vec2, orientation: f64, station: StationId, car_idx: usize) -> Self {
+    pub fn new_unloader(pos: Vec2, orientation: f64, station: StationId, car_idx: i32) -> Self {
         Self {
             pos,
             ty: StructureType::Unloader,
@@ -293,7 +293,7 @@ pub(crate) enum StructureOrBelt {
 pub(crate) enum EntityId {
     Structure(StructureId),
     Belt(BeltId),
-    Station(StationId, usize),
+    Station(StationId, i32),
 }
 
 /// A collection of structures and belts.
@@ -433,7 +433,11 @@ impl Structures {
                     }
                     EntityId::Station(st_id, car_idx) => {
                         if let TrainTask::Wait(_, wait_station) = train.train_task {
-                            if wait_station == st_id && train.try_insert(car_idx, item) {
+                            let car_idx_u = normalize_car_idx(train, car_idx);
+                            if 0 <= car_idx_u
+                                && wait_station == st_id
+                                && train.try_insert(car_idx_u as usize, item)
+                            {
                                 record_moved(item, 1);
                             }
                         }
@@ -459,7 +463,11 @@ impl Structures {
                     }
                     EntityId::Station(station_id, car_idx) => {
                         if let TrainTask::Wait(_, wait_station) = train.train_task {
-                            if wait_station == station_id && train.try_remove(car_idx, item) {
+                            let car_idx_u = normalize_car_idx(train, car_idx);
+                            if 0 <= car_idx_u
+                                && wait_station == station_id
+                                && train.try_remove(car_idx_u as usize, item)
+                            {
                                 record_moved(item, -1);
                             }
                         }
@@ -656,4 +664,15 @@ pub(crate) enum BeltConnection {
 pub(crate) enum Item {
     IronOre,
     Ingot,
+}
+
+fn normalize_car_idx(train: &Train, car_idx: i32) -> i32 {
+    let direction = train
+        .cars
+        .get(0)
+        .map_or(SegmentDirection::Forward, |car| car.direction);
+    match direction {
+        SegmentDirection::Forward => -car_idx,
+        SegmentDirection::Backward => car_idx,
+    }
 }

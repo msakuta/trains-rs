@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     app::HeightMap,
     path_utils::{interpolate_path, interpolate_path_heading, interpolate_path_tangent},
-    structure::{INGOT_CAPACITY, Item, ORE_MINE_CAPACITY, StructureType, Structures},
+    structure::Item,
     train_tracks::{
         ConnectPoint, PathBundle, PathConnection, Paths, SegmentDirection, StationId, TrainTask,
         TrainTracks,
@@ -69,7 +69,7 @@ impl Train {
     }
 
     fn autonomous_logic(&mut self, tracks: &TrainTracks, brake: &mut bool) {
-        if let TrainTask::Wait(timer, station) = &mut self.train_task {
+        if let TrainTask::Wait(timer, _station) = &mut self.train_task {
             *timer -= 1;
             if *timer <= 1 || self.idle {
                 self.train_task = TrainTask::Idle;
@@ -143,7 +143,7 @@ impl Train {
         self.cars[0].path_id
     }
 
-    fn path_ids(&self) -> HashSet<usize> {
+    fn _path_ids(&self) -> HashSet<usize> {
         // A train should have one or more cars.
         self.cars.iter().map(|car| car.path_id).collect()
     }
@@ -190,15 +190,15 @@ impl Train {
         }
     }
 
-    pub fn tangent(&self, car_idx: usize, paths: &Paths) -> Option<Vec2<f64>> {
+    pub fn _tangent(&self, car_idx: usize, paths: &Paths) -> Option<Vec2<f64>> {
         self.cars.get(car_idx)?.tangent(paths)
     }
 
-    pub fn pos(&self, car_idx: usize, paths: &Paths) -> Option<Vec2<f64>> {
+    pub fn _pos(&self, car_idx: usize, paths: &Paths) -> Option<Vec2<f64>> {
         self.cars.get(car_idx)?.pos(paths)
     }
 
-    pub fn heading(&self, car_idx: usize, paths: &Paths) -> Option<f64> {
+    pub fn _heading(&self, car_idx: usize, paths: &Paths) -> Option<f64> {
         self.cars.get(car_idx)?.heading(paths)
     }
 

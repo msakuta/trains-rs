@@ -626,28 +626,27 @@ impl TrainTracks {
     pub(crate) fn find_loader_position(
         &self,
         pos: Vec2,
-    ) -> Option<(StationId, usize, Vec2, f64, f64)> {
+    ) -> Option<(StationId, i32, Vec2, f64, f64)> {
         self.stations
             .iter()
             .filter_map(|(id, station)| {
                 let Some(path) = self.paths.get(&station.path_id) else {
                     return None;
                 };
-                let Some(track_pos) = path.track.get(station.s as usize) else {
-                    return None;
-                };
-                let Some(tangent) = interpolate_path_tangent(&path.track, station.s) else {
-                    return None;
-                };
-                let tangent = tangent.normalized();
-                let normal = tangent.left90();
-                let orient = tangent.y.atan2(tangent.x);
                 Some(
-                    (0..3)
+                    (-2i32..3i32)
                         .filter_map(|i| {
-                            let loader_pos = *track_pos
-                                - tangent * i as f64 * CAR_LENGTH * SEGMENT_LENGTH
-                                + normal * RAIL_WIDTH;
+                            let s_pos = station.s + i as f64 * CAR_LENGTH;
+                            let Some(track_pos) = path.track.get(s_pos as usize) else {
+                                return None;
+                            };
+                            let Some(tangent) = interpolate_path_tangent(&path.track, s_pos) else {
+                                return None;
+                            };
+                            let tangent = tangent.normalized();
+                            let normal = tangent.left90();
+                            let orient = tangent.y.atan2(tangent.x);
+                            let loader_pos = *track_pos + normal * RAIL_WIDTH * 2.;
                             let delta = pos - loader_pos;
                             let dist = delta.length();
                             Some((*id, i, loader_pos, NotNan::new(dist).ok()?, orient))
