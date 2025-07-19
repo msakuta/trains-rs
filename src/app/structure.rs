@@ -1,11 +1,14 @@
 use cgmath::{Matrix3, Rad, Vector2};
 use eframe::{
-    egui::{self, Color32, Painter, Pos2, Rect, pos2, vec2},
+    egui::{
+        self, Color32, Painter, Pos2, Rect, SizeHint, TextureOptions, load::TexturePoll, pos2, vec2,
+    },
     epaint::PathShape,
 };
 use ordered_float::NotNan;
 
 use crate::{
+    app::{INGOT_URL, ORE_URL},
     structure::{
         BELT_MAX_SLOPE, BELT_SPEED, Belt, BeltConnection, INGOT_CAPACITY, ITEM_INTERVAL, Item,
         MAX_BELT_LENGTH, ORE_MINE_CAPACITY, Structure, StructureOrBelt, StructureType,
@@ -141,28 +144,63 @@ impl TrainsApp {
                 for (item, dist) in &mut belt.items.iter() {
                     let f = *dist / length;
                     let pos = belt.start * (1. - f) + belt.end * f;
-                    match item {
-                        Item::IronOre => {
-                            painter.circle_filled(
-                                paint_transform.to_pos2(pos),
-                                (ITEM_INTERVAL * 0.5) as f32 * scale,
-                                Color32::BLUE,
-                            );
-                        }
-                        Item::Ingot => {
-                            painter.rect_filled(
-                                Rect::from_center_size(
-                                    paint_transform.to_pos2(pos),
-                                    egui::Vec2::splat((ITEM_INTERVAL * 0.75) as f32 * scale),
-                                ),
-                                0.,
-                                Color32::BLUE,
-                            );
-                        }
+                    if let Err(e) = self.render_item(pos, item, painter, paint_transform) {
+                        println!("{e}");
                     }
                 }
             }
         }
+    }
+
+    fn render_item(
+        &self,
+        pos: Vec2,
+        item: &Item,
+        painter: &Painter,
+        paint_transform: &PaintTransform,
+    ) -> Result<(), String> {
+        match item {
+            Item::IronOre => {
+                self.render_img(pos, ORE_URL, painter, paint_transform)
+            }
+            Item::Ingot => {
+                self.render_img(pos, INGOT_URL, painter, paint_transform)
+            }
+        }
+    }
+
+    fn render_img(
+        &self,
+        pos: Vec2,
+        url: &str,
+        painter: &Painter,
+        paint_transform: &PaintTransform,
+    ) -> Result<(), String> {
+        let tex = painter.ctx().try_load_texture(
+            url,
+            TextureOptions {
+                magnification: egui::TextureFilter::Nearest,
+                minification: egui::TextureFilter::Linear,
+                mipmap_mode: Some(egui::TextureFilter::Linear),
+                wrap_mode: egui::TextureWrapMode::Repeat,
+            },
+            SizeHint::default(),
+        );
+
+        let tex = tex.map_err(|e| format!("Failed to load texture {url}: {e}"))?;
+
+        if let TexturePoll::Ready { texture } = tex {
+            let rect = Rect::from_center_size(
+                paint_transform.to_pos2(pos),
+                egui::Vec2::splat(self.transform.scale() * ITEM_INTERVAL as f32),
+            );
+            const UV: Rect = Rect::from_min_max(pos2(0., 0.), Pos2::new(1.0, 1.0));
+            painter.image(texture.id, rect, UV, Color32::WHITE);
+        } else {
+            return Err(format!("Pending to load texture {url}"));
+        }
+
+        Ok(())
     }
 
     /// A common rendering logic for the built structures and preview ghosts.

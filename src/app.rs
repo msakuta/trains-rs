@@ -8,6 +8,7 @@ use eframe::{
     egui::{self, Align2, Color32, FontId, Frame, Painter, Rect, Ui},
     epaint::PathShape,
 };
+use egui_extras::install_image_loaders;
 
 pub(crate) use self::heightmap::HeightMap;
 use self::heightmap::{CONTOURS_GRID_STEPE, HeightMapKey, HeightMapParams};
@@ -33,6 +34,8 @@ const TRACKS_KEY: &str = "train_tracks";
 const HEIGHTMAP_KEY: &str = "heightmap";
 const STRUCTURES_KEY: &str = "structures";
 const CREDITS_KEY: &str = "credits";
+const ORE_URL: &str = "bytes://ore.png";
+const INGOT_URL: &str = "bytes://metal.png";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ClickMode {
@@ -836,6 +839,11 @@ impl TrainsApp {
 
 impl eframe::App for TrainsApp {
     fn update(&mut self, ctx: &eframe::egui::Context, _frame: &mut eframe::Frame) {
+        install_image_loaders(ctx);
+
+        ctx.include_bytes(ORE_URL, include_bytes!("../img/ore.png"));
+        ctx.include_bytes(INGOT_URL, include_bytes!("../img/metal.png"));
+
         ctx.request_repaint();
 
         // Give the heightmap object an opportunity to process queued map generations

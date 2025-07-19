@@ -5,7 +5,8 @@ edition = "2024"
 
 [dependencies]
 cgmath = "0.18.0"
-eframe = "0.31.1"
+eframe = "0.32.0"
+egui_extras = { version = "0.32.0", features = ["all_loaders"] }
 nom = "8.0.0"
 ordered-float = "5.0.0"
 # rand = { version = "0.9.1", features = ["no-std"] }
