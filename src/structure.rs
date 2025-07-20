@@ -1,6 +1,7 @@
+mod belts;
 mod pipes;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -12,7 +13,12 @@ use crate::{
 
 use self::pipes::{PIPE_FLOW_RATE, WATER_PUMP_RATE};
 
-pub(crate) use self::pipes::{FluidBox, FluidType, MAX_FLUID_AMOUNT, Pipe, PipeId};
+pub(crate) use self::{
+    belts::{
+        BELT_MAX_SLOPE, BELT_SPEED, Belt, BeltConnection, BeltId, ITEM_INTERVAL, MAX_BELT_LENGTH,
+    },
+    pipes::{FluidBox, FluidType, MAX_FLUID_AMOUNT, Pipe, PipeId},
+};
 
 use std::f64::consts::PI;
 
@@ -30,10 +36,6 @@ pub(crate) const STRUCTURE_OUTPUT_POS: [(Vec2, f64); 3] = [
 pub(crate) const ORE_MINE_CAPACITY: u32 = 10;
 const ORE_MINE_FREQUENCY: usize = 120;
 pub(crate) const INGOT_CAPACITY: u32 = 20;
-pub(crate) const MAX_BELT_LENGTH: f64 = 20.;
-pub(crate) const ITEM_INTERVAL: f64 = 1.0;
-pub(crate) const BELT_SPEED: f64 = 0.05; // length per tick
-pub(crate) const BELT_MAX_SLOPE: f64 = 0.1;
 
 pub(crate) type StructureId = usize;
 
@@ -800,101 +802,6 @@ impl Structures {
             _ => {}
         }
     }
-}
-
-pub(crate) type BeltId = usize;
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct Belt {
-    pub(crate) start: Vec2<f64>,
-    pub(crate) start_con: BeltConnection,
-    pub(crate) end: Vec2<f64>,
-    pub(crate) end_con: BeltConnection,
-    /// Items and their positions, measured from the start.
-    /// We should use scrolling trick to reduce updates, but it's an optimization for later.
-    pub(crate) items: VecDeque<(Item, f64)>,
-}
-
-impl Belt {
-    pub fn new(
-        start: Vec2<f64>,
-        start_con: BeltConnection,
-        end: Vec2<f64>,
-        end_con: BeltConnection,
-    ) -> Self {
-        Self {
-            start,
-            start_con,
-            end,
-            end_con,
-            items: VecDeque::new(),
-        }
-    }
-
-    pub fn try_insert(&mut self, item: Item) -> bool {
-        if self
-            .items
-            .back()
-            .is_none_or(|(_, last)| ITEM_INTERVAL < *last)
-        {
-            self.items.push_back((item, 0.));
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn update(&mut self) -> StructureUpdateResult {
-        let mut ret = StructureUpdateResult::new();
-        let length = self.length();
-        let mut last_pos = length + ITEM_INTERVAL;
-        let mut remove_idx = None;
-        // We could use retain_mut, but it would be more efficient to pop first n elements, since we know that
-        // the elements are only removed from the front.
-        for (i, (item, pos)) in self.items.iter_mut().enumerate() {
-            if length < *pos + BELT_SPEED {
-                match self.end_con {
-                    BeltConnection::BeltStart(belt_id) => {
-                        ret.insert_items.push((EntityId::Belt(belt_id), *item));
-                        remove_idx = Some(i);
-                    }
-                    BeltConnection::Structure(st, _) => {
-                        ret.insert_items.push((EntityId::Structure(st), *item));
-                        remove_idx = Some(i);
-                    }
-                    _ => {}
-                }
-            }
-            *pos = (*pos + BELT_SPEED).min(last_pos - ITEM_INTERVAL);
-            last_pos = *pos;
-        }
-
-        for _ in 0..remove_idx.unwrap_or(0) {
-            self.items.pop_front();
-        }
-        ret
-    }
-
-    /// Attempt to remove items that were successfully deleted.
-    pub fn post_update(&mut self, num: usize) {
-        for _ in 0..num {
-            self.items.pop_front();
-        }
-    }
-
-    pub fn length(&self) -> f64 {
-        (self.start - self.end).length()
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) enum BeltConnection {
-    /// An end of a belt that connects to nothing.
-    Pos,
-    Structure(StructureId, usize),
-    /// Belt start can only connect to end and vice versa
-    BeltStart(BeltId),
-    BeltEnd(BeltId),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
