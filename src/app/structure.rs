@@ -11,7 +11,7 @@ use ordered_float::NotNan;
 use crate::{
     app::{COAL_URL, INGOT_URL, ORE_URL},
     structure::{
-        BELT_MAX_SLOPE, BELT_SPEED, Belt, BeltConnection, EntityId, ITEM_INTERVAL, Item,
+        BELT_MAX_SLOPE, BELT_SPEED, Belt, BeltConnection, EntityId, FluidType, ITEM_INTERVAL, Item,
         MAX_BELT_LENGTH, MAX_FLUID_AMOUNT, ORE_MINE_CAPACITY, Pipe, PipeConnection, Structure,
         StructureType,
     },
@@ -58,7 +58,7 @@ impl TrainsApp {
                     color = Color32::from_rgb(255, 255, 0);
                     y_pos = base_pos.y + BAR_OFFSET;
                 }
-                StructureType::WaterPump => {
+                StructureType::WaterPump | StructureType::Boiler => {
                     fullness =
                         st.output_fluid.map_or(0., |fb| fb.amount) as f32 / MAX_FLUID_AMOUNT as f32;
                     color = Color32::from_rgb(0, 255, 255);
@@ -214,7 +214,10 @@ impl TrainsApp {
                     .into_iter()
                     .map(|p| paint_transform.to_pos2(p))
                     .collect(),
-                    Color32::from_rgb(0, 0, 191),
+                    match fluid.ty {
+                        FluidType::Water => Color32::from_rgb(0, 0, 191),
+                        FluidType::Steam => Color32::from_rgb(191, 191, 191),
+                    },
                     Stroke::NONE,
                 ));
             }
@@ -300,7 +303,8 @@ impl TrainsApp {
                 StructureType::Unloader => Color32::from_rgb(0, 63, 127),
                 StructureType::Splitter => Color32::from_rgb(95, 191, 0),
                 StructureType::Merger => Color32::from_rgb(191, 95, 0),
-                StructureType::WaterPump => Color32::from_rgb(0, 95, 191),
+                StructureType::WaterPump => Color32::from_rgb(63, 127, 191),
+                StructureType::Boiler => Color32::from_rgb(255, 191, 127),
             }
         };
         let line_color = Color32::from_rgb(0, 63, 31);
@@ -502,6 +506,22 @@ impl TrainsApp {
         let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
         let water_pump = Structure::new_structure(StructureType::WaterPump, pos, orient);
         let _ = self.structures.add_structure(water_pump);
+        self.building_structure = None;
+        Ok(())
+    }
+
+    pub(super) fn add_boiler(&mut self, pointer_pos: Vec2) -> Result<(), String> {
+        let Some(pos) = self.building_structure else {
+            if self.heightmap.is_water(&pointer_pos) {
+                return Err("Cannot build in water".to_string());
+            }
+            self.building_structure = Some(pointer_pos);
+            return Ok(());
+        };
+        let delta = pos - pointer_pos;
+        let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
+        let boiler = Structure::new_structure(StructureType::Boiler, pos, orient);
+        let _ = self.structures.add_structure(boiler);
         self.building_structure = None;
         Ok(())
     }

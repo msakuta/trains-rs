@@ -36,6 +36,8 @@ pub(crate) const STRUCTURE_OUTPUT_POS: [(Vec2, f64); 3] = [
 pub(crate) const ORE_MINE_CAPACITY: u32 = 10;
 const ORE_MINE_FREQUENCY: usize = 120;
 pub(crate) const INGOT_CAPACITY: u32 = 20;
+const STEAM_GEN: f64 = 10.;
+const STEAM_PUMP_RATE: f64 = 1.;
 
 pub(crate) type StructureId = usize;
 
@@ -66,6 +68,7 @@ pub(crate) enum StructureType {
     Splitter,
     Merger,
     WaterPump,
+    Boiler,
 }
 
 impl StructureType {
@@ -77,6 +80,7 @@ impl StructureType {
             (Vec2::new(1., 4.), 0.),
             (Vec2::new(2., 4.), 0.),
         ];
+        const BOILER: &[(Vec2, f64)] = &[(Vec2::new(0., 1.), 0.)];
         match self {
             Self::OreMine | Self::Smelter | Self::Loader | Self::Splitter => {
                 &STRUCTURE_INPUT_POS[0..1]
@@ -84,6 +88,7 @@ impl StructureType {
             Self::Merger => &STRUCTURE_INPUT_POS[..],
             Self::Sink => SINK,
             Self::Unloader | Self::WaterPump => &[],
+            Self::Boiler => BOILER,
         }
     }
 
@@ -93,13 +98,19 @@ impl StructureType {
                 &STRUCTURE_OUTPUT_POS[0..1]
             }
             Self::Splitter => &STRUCTURE_OUTPUT_POS[..],
-            Self::Loader | Self::Sink | Self::WaterPump => &[],
+            Self::Loader | Self::Sink | Self::WaterPump | Self::Boiler => &[],
         }
     }
 
     pub fn pipes(&self) -> &'static [(Vec2, f64)] {
+        const BOILER: &[(Vec2, f64)] = &[
+            (Vec2::new(1., 0.), PI / 2.),
+            (Vec2::new(-1., 0.), -PI / 2.),
+            (Vec2::new(0., -1.), PI),
+        ];
         match self {
             Self::WaterPump => &STRUCTURE_OUTPUT_POS[0..1],
+            Self::Boiler => BOILER,
             _ => &[],
         }
     }
@@ -311,6 +322,38 @@ impl Structure {
                     ))
                 }
             }
+            StructureType::Boiler => {
+                if 0 < self.inventory.coal
+                    && let Some(input) = &mut self.input_fluid
+                    && 1. <= input.amount
+                    && input.ty == FluidType::Water
+                    && self.output_fluid.is_none_or(|f| {
+                        f.ty == FluidType::Steam && f.amount <= MAX_FLUID_AMOUNT - STEAM_GEN
+                    })
+                {
+                    self.inventory.coal -= 1;
+                    input.amount -= 1.;
+                    dbg!(input.amount);
+                    if let Some(output) = &mut self.output_fluid {
+                        output.amount += STEAM_GEN;
+                    } else {
+                        self.output_fluid = Some(FluidBox {
+                            ty: FluidType::Steam,
+                            amount: STEAM_GEN,
+                        });
+                    }
+                }
+
+                if let Some((fluid_box, pipe_id)) = self.output_fluid.zip(self.connected_pipes) {
+                    ret.fluids.push((
+                        EntityId::Pipe(pipe_id),
+                        FluidBox {
+                            ty: fluid_box.ty,
+                            amount: fluid_box.amount.min(PIPE_FLOW_RATE),
+                        },
+                    ))
+                }
+            }
         }
         ret
     }
@@ -344,6 +387,32 @@ impl Structure {
             }
         }
         false
+    }
+
+    /// Try to insert some amount of fluid. It can be rejected if the fluid type is incompatible.
+    /// Pressure is ignored in the current implementation.
+    /// Returns the amount of fluid actually moved.
+    pub fn try_insert_fluid(
+        &mut self,
+        incoming_fluid: FluidBox,
+        _pressure: f64,
+    ) -> Option<FluidBox> {
+        if let Some(input) = &mut self.input_fluid {
+            if input.ty == incoming_fluid.ty && input.amount < MAX_FLUID_AMOUNT {
+                let flow =
+                    (incoming_fluid.amount * STEAM_PUMP_RATE).min(MAX_FLUID_AMOUNT - input.amount);
+                input.amount += flow;
+                return Some(FluidBox {
+                    ty: incoming_fluid.ty,
+                    amount: flow,
+                });
+            }
+        } else if incoming_fluid.ty == FluidType::Water {
+            // Accepts only water
+            self.input_fluid = Some(incoming_fluid);
+            return Some(incoming_fluid);
+        }
+        None
     }
 
     /// Attempt to remove items that were successfully deleted, after the receiver confirmed.

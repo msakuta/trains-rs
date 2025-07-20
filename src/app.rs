@@ -56,6 +56,7 @@ enum ClickMode {
     AddSplitter,
     AddMerger,
     AddWaterPump,
+    AddBoiler,
     ConnectBelt,
     ConnectPipe,
     DeleteStructure,
@@ -373,6 +374,11 @@ impl TrainsApp {
                             self.error_msg = Some((e, 10.));
                         }
                     }
+                    ClickMode::AddBoiler => {
+                        if let Err(e) = self.add_boiler(paint_transform.from_pos2(pointer)) {
+                            self.error_msg = Some((e, 10.));
+                        }
+                    }
                     ClickMode::ConnectBelt => {
                         if let Err(e) = self.add_belt(paint_transform.from_pos2(pointer)) {
                             self.error_msg = Some((e, 10.));
@@ -508,13 +514,15 @@ impl TrainsApp {
             ClickMode::AddSmelter
             | ClickMode::AddSplitter
             | ClickMode::AddMerger
-            | ClickMode::AddWaterPump => {
+            | ClickMode::AddWaterPump
+            | ClickMode::AddBoiler => {
                 if let Some(pointer) = response.hover_pos() {
                     let ty = match self.click_mode {
                         ClickMode::AddSmelter => StructureType::Smelter,
                         ClickMode::AddSplitter => StructureType::Splitter,
                         ClickMode::AddMerger => StructureType::Merger,
                         ClickMode::AddWaterPump => StructureType::WaterPump,
+                        ClickMode::AddBoiler => StructureType::Boiler,
                         _ => unreachable!(),
                     };
                     if let Some(pos) = self.building_structure {
@@ -580,6 +588,7 @@ impl TrainsApp {
                 | ClickMode::AddSplitter
                 | ClickMode::AddMerger
                 | ClickMode::AddWaterPump
+                | ClickMode::AddBoiler
         ) {
             self.building_structure = None;
         }
@@ -792,6 +801,7 @@ impl TrainsApp {
                 ClickMode::AddWaterPump,
                 "Add Water Pump",
             );
+            ui.radio_value(&mut self.click_mode, ClickMode::AddBoiler, "Add Boiler");
             ui.radio_value(&mut self.click_mode, ClickMode::ConnectBelt, "Connect Belt");
             ui.radio_value(&mut self.click_mode, ClickMode::ConnectPipe, "Connect Pipe");
             ui.radio_value(

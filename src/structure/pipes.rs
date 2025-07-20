@@ -147,6 +147,11 @@ impl Structures {
                         };
                         moved_fluid = dest.try_insert(fluid, pressure);
                     }
+                    EntityId::Structure(dest_st_id) => {
+                        if let Some(dest) = self.structures.get_mut(&dest_st_id) {
+                            moved_fluid = dest.try_insert_fluid(fluid, pressure);
+                        }
+                    }
                     _ => {}
                 }
             }
