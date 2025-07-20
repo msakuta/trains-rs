@@ -15,7 +15,7 @@ use self::heightmap::{CONTOURS_GRID_STEPE, HeightMapKey, HeightMapParams};
 
 use crate::{
     bg_image::BgImage,
-    structure::{BeltConnection, Structure, StructureId, StructureType, Structures},
+    structure::{BeltConnection, OreType, OreVein, Structure, StructureType, Structures},
     train::Train,
     train_tracks::{SelectedPathNode, Station, TrainTracks},
     transform::{PaintTransform, Transform, half_rect},
@@ -36,6 +36,7 @@ const STRUCTURES_KEY: &str = "structures";
 const CREDITS_KEY: &str = "credits";
 const ORE_URL: &str = "bytes://ore.png";
 const INGOT_URL: &str = "bytes://metal.png";
+const COAL_URL: &str = "bytes://coal.png";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ClickMode {
@@ -398,7 +399,10 @@ impl TrainsApp {
                 painter.circle(
                     paint_transform.to_pos2(ore_vein.pos),
                     7.5,
-                    Color32::from_rgb(127, 127, 0),
+                    match ore_vein.ty {
+                        OreType::Iron => Color32::from_rgb(127, 127, 191),
+                        OreType::Coal => Color32::from_rgb(127, 127, 63),
+                    },
                     (2., Color32::BLACK),
                 );
             }
@@ -843,6 +847,7 @@ impl eframe::App for TrainsApp {
 
         ctx.include_bytes(ORE_URL, include_bytes!("../img/ore.png"));
         ctx.include_bytes(INGOT_URL, include_bytes!("../img/metal.png"));
+        ctx.include_bytes(COAL_URL, include_bytes!("../img/coal-ore.png"));
 
         ctx.request_repaint();
 
@@ -851,15 +856,17 @@ impl eframe::App for TrainsApp {
             Ok(tiles_to_update) => {
                 for pos in tiles_to_update {
                     if let Some(tile) = self.heightmap.tiles.get(&HeightMapKey { pos, level: 0 }) {
-                        for ov in self.heightmap.gen_ore_veins(pos, &tile) {
-                            let occupied_miner =
-                                self.structures.structures.iter().find_map(|(id, st)| {
-                                    if st.pos == ov { Some(*id) } else { None }
+                        for mut ov in self.heightmap.gen_ore_veins(pos, &tile) {
+                            ov.occupied_miner =
+                                self.structures.structures.iter_mut().find_map(|(id, st)| {
+                                    if st.pos == ov.pos {
+                                        st.ore_type = Some(ov.ty);
+                                        Some(*id)
+                                    } else {
+                                        None
+                                    }
                                 });
-                            self.ore_veins.push(OreVein {
-                                pos: ov,
-                                occupied_miner,
-                            });
+                            self.ore_veins.push(ov);
                         }
                     }
                 }
@@ -946,10 +953,4 @@ impl std::ops::Drop for TrainsApp {
             &map,
         );
     }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct OreVein {
-    pos: Vec2,
-    occupied_miner: Option<StructureId>,
 }

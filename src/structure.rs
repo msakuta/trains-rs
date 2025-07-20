@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de};
 
 use crate::{
     train::Train,
@@ -35,13 +35,13 @@ pub(crate) type StructureId = usize;
 pub(crate) struct Structure {
     pub pos: Vec2<f64>,
     pub ty: StructureType,
-    pub iron: u32,
-    pub ingot: u32,
+    pub inventory: Inventory,
     cooldown: usize,
     pub output_belts: [Option<BeltId>; 3],
     pub orientation: f64,
     pub connected_station: Option<(StationId, i32)>,
     pub next_output: u32,
+    pub ore_type: Option<OreType>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
@@ -150,30 +150,48 @@ impl Structure {
         };
         match self.ty {
             StructureType::OreMine => {
-                if self.cooldown == 0 && self.iron < ORE_MINE_CAPACITY {
-                    self.iron += 1;
+                if self.cooldown == 0 && self.inventory.sum() < ORE_MINE_CAPACITY {
+                    match self.ore_type {
+                        Some(OreType::Iron) => self.inventory.iron += 1,
+                        Some(OreType::Coal) => self.inventory.coal += 1,
+                        _ => {}
+                    }
                     self.cooldown = ORE_MINE_FREQUENCY;
                 } else {
                     self.cooldown = self.cooldown.saturating_sub(1);
                 }
 
-                if 0 < self.iron {
-                    if let Some(belt_id) = self.output_belts.iter().find_map(|belt| belt.as_ref()) {
-                        ret.insert_items
-                            .push((EntityId::Belt(*belt_id), Item::IronOre));
+                if let Some(belt_id) = self.output_belts.iter().find_map(|belt| belt.as_ref()) {
+                    match self.ore_type {
+                        Some(OreType::Iron) => {
+                            if 0 < self.inventory.iron {
+                                ret.insert_items
+                                    .push((EntityId::Belt(*belt_id), Item::IronOre));
+                            }
+                        }
+                        Some(OreType::Coal) => {
+                            if 0 < self.inventory.coal {
+                                ret.insert_items
+                                    .push((EntityId::Belt(*belt_id), Item::Coal));
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
             StructureType::Smelter => {
-                if self.cooldown == 0 && self.ingot < INGOT_CAPACITY && 0 < self.iron {
-                    self.iron -= 1;
-                    self.ingot += 1;
+                if self.cooldown == 0
+                    && self.inventory.sum() < ORE_MINE_CAPACITY
+                    && 0 < self.inventory.iron
+                {
+                    self.inventory.iron -= 1;
+                    self.inventory.ingot += 1;
                     self.cooldown = ORE_MINE_FREQUENCY;
                 } else {
                     self.cooldown = self.cooldown.saturating_sub(1);
                 }
 
-                if 0 < self.ingot {
+                if 0 < self.inventory.ingot {
                     if let Some(belt_id) = self.output_belts.iter().find_map(|belt| belt.as_ref()) {
                         ret.insert_items
                             .push((EntityId::Belt(*belt_id), Item::Ingot));
@@ -181,8 +199,8 @@ impl Structure {
                 }
             }
             StructureType::Sink => {
-                if self.cooldown == 0 && 0 < self.ingot {
-                    self.ingot -= 1;
+                if self.cooldown == 0 && 0 < self.inventory.ingot {
+                    self.inventory.ingot -= 1;
                     *score += 1;
                     self.cooldown = 1;
                 } else {
@@ -191,10 +209,10 @@ impl Structure {
             }
             StructureType::Loader => {
                 if let Some((station, car_idx)) = self.connected_station {
-                    if 0 < self.iron {
+                    if 0 < self.inventory.iron {
                         ret.insert_items
                             .push((EntityId::Station(station, car_idx), Item::IronOre));
-                    } else if 0 < self.ingot {
+                    } else if 0 < self.inventory.ingot {
                         ret.insert_items
                             .push((EntityId::Station(station, car_idx), Item::Ingot));
                     }
@@ -204,24 +222,24 @@ impl Structure {
                 if let Some((station, car_idx)) = self.connected_station {
                     // Attempt to unload both item types.
                     // TODO: avoid heap allocations
-                    if self.iron < ORE_MINE_CAPACITY {
+                    if self.inventory.iron < ORE_MINE_CAPACITY {
                         ret.remove_items
                             .push((EntityId::Station(station, car_idx), Item::IronOre));
                     }
-                    if self.ingot < INGOT_CAPACITY {
+                    if self.inventory.ingot < INGOT_CAPACITY {
                         ret.remove_items
                             .push((EntityId::Station(station, car_idx), Item::Ingot));
                     }
                 }
 
-                if 0 < self.iron {
+                if 0 < self.inventory.iron {
                     if let Some(belt_id) = self.output_belts.iter().find_map(|belt| belt.as_ref()) {
                         ret.insert_items
                             .push((EntityId::Belt(*belt_id), Item::IronOre));
                     }
                 }
 
-                if 0 < self.ingot {
+                if 0 < self.inventory.ingot {
                     if let Some(belt_id) = self.output_belts.iter().find_map(|belt| belt.as_ref()) {
                         ret.insert_items
                             .push((EntityId::Belt(*belt_id), Item::Ingot));
@@ -230,10 +248,10 @@ impl Structure {
             }
             StructureType::Splitter => {
                 if let Some(belt_id) = self.output_belts[self.next_output as usize] {
-                    if 0 < self.iron {
+                    if 0 < self.inventory.iron {
                         ret.insert_items
                             .push((EntityId::Belt(belt_id), Item::IronOre));
-                    } else if 0 < self.ingot {
+                    } else if 0 < self.inventory.ingot {
                         ret.insert_items
                             .push((EntityId::Belt(belt_id), Item::Ingot));
                     }
@@ -242,10 +260,10 @@ impl Structure {
             }
             StructureType::Merger => {
                 if let Some(belt_id) = self.output_belts[0] {
-                    if 0 < self.iron {
+                    if 0 < self.inventory.iron {
                         ret.insert_items
                             .push((EntityId::Belt(belt_id), Item::IronOre));
-                    } else if 0 < self.ingot {
+                    } else if 0 < self.inventory.ingot {
                         ret.insert_items
                             .push((EntityId::Belt(belt_id), Item::Ingot));
                     }
@@ -258,8 +276,8 @@ impl Structure {
     pub fn try_insert(&mut self, item: Item) -> bool {
         match item {
             Item::IronOre => {
-                if self.iron < ORE_MINE_CAPACITY {
-                    self.iron += 1;
+                if self.inventory.sum() < ORE_MINE_CAPACITY {
+                    self.inventory.iron += 1;
                     return true;
                 }
             }
@@ -270,9 +288,15 @@ impl Structure {
                         | StructureType::Loader
                         | StructureType::Splitter
                         | StructureType::Merger
-                ) && self.ingot < INGOT_CAPACITY
+                ) && self.inventory.sum() < ORE_MINE_CAPACITY
                 {
-                    self.ingot += 1;
+                    self.inventory.ingot += 1;
+                    return true;
+                }
+            }
+            Item::Coal => {
+                if self.inventory.sum() < ORE_MINE_CAPACITY {
+                    self.inventory.coal += 1;
                     return true;
                 }
             }
@@ -280,10 +304,11 @@ impl Structure {
         false
     }
 
-    /// Attempt to remove items that were successfully deleted.
-    pub fn post_update(&mut self, remove_iron_ores: i32, remove_ingots: i32) {
-        self.iron = (self.iron as i32 - remove_iron_ores).max(0) as u32;
-        self.ingot = (self.ingot as i32 - remove_ingots).max(0) as u32;
+    /// Attempt to remove items that were successfully deleted, after the receiver confirmed.
+    pub fn post_update(&mut self, remove_inventory: Inventory) {
+        self.inventory.iron = self.inventory.iron.saturating_sub(remove_inventory.iron);
+        self.inventory.ingot = self.inventory.ingot.saturating_sub(remove_inventory.ingot);
+        self.inventory.coal = self.inventory.coal.saturating_sub(remove_inventory.coal);
     }
 
     /// Returns an iterator for the positions of the input belt connection.
@@ -440,9 +465,11 @@ impl Structures {
 
             let mut moved_iron_ores = 0;
             let mut moved_ingots = 0;
+            let mut moved_coal = 0;
             let mut record_moved = |item, delta: i32| match item {
                 Item::IronOre => moved_iron_ores += delta,
                 Item::Ingot => moved_ingots += delta,
+                Item::Coal => moved_coal += delta,
             };
 
             // Insert items by structures
@@ -487,8 +514,9 @@ impl Structures {
                     EntityId::Structure(st_id) => {
                         if let Some(st) = self.structures.get_mut(&st_id) {
                             match item {
-                                Item::IronOre => st.post_update(1, 0),
-                                Item::Ingot => st.post_update(0, 1),
+                                Item::IronOre => st.post_update(Inventory::default().with_iron(1)),
+                                Item::Ingot => st.post_update(Inventory::default().with_ingot(1)),
+                                Item::Coal => st.post_update(Inventory::default().with_coal(1)),
                             }
                         }
                     }
@@ -510,7 +538,11 @@ impl Structures {
             let Some(st) = self.structures.get_mut(&id) else {
                 continue;
             };
-            st.post_update(moved_iron_ores, moved_ingots);
+            st.post_update(Inventory {
+                iron: moved_iron_ores.max(0) as u32,
+                ingot: moved_ingots.max(0) as u32,
+                coal: moved_coal.max(0) as u32,
+            });
         }
 
         // We cannot use iter_mut since we need random access of the elements in belts to transfer items.
@@ -695,6 +727,7 @@ pub(crate) enum BeltConnection {
 pub(crate) enum Item {
     IronOre,
     Ingot,
+    Coal,
 }
 
 fn normalize_car_idx(train: &Train, car_idx: i32) -> i32 {
@@ -705,5 +738,56 @@ fn normalize_car_idx(train: &Train, car_idx: i32) -> i32 {
     match direction {
         SegmentDirection::Forward => -car_idx,
         SegmentDirection::Backward => car_idx,
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct OreVein {
+    pub pos: Vec2,
+    pub ty: OreType,
+    pub occupied_miner: Option<StructureId>,
+}
+
+impl OreVein {
+    pub fn new(pos: Vec2, ty: OreType) -> Self {
+        Self {
+            pos,
+            ty,
+            occupied_miner: None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub(crate) enum OreType {
+    Iron,
+    Coal,
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+pub(crate) struct Inventory {
+    pub iron: u32,
+    pub ingot: u32,
+    pub coal: u32,
+}
+
+impl Inventory {
+    pub fn sum(&self) -> u32 {
+        self.iron + self.ingot + self.coal
+    }
+
+    pub fn with_iron(mut self, count: u32) -> Self {
+        self.iron += count;
+        self
+    }
+
+    pub fn with_ingot(mut self, count: u32) -> Self {
+        self.ingot += count;
+        self
+    }
+
+    pub fn with_coal(mut self, count: u32) -> Self {
+        self.coal += count;
+        self
     }
 }

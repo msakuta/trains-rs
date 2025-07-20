@@ -8,7 +8,7 @@ use eframe::{
 use ordered_float::NotNan;
 
 use crate::{
-    app::{INGOT_URL, ORE_URL},
+    app::{COAL_URL, INGOT_URL, ORE_URL},
     structure::{
         BELT_MAX_SLOPE, BELT_SPEED, Belt, BeltConnection, INGOT_CAPACITY, ITEM_INTERVAL, Item,
         MAX_BELT_LENGTH, ORE_MINE_CAPACITY, Structure, StructureOrBelt, StructureType,
@@ -44,30 +44,23 @@ impl TrainsApp {
             const BAR_HEIGHT: f32 = 5.;
             const BAR_STRIDE: f32 = 8.; // We want some gaps to differentiate them
             const BAR_OFFSET: f32 = 30.;
-            for (y, fullness, color) in [
-                (
-                    0,
-                    st.iron as f32 / ORE_MINE_CAPACITY as f32,
-                    Color32::from_rgb(255, 255, 0),
-                ),
-                (1, st.ingot as f32 / INGOT_CAPACITY as f32, Color32::GREEN),
-            ] {
-                let y_pos = base_pos.y + BAR_OFFSET + y as f32 * BAR_STRIDE;
-                painter.rect_filled(
-                    Rect::from_center_size(pos2(base_pos.x, y_pos), vec2(BAR_WIDTH, BAR_HEIGHT)),
-                    0.,
-                    Color32::BLACK,
-                );
+            let fullness = st.inventory.sum() as f32 / ORE_MINE_CAPACITY as f32;
+            let color = Color32::from_rgb(255, 255, 0);
+            let y_pos = base_pos.y + BAR_OFFSET;
+            painter.rect_filled(
+                Rect::from_center_size(pos2(base_pos.x, y_pos), vec2(BAR_WIDTH, BAR_HEIGHT)),
+                0.,
+                Color32::BLACK,
+            );
 
-                painter.rect_filled(
-                    Rect::from_min_size(
-                        pos2(base_pos.x - BAR_WIDTH / 2., y_pos - BAR_HEIGHT / 2.),
-                        vec2(fullness * BAR_WIDTH, BAR_HEIGHT),
-                    ),
-                    0.,
-                    color,
-                );
-            }
+            painter.rect_filled(
+                Rect::from_min_size(
+                    pos2(base_pos.x - BAR_WIDTH / 2., y_pos - BAR_HEIGHT / 2.),
+                    vec2(fullness * BAR_WIDTH, BAR_HEIGHT),
+                ),
+                0.,
+                color,
+            );
 
             Some(())
         };
@@ -160,12 +153,9 @@ impl TrainsApp {
         paint_transform: &PaintTransform,
     ) -> Result<(), String> {
         match item {
-            Item::IronOre => {
-                self.render_img(pos, ORE_URL, painter, paint_transform)
-            }
-            Item::Ingot => {
-                self.render_img(pos, INGOT_URL, painter, paint_transform)
-            }
+            Item::IronOre => self.render_img(pos, ORE_URL, painter, paint_transform),
+            Item::Ingot => self.render_img(pos, INGOT_URL, painter, paint_transform),
+            Item::Coal => self.render_img(pos, COAL_URL, painter, paint_transform),
         }
     }
 
@@ -355,9 +345,9 @@ impl TrainsApp {
         {
             return Err("ore vein already occupied".to_string());
         }
-        let st_id = self
-            .structures
-            .add_structure(Structure::new_ore_mine(pos, orient));
+        let mut ore_mine = Structure::new_ore_mine(pos, orient);
+        ore_mine.ore_type = Some(ore_vein.ty);
+        let st_id = self.structures.add_structure(ore_mine);
         ore_vein.occupied_miner = Some(st_id);
         self.building_structure = None;
         Ok(())
