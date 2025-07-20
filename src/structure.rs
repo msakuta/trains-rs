@@ -558,6 +558,8 @@ impl Structures {
         ret
     }
 
+    /// Give opportunities to all entities for updates.
+    /// Entities include structures, belts and pipes.
     pub fn update(&mut self, credits: &mut u32, train: &mut Train) {
         // Update structures
         let st_ids = self.structures.keys().copied().collect::<Vec<_>>();
@@ -679,68 +681,8 @@ impl Structures {
                 moved_fluids,
             );
         }
-
-        // We cannot use iter_mut since we need random access of the elements in belts to transfer items.
-        // Technically, this logic depends on the ordering of iteration, which depends on the hashmap.
-        // We also need to store the keys into a temporary container to avoid borrow checker, which is not great
-        // for performance.
-        // We may want stable order by using generational id arena.
-        let belt_ids = self.belts.keys().copied().collect::<Vec<_>>();
-        for belt_id in belt_ids {
-            let Some(belt) = self.belts.get_mut(&belt_id) else {
-                continue;
-            };
-            let res = belt.update();
-            let mut moved_items = 0;
-            for (dest_id, item) in res.insert_items {
-                match dest_id {
-                    EntityId::Belt(dest_belt_id) => {
-                        let Some(dest) = self.belts.get_mut(&dest_belt_id) else {
-                            continue;
-                        };
-                        moved_items += dest.try_insert(item) as usize;
-                    }
-                    EntityId::Structure(dest_st_id) => {
-                        if let Some(dest) = self.structures.get_mut(&dest_st_id) {
-                            moved_items += dest.try_insert(item) as usize;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            // Re-borrow the original belt
-            let Some(belt) = self.belts.get_mut(&belt_id) else {
-                continue;
-            };
-            belt.post_update(moved_items);
-        }
-
-        let pipe_ids = self.pipes.keys().copied().collect::<Vec<_>>();
-        for pipe_id in pipe_ids {
-            let Some(pipe) = self.pipes.get_mut(&pipe_id) else {
-                continue;
-            };
-            let res = pipe.update();
-            let mut moved_fluid = None;
-            for (dest_id, fluid, pressure) in res.moved_fluids {
-                match dest_id {
-                    EntityId::Pipe(dest_pipe_id) => {
-                        let Some(dest) = self.pipes.get_mut(&dest_pipe_id) else {
-                            continue;
-                        };
-                        moved_fluid = dest.try_insert(fluid, pressure);
-                    }
-                    _ => {}
-                }
-            }
-            // Re-borrow the original pipe
-            let Some(pipe) = self.pipes.get_mut(&pipe_id) else {
-                continue;
-            };
-            if let Some(moved_fluid) = moved_fluid {
-                pipe.post_update(moved_fluid);
-            }
-        }
+        self.update_belts();
+        self.update_pipes();
     }
 
     pub(crate) fn preview_delete(&self, pos: Vec2, search_radius: f64) -> Option<EntityId> {

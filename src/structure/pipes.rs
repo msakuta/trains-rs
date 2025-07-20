@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::vec2::Vec2;
 
-use super::{BeltConnection, EntityId, StructureId};
+use super::{EntityId, StructureId, Structures};
 
 pub(crate) const MAX_FLUID_AMOUNT: f64 = 100.;
 pub(super) const WATER_PUMP_RATE: f64 = 0.1;
@@ -128,4 +128,35 @@ pub(crate) enum PipeConnection {
     /// Pipe start can only connect to end and vice versa
     PipeStart(PipeId),
     PipeEnd(PipeId),
+}
+
+impl Structures {
+    pub(super) fn update_pipes(&mut self) {
+        let pipe_ids = self.pipes.keys().copied().collect::<Vec<_>>();
+        for pipe_id in pipe_ids {
+            let Some(pipe) = self.pipes.get_mut(&pipe_id) else {
+                continue;
+            };
+            let res = pipe.update();
+            let mut moved_fluid = None;
+            for (dest_id, fluid, pressure) in res.moved_fluids {
+                match dest_id {
+                    EntityId::Pipe(dest_pipe_id) => {
+                        let Some(dest) = self.pipes.get_mut(&dest_pipe_id) else {
+                            continue;
+                        };
+                        moved_fluid = dest.try_insert(fluid, pressure);
+                    }
+                    _ => {}
+                }
+            }
+            // Re-borrow the original pipe
+            let Some(pipe) = self.pipes.get_mut(&pipe_id) else {
+                continue;
+            };
+            if let Some(moved_fluid) = moved_fluid {
+                pipe.post_update(moved_fluid);
+            }
+        }
+    }
 }

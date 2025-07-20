@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 
 use crate::vec2::Vec2;
 
-use super::{EntityId, Item, StructureId, StructureUpdateResult};
+use super::{EntityId, Item, StructureId, StructureUpdateResult, Structures};
 
 pub(crate) const MAX_BELT_LENGTH: f64 = 20.;
 pub(crate) const ITEM_INTERVAL: f64 = 1.0;
@@ -103,4 +103,43 @@ pub(crate) enum BeltConnection {
     /// Belt start can only connect to end and vice versa
     BeltStart(BeltId),
     BeltEnd(BeltId),
+}
+
+impl Structures {
+    pub(super) fn update_belts(&mut self) {
+        // We cannot use iter_mut since we need random access of the elements in belts to transfer items.
+        // Technically, this logic depends on the ordering of iteration, which depends on the hashmap.
+        // We also need to store the keys into a temporary container to avoid borrow checker, which is not great
+        // for performance.
+        // We may want stable order by using generational id arena.
+        let belt_ids = self.belts.keys().copied().collect::<Vec<_>>();
+        for belt_id in belt_ids {
+            let Some(belt) = self.belts.get_mut(&belt_id) else {
+                continue;
+            };
+            let res = belt.update();
+            let mut moved_items = 0;
+            for (dest_id, item) in res.insert_items {
+                match dest_id {
+                    EntityId::Belt(dest_belt_id) => {
+                        let Some(dest) = self.belts.get_mut(&dest_belt_id) else {
+                            continue;
+                        };
+                        moved_items += dest.try_insert(item) as usize;
+                    }
+                    EntityId::Structure(dest_st_id) => {
+                        if let Some(dest) = self.structures.get_mut(&dest_st_id) {
+                            moved_items += dest.try_insert(item) as usize;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            // Re-borrow the original belt
+            let Some(belt) = self.belts.get_mut(&belt_id) else {
+                continue;
+            };
+            belt.post_update(moved_items);
+        }
+    }
 }
