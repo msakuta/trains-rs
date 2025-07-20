@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::vec2::Vec2;
 
-use super::{BeltConnection, EntityId};
+use super::{BeltConnection, EntityId, StructureId};
 
 pub(crate) const MAX_FLUID_AMOUNT: f64 = 100.;
 pub(super) const WATER_PUMP_RATE: f64 = 0.1;
@@ -13,18 +13,18 @@ pub(crate) type PipeId = usize;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct Pipe {
     pub(crate) start: Vec2<f64>,
-    pub(crate) start_con: BeltConnection,
+    pub(crate) start_con: PipeConnection,
     pub(crate) end: Vec2<f64>,
-    pub(crate) end_con: BeltConnection,
+    pub(crate) end_con: PipeConnection,
     pub(crate) fluid: Option<FluidBox>,
 }
 
 impl Pipe {
     pub fn new(
         start: Vec2<f64>,
-        start_con: BeltConnection,
+        start_con: PipeConnection,
         end: Vec2<f64>,
-        end_con: BeltConnection,
+        end_con: PipeConnection,
     ) -> Self {
         Self {
             start,
@@ -47,11 +47,11 @@ impl Pipe {
             let fullness = fluid.amount / MAX_FLUID_AMOUNT;
             for con in [self.start_con, self.end_con] {
                 match con {
-                    BeltConnection::BeltStart(pipe_id) | BeltConnection::BeltEnd(pipe_id) => {
+                    PipeConnection::PipeStart(pipe_id) | PipeConnection::PipeEnd(pipe_id) => {
                         ret.moved_fluids
                             .push((EntityId::Pipe(pipe_id), fluid_box, fullness));
                     }
-                    BeltConnection::Structure(st_id, _) => {
+                    PipeConnection::Structure(st_id, _) => {
                         ret.moved_fluids
                             .push((EntityId::Structure(st_id), fluid_box, fullness));
                     }
@@ -118,4 +118,14 @@ pub(crate) enum FluidType {
 pub(crate) struct FluidBox {
     pub amount: f64,
     pub ty: FluidType,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum PipeConnection {
+    /// An end of a pipe that connects to nothing.
+    Pos,
+    Structure(StructureId, usize),
+    /// Pipe start can only connect to end and vice versa
+    PipeStart(PipeId),
+    PipeEnd(PipeId),
 }

@@ -17,7 +17,7 @@ pub(crate) use self::{
     belts::{
         BELT_MAX_SLOPE, BELT_SPEED, Belt, BeltConnection, BeltId, ITEM_INTERVAL, MAX_BELT_LENGTH,
     },
-    pipes::{FluidBox, FluidType, MAX_FLUID_AMOUNT, Pipe, PipeId},
+    pipes::{FluidBox, FluidType, MAX_FLUID_AMOUNT, Pipe, PipeConnection, PipeId},
 };
 
 use std::f64::consts::PI;
@@ -491,26 +491,26 @@ impl Structures {
         &self,
         pos: Vec2<f64>,
         search_radius: f64,
-    ) -> (BeltConnection, Vec2<f64>) {
+    ) -> (PipeConnection, Vec2<f64>) {
         for (i, structure) in &self.structures {
             for (idx, con_pos) in structure.pipe_pos().enumerate() {
                 let dist2 = (con_pos - pos).length2();
                 if dist2 < search_radius.powi(2) {
-                    return (BeltConnection::Structure(*i, idx), con_pos);
+                    return (PipeConnection::Structure(*i, idx), con_pos);
                 }
             }
         }
         for (i, pipe) in &self.pipes {
             let dist2 = (pipe.start - pos).length2();
             if dist2 < search_radius.powi(2) {
-                return (BeltConnection::BeltStart(*i), pipe.start);
+                return (PipeConnection::PipeStart(*i), pipe.start);
             }
             let dist2 = (pipe.end - pos).length2();
             if dist2 < search_radius.powi(2) {
-                return (BeltConnection::BeltEnd(*i), pipe.end);
+                return (PipeConnection::PipeEnd(*i), pipe.end);
             }
         }
-        (BeltConnection::Pos, pos)
+        (PipeConnection::Pos, pos)
     }
 
     pub fn find_by_id(&self, id: StructureId) -> Option<&Structure> {
@@ -545,9 +545,9 @@ impl Structures {
     pub fn add_pipe(
         &mut self,
         start_pos: Vec2,
-        start_con: BeltConnection,
+        start_con: PipeConnection,
         end_pos: Vec2,
-        end_con: BeltConnection,
+        end_con: PipeConnection,
     ) -> PipeId {
         let ret = self.pipe_id_gen;
         self.pipes.insert(

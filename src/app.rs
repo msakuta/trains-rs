@@ -15,7 +15,9 @@ use self::heightmap::{CONTOURS_GRID_STEPE, HeightMapKey, HeightMapParams};
 
 use crate::{
     bg_image::BgImage,
-    structure::{BeltConnection, OreType, OreVein, Structure, StructureType, Structures},
+    structure::{
+        BeltConnection, OreType, OreVein, PipeConnection, Structure, StructureType, Structures,
+    },
     train::Train,
     train_tracks::{SelectedPathNode, Station, TrainTracks},
     transform::{PaintTransform, Transform, half_rect},
@@ -72,7 +74,7 @@ pub(crate) struct TrainsApp {
     click_mode: ClickMode,
     cursor: Option<Vec2>,
     belt_connection: Option<(BeltConnection, Vec2<f64>)>,
-    pipe_connection: Option<(BeltConnection, Vec2<f64>)>,
+    pipe_connection: Option<(PipeConnection, Vec2<f64>)>,
     building_structure: Option<Vec2>,
     tracks: TrainTracks,
     train: Train,

@@ -12,7 +12,8 @@ use crate::{
     app::{COAL_URL, INGOT_URL, ORE_URL},
     structure::{
         BELT_MAX_SLOPE, BELT_SPEED, Belt, BeltConnection, EntityId, ITEM_INTERVAL, Item,
-        MAX_BELT_LENGTH, MAX_FLUID_AMOUNT, ORE_MINE_CAPACITY, Pipe, Structure, StructureType,
+        MAX_BELT_LENGTH, MAX_FLUID_AMOUNT, ORE_MINE_CAPACITY, Pipe, PipeConnection, Structure,
+        StructureType,
     },
     transform::PaintTransform,
     vec2::Vec2,
@@ -376,7 +377,7 @@ impl TrainsApp {
             .find_belt_con(pos, SELECT_THRESHOLD / self.transform.scale() as f64, input)
     }
 
-    pub(super) fn find_pipe_con(&self, pos: Vec2) -> (BeltConnection, Vec2) {
+    pub(super) fn find_pipe_con(&self, pos: Vec2) -> (PipeConnection, Vec2) {
         self.structures
             .find_pipe_con(pos, SELECT_THRESHOLD / self.transform.scale() as f64)
     }
@@ -595,7 +596,7 @@ impl TrainsApp {
     pub(super) fn add_pipe(&mut self, pos: Vec2) -> Result<(), String> {
         if let Some((start_con, start_pos)) = &self.pipe_connection {
             let (end_con, end_pos) = self.find_pipe_con(pos);
-            if matches!((end_con, start_con), (BeltConnection::Structure(eid, eidx), BeltConnection::Structure(sid, sidx)) if eid == *sid && eidx == *sidx)
+            if matches!((end_con, start_con), (PipeConnection::Structure(eid, eidx), PipeConnection::Structure(sid, sidx)) if eid == *sid && eidx == *sidx)
             {
                 return Err("You cannot connect a pipe itself".to_string());
             }
@@ -609,16 +610,16 @@ impl TrainsApp {
                 .structures
                 .add_pipe(*start_pos, *start_con, end_pos, end_con);
             match start_con {
-                BeltConnection::Structure(start_st, con_idx) => {
+                PipeConnection::Structure(start_st, con_idx) => {
                     if let Some(st) = self.structures.structures.get_mut(start_st) {
                         st.connected_pipes = Some(pipe_id);
                         println!("Added belt {pipe_id} to output_belts[{con_idx}]");
                     }
                 }
                 // If we connect to a belt, we add a reference to the upstream belt.
-                BeltConnection::BeltEnd(connecting_pipe) => {
+                PipeConnection::PipeEnd(connecting_pipe) => {
                     if let Some(connecting_pipe) = self.structures.pipes.get_mut(connecting_pipe) {
-                        connecting_pipe.end_con = BeltConnection::BeltStart(pipe_id);
+                        connecting_pipe.end_con = PipeConnection::PipeStart(pipe_id);
                         println!("Added pipe {pipe_id} to connecting pipe");
                     }
                 }
@@ -639,7 +640,7 @@ impl TrainsApp {
     ) {
         if let Some((start_con, start_pos)) = &self.pipe_connection {
             let (end_con, end_pos) = self.find_pipe_con(pos);
-            if matches!(end_con, BeltConnection::Structure(_, _)) && end_con != *start_con {
+            if matches!(end_con, PipeConnection::Structure(_, _)) && end_con != *start_con {
                 painter.rect_filled(
                     Rect::from_center_size(
                         paint_transform.to_pos2(end_pos),
@@ -660,7 +661,7 @@ impl TrainsApp {
             // Fake pipe object to preview
             let pipe = Pipe::new(*start_pos, *start_con, end_pos, end_con);
             self.render_pipe(&pipe, painter, paint_transform, color);
-        } else if let (BeltConnection::Structure(_, _), end_pos) = self.find_pipe_con(pos) {
+        } else if let (PipeConnection::Structure(_, _), end_pos) = self.find_pipe_con(pos) {
             painter.rect_filled(
                 Rect::from_center_size(
                     paint_transform.to_pos2(end_pos),
