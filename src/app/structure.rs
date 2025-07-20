@@ -1,7 +1,8 @@
 use cgmath::{Matrix3, Rad, Vector2};
 use eframe::{
     egui::{
-        self, Color32, Painter, Pos2, Rect, SizeHint, TextureOptions, load::TexturePoll, pos2, vec2,
+        self, Color32, Painter, Pos2, Rect, SizeHint, Stroke, TextureOptions, load::TexturePoll,
+        pos2, vec2,
     },
     epaint::PathShape,
 };
@@ -11,7 +12,7 @@ use crate::{
     app::{COAL_URL, INGOT_URL, ORE_URL},
     structure::{
         BELT_MAX_SLOPE, BELT_SPEED, Belt, BeltConnection, EntityId, ITEM_INTERVAL, Item,
-        MAX_BELT_LENGTH, ORE_MINE_CAPACITY, Pipe, Structure, StructureType,
+        MAX_BELT_LENGTH, MAX_FLUID_AMOUNT, ORE_MINE_CAPACITY, Pipe, Structure, StructureType,
     },
     transform::PaintTransform,
     vec2::Vec2,
@@ -43,9 +44,27 @@ impl TrainsApp {
             const BAR_WIDTH: f32 = 50.;
             const BAR_HEIGHT: f32 = 5.;
             const BAR_OFFSET: f32 = 30.;
-            let fullness = st.inventory.sum() as f32 / ORE_MINE_CAPACITY as f32;
-            let color = Color32::from_rgb(255, 255, 0);
-            let y_pos = base_pos.y + BAR_OFFSET;
+            let (fullness, color, y_pos);
+            match st.ty {
+                StructureType::OreMine
+                | StructureType::Smelter
+                | StructureType::Sink
+                | StructureType::Loader
+                | StructureType::Splitter
+                | StructureType::Merger
+                | StructureType::Unloader => {
+                    fullness = st.inventory.sum() as f32 / ORE_MINE_CAPACITY as f32;
+                    color = Color32::from_rgb(255, 255, 0);
+                    y_pos = base_pos.y + BAR_OFFSET;
+                }
+                StructureType::WaterPump => {
+                    fullness =
+                        st.output_fluid.map_or(0., |fb| fb.amount) as f32 / MAX_FLUID_AMOUNT as f32;
+                    color = Color32::from_rgb(0, 255, 255);
+                    y_pos = base_pos.y + BAR_OFFSET;
+                }
+            }
+
             painter.rect_filled(
                 Rect::from_center_size(pos2(base_pos.x, y_pos), vec2(BAR_WIDTH, BAR_HEIGHT)),
                 0.,
@@ -155,7 +174,7 @@ impl TrainsApp {
         let end = paint_transform.to_pos2(pipe.end);
 
         if self.transform.scale() < 2. {
-            painter.arrow(start, end - start, (2., color));
+            painter.line_segment([start, end], (2., color));
         } else {
             let delta = pipe.end - pipe.start;
             let length = delta.length();
@@ -181,12 +200,34 @@ impl TrainsApp {
                 fill_color,
                 (1., color),
             ));
+
+            if let Some(fluid) = &pipe.fluid {
+                let width = fluid.amount / MAX_FLUID_AMOUNT / 2.;
+                painter.add(PathShape::convex_polygon(
+                    [
+                        pipe.start + normal * width,
+                        pipe.end + normal * width,
+                        pipe.end - normal * width,
+                        pipe.start - normal * width,
+                    ]
+                    .into_iter()
+                    .map(|p| paint_transform.to_pos2(p))
+                    .collect(),
+                    Color32::from_rgb(0, 0, 191),
+                    Stroke::NONE,
+                ));
+            }
         }
     }
 
     pub(super) fn render_pipes(&self, painter: &Painter, paint_transform: &PaintTransform) {
         for belt in self.structures.pipes.values() {
-            self.render_pipe(belt, painter, paint_transform, Color32::BLUE);
+            self.render_pipe(
+                belt,
+                painter,
+                paint_transform,
+                Color32::from_rgb(0, 127, 191),
+            );
         }
     }
 
@@ -575,17 +616,17 @@ impl TrainsApp {
                     }
                 }
                 // If we connect to a belt, we add a reference to the upstream belt.
-                BeltConnection::BeltEnd(upstream_belt) => {
-                    if let Some(upstream_belt) = self.structures.belts.get_mut(upstream_belt) {
-                        upstream_belt.end_con = BeltConnection::BeltStart(pipe_id);
-                        println!("Added belt {pipe_id} to upstream belt");
+                BeltConnection::BeltEnd(connecting_pipe) => {
+                    if let Some(connecting_pipe) = self.structures.pipes.get_mut(connecting_pipe) {
+                        connecting_pipe.end_con = BeltConnection::BeltStart(pipe_id);
+                        println!("Added pipe {pipe_id} to connecting pipe");
                     }
                 }
                 _ => {}
             }
             self.pipe_connection = None;
         } else {
-            self.pipe_connection = Some(self.find_belt_con(pos, false));
+            self.pipe_connection = Some(self.find_pipe_con(pos));
         }
         Ok(())
     }

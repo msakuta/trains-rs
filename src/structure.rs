@@ -28,7 +28,9 @@ pub(crate) const MAX_BELT_LENGTH: f64 = 20.;
 pub(crate) const ITEM_INTERVAL: f64 = 1.0;
 pub(crate) const BELT_SPEED: f64 = 0.05; // length per tick
 pub(crate) const BELT_MAX_SLOPE: f64 = 0.1;
-const MAX_FLUID_AMOUNT: f64 = 100.;
+pub(crate) const MAX_FLUID_AMOUNT: f64 = 100.;
+const WATER_PUMP_RATE: f64 = 0.1;
+const PIPE_FLOW_RATE: f64 = 0.2;
 
 pub(crate) type StructureId = usize;
 
@@ -159,6 +161,7 @@ impl Structure {
         let mut ret = StructureUpdateResult {
             insert_items: vec![],
             remove_items: vec![],
+            fluids: vec![],
         };
         match self.ty {
             StructureType::OreMine => {
@@ -284,8 +287,23 @@ impl Structure {
             StructureType::WaterPump => {
                 if let Some(output) = &mut self.output_fluid {
                     if matches!(output.ty, FluidType::Water) {
-                        output.amount = (output.amount + 1.).min(MAX_FLUID_AMOUNT);
+                        output.amount = (output.amount + WATER_PUMP_RATE).min(MAX_FLUID_AMOUNT);
                     }
+                } else {
+                    self.output_fluid = Some(FluidBox {
+                        ty: FluidType::Water,
+                        amount: WATER_PUMP_RATE,
+                    })
+                }
+
+                if let Some((fluid_box, pipe_id)) = self.output_fluid.zip(self.connected_pipes) {
+                    ret.fluids.push((
+                        EntityId::Pipe(pipe_id),
+                        FluidBox {
+                            ty: fluid_box.ty,
+                            amount: fluid_box.amount.min(PIPE_FLOW_RATE),
+                        },
+                    ))
                 }
             }
         }
@@ -324,10 +342,22 @@ impl Structure {
     }
 
     /// Attempt to remove items that were successfully deleted, after the receiver confirmed.
-    pub fn post_update(&mut self, remove_inventory: Inventory) {
+    pub fn post_update(&mut self, remove_inventory: Inventory, remove_fluids: Vec<FluidBox>) {
         self.inventory.iron = self.inventory.iron.saturating_sub(remove_inventory.iron);
         self.inventory.ingot = self.inventory.ingot.saturating_sub(remove_inventory.ingot);
         self.inventory.coal = self.inventory.coal.saturating_sub(remove_inventory.coal);
+        for fluid in remove_fluids {
+            if let Some(output) = &mut self.output_fluid
+                && output.ty == fluid.ty
+            {
+                // It is a logical error that the amount of removed fluid exceeds the existing, but we make sure to
+                // not have negative amount.
+                output.amount = (output.amount - fluid.amount).max(0.);
+                if output.amount == 0. {
+                    self.output_fluid = None;
+                }
+            }
+        }
     }
 
     /// Returns an iterator for the positions of the input belt connection.
@@ -365,6 +395,7 @@ impl Structure {
 pub(crate) struct StructureUpdateResult {
     pub insert_items: Vec<(EntityId, Item)>,
     pub remove_items: Vec<(EntityId, Item)>,
+    pub fluids: Vec<(EntityId, FluidBox)>,
 }
 
 impl StructureUpdateResult {
@@ -372,6 +403,7 @@ impl StructureUpdateResult {
         Self {
             insert_items: vec![],
             remove_items: vec![],
+            fluids: vec![],
         }
     }
 }
@@ -587,9 +619,15 @@ impl Structures {
                     EntityId::Structure(st_id) => {
                         if let Some(st) = self.structures.get_mut(&st_id) {
                             match item {
-                                Item::IronOre => st.post_update(Inventory::default().with_iron(1)),
-                                Item::Ingot => st.post_update(Inventory::default().with_ingot(1)),
-                                Item::Coal => st.post_update(Inventory::default().with_coal(1)),
+                                Item::IronOre => {
+                                    st.post_update(Inventory::default().with_iron(1), vec![])
+                                }
+                                Item::Ingot => {
+                                    st.post_update(Inventory::default().with_ingot(1), vec![])
+                                }
+                                Item::Coal => {
+                                    st.post_update(Inventory::default().with_coal(1), vec![])
+                                }
                             }
                         }
                     }
@@ -607,15 +645,34 @@ impl Structures {
                 }
             }
 
+            let mut moved_fluids = vec![];
+            for (dest_id, fluid) in result.fluids {
+                match dest_id {
+                    EntityId::Pipe(pipe_id) => {
+                        if let Some(pipe) = self.pipes.get_mut(&pipe_id) {
+                            // Structure outputs have the highest pressure so that it will never flow back.
+                            // Imagine a pump is actively pushing it out.
+                            moved_fluids.extend(pipe.try_insert(fluid, 1.));
+                        }
+                    }
+                    _ => {
+                        // Structures can only output fluids to a pipe.
+                    }
+                }
+            }
+
             // Re-borrow the original structure
             let Some(st) = self.structures.get_mut(&id) else {
                 continue;
             };
-            st.post_update(Inventory {
-                iron: moved_iron_ores.max(0) as u32,
-                ingot: moved_ingots.max(0) as u32,
-                coal: moved_coal.max(0) as u32,
-            });
+            st.post_update(
+                Inventory {
+                    iron: moved_iron_ores.max(0) as u32,
+                    ingot: moved_ingots.max(0) as u32,
+                    coal: moved_coal.max(0) as u32,
+                },
+                moved_fluids,
+            );
         }
 
         // We cannot use iter_mut since we need random access of the elements in belts to transfer items.
@@ -660,18 +717,18 @@ impl Structures {
             };
             let res = pipe.update();
             let mut moved_fluid = None;
-            for (dest_id, fluid) in res.moved_fluids {
+            for (dest_id, fluid, pressure) in res.moved_fluids {
                 match dest_id {
                     EntityId::Pipe(dest_pipe_id) => {
                         let Some(dest) = self.pipes.get_mut(&dest_pipe_id) else {
                             continue;
                         };
-                        moved_fluid = dest.try_insert(fluid);
+                        moved_fluid = dest.try_insert(fluid, pressure);
                     }
                     _ => {}
                 }
             }
-            // Re-borrow the original belt
+            // Re-borrow the original pipe
             let Some(pipe) = self.pipes.get_mut(&pipe_id) else {
                 continue;
             };
@@ -886,31 +943,47 @@ impl Pipe {
         let mut ret = PipeUpdateResult::default();
         if let Some(fluid) = &mut self.fluid {
             let fluid_box = FluidBox {
-                amount: (fluid.amount * 0.1).max(0.1).min(fluid.amount),
+                amount: (fluid.amount * PIPE_FLOW_RATE)
+                    .max(PIPE_FLOW_RATE)
+                    .min(fluid.amount),
                 ty: fluid.ty,
             };
-            match self.start_con {
-                BeltConnection::BeltStart(pipe_id) | BeltConnection::BeltEnd(pipe_id) => {
-                    ret.moved_fluids.push((EntityId::Pipe(pipe_id), fluid_box));
+            let fullness = fluid.amount / MAX_FLUID_AMOUNT;
+            for con in [self.start_con, self.end_con] {
+                match con {
+                    BeltConnection::BeltStart(pipe_id) | BeltConnection::BeltEnd(pipe_id) => {
+                        ret.moved_fluids
+                            .push((EntityId::Pipe(pipe_id), fluid_box, fullness));
+                    }
+                    BeltConnection::Structure(st_id, _) => {
+                        ret.moved_fluids
+                            .push((EntityId::Structure(st_id), fluid_box, fullness));
+                    }
+                    _ => {}
                 }
-                BeltConnection::Structure(st_id, _) => {
-                    ret.moved_fluids.push((EntityId::Pipe(st_id), fluid_box));
-                }
-                _ => {}
             }
         }
         ret
     }
 
-    fn try_insert(&mut self, fluid: FluidBox) -> Option<FluidBox> {
+    /// Try to insert some amount of fluid. The rate of flow depends on the pressure and amount already in the pipe.
+    /// If the pipe has another type of fluid, it will be rejected.
+    /// Returns the amount of fluid actually moved.
+    fn try_insert(&mut self, incoming_fluid: FluidBox, pressure: f64) -> Option<FluidBox> {
         let Some(fluid_box) = &mut self.fluid else {
-            self.fluid = Some(fluid);
-            return Some(fluid);
+            self.fluid = Some(incoming_fluid);
+            return Some(incoming_fluid);
         };
-        if fluid_box.ty == fluid.ty && fluid_box.amount < MAX_FLUID_AMOUNT {
-            let after = (fluid_box.amount + fluid.amount).min(MAX_FLUID_AMOUNT);
+        if fluid_box.ty == incoming_fluid.ty && fluid_box.amount < MAX_FLUID_AMOUNT {
+            let my_pressure = fluid_box.amount / MAX_FLUID_AMOUNT;
+            let delta = pressure - my_pressure;
+            if delta < 0. {
+                return None;
+            }
+            let flow = delta * PIPE_FLOW_RATE;
+            let after = (fluid_box.amount + flow).min(MAX_FLUID_AMOUNT);
             let ret = FluidBox {
-                amount: fluid_box.amount,
+                amount: after - fluid_box.amount,
                 ty: fluid_box.ty,
             };
             fluid_box.amount = after;
@@ -932,7 +1005,7 @@ impl Pipe {
 
 #[derive(Clone, Debug, Default)]
 struct PipeUpdateResult {
-    moved_fluids: Vec<(EntityId, FluidBox)>,
+    moved_fluids: Vec<(EntityId, FluidBox, f64)>,
 }
 
 #[derive(Clone, Copy, Debug)]
