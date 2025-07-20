@@ -345,6 +345,13 @@ impl Structure {
             .map(|(pos, _)| self.relative_pos(&pos))
     }
 
+    pub fn pipe_pos(&self) -> impl Iterator<Item = Vec2> {
+        self.ty
+            .pipes()
+            .iter()
+            .map(|(pos, _)| self.relative_pos(pos))
+    }
+
     fn relative_pos(&self, ofs: &Vec2) -> Vec2 {
         let s = self.orientation.sin();
         let c = self.orientation.cos();
@@ -367,12 +374,6 @@ impl StructureUpdateResult {
             remove_items: vec![],
         }
     }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum StructureOrBelt {
-    Structure(StructureId),
-    Belt(BeltId),
 }
 
 /// A reference type that can indicate either a structure, a belt or a train car parked on a station.
@@ -449,6 +450,32 @@ impl Structures {
         (BeltConnection::Pos, pos)
     }
 
+    pub(crate) fn find_pipe_con(
+        &self,
+        pos: Vec2<f64>,
+        search_radius: f64,
+    ) -> (BeltConnection, Vec2<f64>) {
+        for (i, structure) in &self.structures {
+            for (idx, con_pos) in structure.pipe_pos().enumerate() {
+                let dist2 = (con_pos - pos).length2();
+                if dist2 < search_radius.powi(2) {
+                    return (BeltConnection::Structure(*i, idx), con_pos);
+                }
+            }
+        }
+        for (i, pipe) in &self.pipes {
+            let dist2 = (pipe.start - pos).length2();
+            if dist2 < search_radius.powi(2) {
+                return (BeltConnection::BeltStart(*i), pipe.start);
+            }
+            let dist2 = (pipe.end - pos).length2();
+            if dist2 < search_radius.powi(2) {
+                return (BeltConnection::BeltEnd(*i), pipe.end);
+            }
+        }
+        (BeltConnection::Pos, pos)
+    }
+
     pub fn find_by_id(&self, id: StructureId) -> Option<&Structure> {
         self.structures
             .iter()
@@ -475,6 +502,22 @@ impl Structures {
             Belt::new(start_pos, start_con, end_pos, end_con),
         );
         self.belt_id_gen += 1;
+        ret
+    }
+
+    pub fn add_pipe(
+        &mut self,
+        start_pos: Vec2,
+        start_con: BeltConnection,
+        end_pos: Vec2,
+        end_con: BeltConnection,
+    ) -> PipeId {
+        let ret = self.pipe_id_gen;
+        self.pipes.insert(
+            self.pipe_id_gen,
+            Pipe::new(start_pos, start_con, end_pos, end_con),
+        );
+        self.pipe_id_gen += 1;
         ret
     }
 
@@ -506,7 +549,7 @@ impl Structures {
                             }
                         }
                     }
-                    EntityId::Pipe(pipe_id) => {
+                    EntityId::Pipe(_) => {
                         // Pipes cannot receive items.
                     }
                     EntityId::Structure(st_id) => {
@@ -538,7 +581,7 @@ impl Structures {
                             belt.post_update(1);
                         }
                     }
-                    EntityId::Pipe(pipe_id) => {
+                    EntityId::Pipe(_) => {
                         // Pipes cannot remove items.
                     }
                     EntityId::Structure(st_id) => {
@@ -638,7 +681,7 @@ impl Structures {
         }
     }
 
-    pub(crate) fn preview_delete(&self, pos: Vec2, search_radius: f64) -> Option<StructureOrBelt> {
+    pub(crate) fn preview_delete(&self, pos: Vec2, search_radius: f64) -> Option<EntityId> {
         let search_radius2 = search_radius.powi(2);
         if let Some(id) = self.structures.iter().find_map(|(id, st)| {
             if (st.pos - pos).length2() < search_radius2 {
@@ -647,24 +690,34 @@ impl Structures {
                 None
             }
         }) {
-            return Some(StructureOrBelt::Structure(id));
+            return Some(EntityId::Structure(id));
         }
 
-        if let Some(id) = self.belts.iter().find_map(|(id, belt)| {
-            let delta = belt.end - belt.start;
+        let find_close_edge = |start: Vec2, end: Vec2| {
+            let delta = end - start;
             let length = delta.length();
             let parallel = delta / length;
             let perp = parallel.left90();
             // s and t coordinates are along the belt and its perpendicular axis, respectively.
-            let s = parallel.dot(pos - belt.start);
-            let t = perp.dot(pos - belt.start);
-            if 0. < s && s < length && t.abs() < search_radius {
-                Some(*id)
-            } else {
-                None
-            }
-        }) {
-            return Some(StructureOrBelt::Belt(id));
+            let s = parallel.dot(pos - start);
+            let t = perp.dot(pos - start);
+            0. < s && s < length && t.abs() < search_radius
+        };
+
+        if let Some((id, _)) = self
+            .belts
+            .iter()
+            .find(|(_, belt)| find_close_edge(belt.start, belt.end))
+        {
+            return Some(EntityId::Belt(*id));
+        }
+
+        if let Some((id, _)) = self
+            .pipes
+            .iter()
+            .find(|(_, pipe)| find_close_edge(pipe.start, pipe.end))
+        {
+            return Some(EntityId::Pipe(*id));
         }
 
         None
@@ -675,12 +728,16 @@ impl Structures {
             return;
         };
         match found {
-            StructureOrBelt::Structure(id) => {
+            EntityId::Structure(id) => {
                 self.structures.remove(&id);
             }
-            StructureOrBelt::Belt(id) => {
+            EntityId::Belt(id) => {
                 self.belts.remove(&id);
             }
+            EntityId::Pipe(id) => {
+                self.pipes.remove(&id);
+            }
+            _ => {}
         }
     }
 }
@@ -810,7 +867,7 @@ pub(crate) struct Pipe {
 }
 
 impl Pipe {
-    fn new(
+    pub fn new(
         start: Vec2<f64>,
         start_con: BeltConnection,
         end: Vec2<f64>,

@@ -10,8 +10,8 @@ use ordered_float::NotNan;
 use crate::{
     app::{COAL_URL, INGOT_URL, ORE_URL},
     structure::{
-        BELT_MAX_SLOPE, BELT_SPEED, Belt, BeltConnection, INGOT_CAPACITY, ITEM_INTERVAL, Item,
-        MAX_BELT_LENGTH, ORE_MINE_CAPACITY, Structure, StructureOrBelt, StructureType,
+        BELT_MAX_SLOPE, BELT_SPEED, Belt, BeltConnection, EntityId, ITEM_INTERVAL, Item,
+        MAX_BELT_LENGTH, ORE_MINE_CAPACITY, Pipe, Structure, StructureType,
     },
     transform::PaintTransform,
     vec2::Vec2,
@@ -42,7 +42,6 @@ impl TrainsApp {
             let base_pos = paint_transform.to_pos2(st.pos).to_vec2();
             const BAR_WIDTH: f32 = 50.;
             const BAR_HEIGHT: f32 = 5.;
-            const BAR_STRIDE: f32 = 8.; // We want some gaps to differentiate them
             const BAR_OFFSET: f32 = 30.;
             let fullness = st.inventory.sum() as f32 / ORE_MINE_CAPACITY as f32;
             let color = Color32::from_rgb(255, 255, 0);
@@ -142,6 +141,52 @@ impl TrainsApp {
                     }
                 }
             }
+        }
+    }
+
+    fn render_pipe(
+        &self,
+        pipe: &Pipe,
+        painter: &Painter,
+        paint_transform: &PaintTransform,
+        color: Color32,
+    ) {
+        let start = paint_transform.to_pos2(pipe.start);
+        let end = paint_transform.to_pos2(pipe.end);
+
+        if self.transform.scale() < 2. {
+            painter.arrow(start, end - start, (2., color));
+        } else {
+            let delta = pipe.end - pipe.start;
+            let length = delta.length();
+            let tangent = delta / length;
+            let normal = tangent.left90();
+            let width = 0.5;
+            let fill_color = Color32::from_rgba_premultiplied(
+                color.r() / 2 + 127,
+                color.g() / 2 + 127,
+                color.b() / 2 + 127,
+                color.a(),
+            );
+            painter.add(PathShape::convex_polygon(
+                [
+                    pipe.start + normal * width,
+                    pipe.end + normal * width,
+                    pipe.end - normal * width,
+                    pipe.start - normal * width,
+                ]
+                .into_iter()
+                .map(|p| paint_transform.to_pos2(p))
+                .collect(),
+                fill_color,
+                (1., color),
+            ));
+        }
+    }
+
+    pub(super) fn render_pipes(&self, painter: &Painter, paint_transform: &PaintTransform) {
+        for belt in self.structures.pipes.values() {
+            self.render_pipe(belt, painter, paint_transform, Color32::BLUE);
         }
     }
 
@@ -290,6 +335,11 @@ impl TrainsApp {
             .find_belt_con(pos, SELECT_THRESHOLD / self.transform.scale() as f64, input)
     }
 
+    pub(super) fn find_pipe_con(&self, pos: Vec2) -> (BeltConnection, Vec2) {
+        self.structures
+            .find_pipe_con(pos, SELECT_THRESHOLD / self.transform.scale() as f64)
+    }
+
     pub(super) fn preview_delete_structure(
         &self,
         pointer: Pos2,
@@ -300,7 +350,7 @@ impl TrainsApp {
         let search_radius = SELECT_THRESHOLD / self.transform.scale() as f64;
         if let Some(id) = self.structures.preview_delete(pos, search_radius) {
             match id {
-                StructureOrBelt::Structure(id) => {
+                EntityId::Structure(id) => {
                     if let Some(st) = self.structures.structures.get(&id) {
                         let pos = paint_transform.to_pos2(st.pos);
                         Self::render_structure(
@@ -313,7 +363,7 @@ impl TrainsApp {
                         );
                     }
                 }
-                StructureOrBelt::Belt(id) => {
+                EntityId::Belt(id) => {
                     if let Some(belt) = self.structures.belts.get(&id) {
                         self.render_belt(
                             belt,
@@ -323,6 +373,17 @@ impl TrainsApp {
                         );
                     }
                 }
+                EntityId::Pipe(id) => {
+                    if let Some(pipe) = self.structures.pipes.get(&id) {
+                        self.render_pipe(
+                            pipe,
+                            painter,
+                            paint_transform,
+                            Color32::from_rgb(255, 0, 255),
+                        );
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -479,6 +540,86 @@ impl TrainsApp {
             let belt = Belt::new(*start_pos, *start_con, end_pos, end_con);
             self.render_belt(&belt, painter, paint_transform, color);
         } else if let (BeltConnection::Structure(_, _), end_pos) = self.find_belt_con(pos, false) {
+            painter.rect_filled(
+                Rect::from_center_size(
+                    paint_transform.to_pos2(end_pos),
+                    vec2(STRUCTURE_ICON_SIZE, STRUCTURE_ICON_SIZE),
+                ),
+                0.,
+                Color32::from_rgb(255, 127, 191),
+            );
+        }
+    }
+
+    pub(super) fn add_pipe(&mut self, pos: Vec2) -> Result<(), String> {
+        if let Some((start_con, start_pos)) = &self.pipe_connection {
+            let (end_con, end_pos) = self.find_pipe_con(pos);
+            if matches!((end_con, start_con), (BeltConnection::Structure(eid, eidx), BeltConnection::Structure(sid, sidx)) if eid == *sid && eidx == *sidx)
+            {
+                return Err("You cannot connect a pipe itself".to_string());
+            }
+            if MAX_BELT_LENGTH.powi(2) <= (end_pos - *start_pos).length2() {
+                return Err("Pipe is too long".to_string());
+            }
+            if exceeds_slope(*start_pos, end_pos, &self.heightmap) {
+                return Err("Pipe is exceeding maximum slope".to_string());
+            }
+            let pipe_id = self
+                .structures
+                .add_pipe(*start_pos, *start_con, end_pos, end_con);
+            match start_con {
+                BeltConnection::Structure(start_st, con_idx) => {
+                    if let Some(st) = self.structures.structures.get_mut(start_st) {
+                        st.connected_pipes = Some(pipe_id);
+                        println!("Added belt {pipe_id} to output_belts[{con_idx}]");
+                    }
+                }
+                // If we connect to a belt, we add a reference to the upstream belt.
+                BeltConnection::BeltEnd(upstream_belt) => {
+                    if let Some(upstream_belt) = self.structures.belts.get_mut(upstream_belt) {
+                        upstream_belt.end_con = BeltConnection::BeltStart(pipe_id);
+                        println!("Added belt {pipe_id} to upstream belt");
+                    }
+                }
+                _ => {}
+            }
+            self.pipe_connection = None;
+        } else {
+            self.pipe_connection = Some(self.find_belt_con(pos, false));
+        }
+        Ok(())
+    }
+
+    pub(super) fn preview_pipe(
+        &mut self,
+        pos: Vec2,
+        painter: &Painter,
+        paint_transform: &PaintTransform,
+    ) {
+        if let Some((start_con, start_pos)) = &self.pipe_connection {
+            let (end_con, end_pos) = self.find_pipe_con(pos);
+            if matches!(end_con, BeltConnection::Structure(_, _)) && end_con != *start_con {
+                painter.rect_filled(
+                    Rect::from_center_size(
+                        paint_transform.to_pos2(end_pos),
+                        vec2(STRUCTURE_ICON_SIZE, STRUCTURE_ICON_SIZE),
+                    ),
+                    0.,
+                    Color32::from_rgb(255, 127, 191),
+                );
+            }
+            let color = if (end_pos - *start_pos).length2() < MAX_BELT_LENGTH.powi(2)
+                && !intersects_water(*start_pos, end_pos, &self.heightmap)
+                && !exceeds_slope(*start_pos, end_pos, &self.heightmap)
+            {
+                Color32::from_rgba_premultiplied(127, 0, 255, 191)
+            } else {
+                Color32::RED
+            };
+            // Fake pipe object to preview
+            let pipe = Pipe::new(*start_pos, *start_con, end_pos, end_con);
+            self.render_pipe(&pipe, painter, paint_transform, color);
+        } else if let (BeltConnection::Structure(_, _), end_pos) = self.find_pipe_con(pos) {
             painter.rect_filled(
                 Rect::from_center_size(
                     paint_transform.to_pos2(end_pos),

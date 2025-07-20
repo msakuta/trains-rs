@@ -55,6 +55,7 @@ enum ClickMode {
     AddMerger,
     AddWaterPump,
     ConnectBelt,
+    ConnectPipe,
     DeleteStructure,
 }
 
@@ -71,6 +72,7 @@ pub(crate) struct TrainsApp {
     click_mode: ClickMode,
     cursor: Option<Vec2>,
     belt_connection: Option<(BeltConnection, Vec2<f64>)>,
+    pipe_connection: Option<(BeltConnection, Vec2<f64>)>,
     building_structure: Option<Vec2>,
     tracks: TrainTracks,
     train: Train,
@@ -123,6 +125,7 @@ impl TrainsApp {
             click_mode: ClickMode::None,
             cursor: None,
             belt_connection: None,
+            pipe_connection: None,
             building_structure: None,
             tracks,
             train,
@@ -373,6 +376,11 @@ impl TrainsApp {
                             self.error_msg = Some((e, 10.));
                         }
                     }
+                    ClickMode::ConnectPipe => {
+                        if let Err(e) = self.add_pipe(paint_transform.from_pos2(pointer)) {
+                            self.error_msg = Some((e, 10.));
+                        }
+                    }
                     ClickMode::DeleteStructure => {
                         const SELECT_THRESHOLD: f64 = 10.;
                         let pos = paint_transform.from_pos2(pointer);
@@ -419,6 +427,8 @@ impl TrainsApp {
         self.render_structures(&painter, &paint_transform);
 
         self.render_belts(&painter, &paint_transform);
+
+        self.render_pipes(&painter, &paint_transform);
 
         self.cursor = if let Some(pos) = response.hover_pos() {
             Some(paint_transform.from_pos2(pos))
@@ -545,6 +555,12 @@ impl TrainsApp {
                 if let Some(pointer) = response.hover_pos() {
                     let pos = paint_transform.from_pos2(pointer);
                     self.preview_belt(pos, &painter, &paint_transform);
+                }
+            }
+            ClickMode::ConnectPipe => {
+                if let Some(pointer) = response.hover_pos() {
+                    let pos = paint_transform.from_pos2(pointer);
+                    self.preview_pipe(pos, &painter, &paint_transform);
                 }
             }
             ClickMode::DeleteStructure => {
@@ -775,6 +791,7 @@ impl TrainsApp {
                 "Add Water Pump",
             );
             ui.radio_value(&mut self.click_mode, ClickMode::ConnectBelt, "Connect Belt");
+            ui.radio_value(&mut self.click_mode, ClickMode::ConnectPipe, "Connect Pipe");
             ui.radio_value(
                 &mut self.click_mode,
                 ClickMode::DeleteStructure,
@@ -789,6 +806,10 @@ impl TrainsApp {
                 // ui.radio_value().changed() can detect changes by clicking the option, but cannot detect when
                 // the option is passively deselected by clicking another.
                 self.bg.clear();
+            }
+            let is_pipe_mode = matches!(self.click_mode, ClickMode::ConnectPipe);
+            if !is_pipe_mode {
+                self.pipe_connection = None;
             }
         });
         ui.group(|ui| {
