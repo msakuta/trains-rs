@@ -213,6 +213,7 @@ impl TrainsApp {
                 StructureType::Unloader => Color32::from_rgb(0, 63, 127),
                 StructureType::Splitter => Color32::from_rgb(95, 191, 0),
                 StructureType::Merger => Color32::from_rgb(191, 95, 0),
+                StructureType::WaterPump => Color32::from_rgb(0, 95, 191),
             }
         };
         let line_color = Color32::from_rgb(0, 63, 31);
@@ -384,6 +385,22 @@ impl TrainsApp {
         } else {
             self.building_structure = None;
         }
+    }
+
+    pub(super) fn add_water_pump(&mut self, pointer_pos: Vec2) -> Result<(), String> {
+        let Some(pos) = self.building_structure else {
+            if !self.heightmap.is_water(&pointer_pos) {
+                return Err("Cannot build outside water".to_string());
+            }
+            self.building_structure = Some(pointer_pos);
+            return Ok(());
+        };
+        let delta = pos - pointer_pos;
+        let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
+        let water_pump = Structure::new_structure(StructureType::WaterPump, pos, orient);
+        let _ = self.structures.add_structure(water_pump);
+        self.building_structure = None;
+        Ok(())
     }
 
     pub(super) fn add_belt(&mut self, pos: Vec2) -> Result<(), String> {

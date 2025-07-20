@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 
-use serde::{Deserialize, Serialize, de};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     train::Train,
@@ -28,6 +28,7 @@ pub(crate) const MAX_BELT_LENGTH: f64 = 20.;
 pub(crate) const ITEM_INTERVAL: f64 = 1.0;
 pub(crate) const BELT_SPEED: f64 = 0.05; // length per tick
 pub(crate) const BELT_MAX_SLOPE: f64 = 0.1;
+const MAX_FLUID_AMOUNT: f64 = 100.;
 
 pub(crate) type StructureId = usize;
 
@@ -38,10 +39,13 @@ pub(crate) struct Structure {
     pub inventory: Inventory,
     cooldown: usize,
     pub output_belts: [Option<BeltId>; 3],
+    pub connected_pipes: Option<PipeId>,
     pub orientation: f64,
     pub connected_station: Option<(StationId, i32)>,
     pub next_output: u32,
     pub ore_type: Option<OreType>,
+    pub input_fluid: Option<FluidBox>,
+    pub output_fluid: Option<FluidBox>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
@@ -54,6 +58,7 @@ pub(crate) enum StructureType {
     Unloader,
     Splitter,
     Merger,
+    WaterPump,
 }
 
 impl StructureType {
@@ -71,7 +76,7 @@ impl StructureType {
             }
             Self::Merger => &STRUCTURE_INPUT_POS[..],
             Self::Sink => SINK,
-            Self::Unloader => &[],
+            Self::Unloader | Self::WaterPump => &[],
         }
     }
 
@@ -81,7 +86,14 @@ impl StructureType {
                 &STRUCTURE_OUTPUT_POS[0..1]
             }
             Self::Splitter => &STRUCTURE_OUTPUT_POS[..],
-            Self::Loader | Self::Sink => &[],
+            Self::Loader | Self::Sink | Self::WaterPump => &[],
+        }
+    }
+
+    pub fn pipes(&self) -> &'static [(Vec2, f64)] {
+        match self {
+            Self::WaterPump => &STRUCTURE_OUTPUT_POS[0..1],
+            _ => &[],
         }
     }
 }
@@ -269,6 +281,13 @@ impl Structure {
                     }
                 }
             }
+            StructureType::WaterPump => {
+                if let Some(output) = &mut self.output_fluid {
+                    if matches!(output.ty, FluidType::Water) {
+                        output.amount = (output.amount + 1.).min(MAX_FLUID_AMOUNT);
+                    }
+                }
+            }
         }
         ret
     }
@@ -361,6 +380,7 @@ pub(crate) enum StructureOrBelt {
 pub(crate) enum EntityId {
     Structure(StructureId),
     Belt(BeltId),
+    Pipe(PipeId),
     Station(StationId, i32),
 }
 
@@ -374,6 +394,8 @@ pub(crate) struct Structures {
     pub structure_id_gen: StructureId,
     pub belts: HashMap<BeltId, Belt>,
     pub belt_id_gen: BeltId,
+    pub pipes: HashMap<PipeId, Pipe>,
+    pub pipe_id_gen: PipeId,
 }
 
 impl Structures {
@@ -384,6 +406,8 @@ impl Structures {
             structure_id_gen,
             belts: HashMap::new(),
             belt_id_gen: 0,
+            pipes: HashMap::new(),
+            pipe_id_gen: 0,
         }
     }
 
@@ -482,6 +506,9 @@ impl Structures {
                             }
                         }
                     }
+                    EntityId::Pipe(pipe_id) => {
+                        // Pipes cannot receive items.
+                    }
                     EntityId::Structure(st_id) => {
                         if let Some(st) = self.structures.get_mut(&st_id) {
                             if st.try_insert(item) {
@@ -510,6 +537,9 @@ impl Structures {
                         if let Some(belt) = self.belts.get_mut(&belt_id) {
                             belt.post_update(1);
                         }
+                    }
+                    EntityId::Pipe(pipe_id) => {
+                        // Pipes cannot remove items.
                     }
                     EntityId::Structure(st_id) => {
                         if let Some(st) = self.structures.get_mut(&st_id) {
@@ -578,6 +608,33 @@ impl Structures {
                 continue;
             };
             belt.post_update(moved_items);
+        }
+
+        let pipe_ids = self.pipes.keys().copied().collect::<Vec<_>>();
+        for pipe_id in pipe_ids {
+            let Some(pipe) = self.pipes.get_mut(&pipe_id) else {
+                continue;
+            };
+            let res = pipe.update();
+            let mut moved_fluid = None;
+            for (dest_id, fluid) in res.moved_fluids {
+                match dest_id {
+                    EntityId::Pipe(dest_pipe_id) => {
+                        let Some(dest) = self.pipes.get_mut(&dest_pipe_id) else {
+                            continue;
+                        };
+                        moved_fluid = dest.try_insert(fluid);
+                    }
+                    _ => {}
+                }
+            }
+            // Re-borrow the original belt
+            let Some(pipe) = self.pipes.get_mut(&pipe_id) else {
+                continue;
+            };
+            if let Some(moved_fluid) = moved_fluid {
+                pipe.post_update(moved_fluid);
+            }
         }
     }
 
@@ -741,6 +798,86 @@ fn normalize_car_idx(train: &Train, car_idx: i32) -> i32 {
     }
 }
 
+pub(crate) type PipeId = usize;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct Pipe {
+    pub(crate) start: Vec2<f64>,
+    pub(crate) start_con: BeltConnection,
+    pub(crate) end: Vec2<f64>,
+    pub(crate) end_con: BeltConnection,
+    pub(crate) fluid: Option<FluidBox>,
+}
+
+impl Pipe {
+    fn new(
+        start: Vec2<f64>,
+        start_con: BeltConnection,
+        end: Vec2<f64>,
+        end_con: BeltConnection,
+    ) -> Self {
+        Self {
+            start,
+            start_con,
+            end,
+            end_con,
+            fluid: None,
+        }
+    }
+
+    fn update(&mut self) -> PipeUpdateResult {
+        let mut ret = PipeUpdateResult::default();
+        if let Some(fluid) = &mut self.fluid {
+            let fluid_box = FluidBox {
+                amount: (fluid.amount * 0.1).max(0.1).min(fluid.amount),
+                ty: fluid.ty,
+            };
+            match self.start_con {
+                BeltConnection::BeltStart(pipe_id) | BeltConnection::BeltEnd(pipe_id) => {
+                    ret.moved_fluids.push((EntityId::Pipe(pipe_id), fluid_box));
+                }
+                BeltConnection::Structure(st_id, _) => {
+                    ret.moved_fluids.push((EntityId::Pipe(st_id), fluid_box));
+                }
+                _ => {}
+            }
+        }
+        ret
+    }
+
+    fn try_insert(&mut self, fluid: FluidBox) -> Option<FluidBox> {
+        let Some(fluid_box) = &mut self.fluid else {
+            self.fluid = Some(fluid);
+            return Some(fluid);
+        };
+        if fluid_box.ty == fluid.ty && fluid_box.amount < MAX_FLUID_AMOUNT {
+            let after = (fluid_box.amount + fluid.amount).min(MAX_FLUID_AMOUNT);
+            let ret = FluidBox {
+                amount: fluid_box.amount,
+                ty: fluid_box.ty,
+            };
+            fluid_box.amount = after;
+            return Some(ret);
+        }
+        None
+    }
+
+    /// Attempt to remove items that were successfully deleted.
+    pub fn post_update(&mut self, fluid: FluidBox) {
+        if let Some(fluid_box) = &mut self.fluid {
+            fluid_box.amount = (fluid_box.amount - fluid.amount).max(0.0);
+            if fluid_box.amount == 0. {
+                self.fluid = None;
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct PipeUpdateResult {
+    moved_fluids: Vec<(EntityId, FluidBox)>,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct OreVein {
     pub pos: Vec2,
@@ -790,4 +927,16 @@ impl Inventory {
         self.coal += count;
         self
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum FluidType {
+    Water,
+    Steam,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub(crate) struct FluidBox {
+    pub amount: f64,
+    pub ty: FluidType,
 }

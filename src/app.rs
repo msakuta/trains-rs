@@ -53,6 +53,7 @@ enum ClickMode {
     AddUnloader,
     AddSplitter,
     AddMerger,
+    AddWaterPump,
     ConnectBelt,
     DeleteStructure,
 }
@@ -362,6 +363,11 @@ impl TrainsApp {
                             self.error_msg = Some(("Cannot build in water".to_string(), 10.));
                         }
                     }
+                    ClickMode::AddWaterPump => {
+                        if let Err(e) = self.add_water_pump(paint_transform.from_pos2(pointer)) {
+                            self.error_msg = Some((e, 10.));
+                        }
+                    }
                     ClickMode::ConnectBelt => {
                         if let Err(e) = self.add_belt(paint_transform.from_pos2(pointer)) {
                             self.error_msg = Some((e, 10.));
@@ -487,12 +493,16 @@ impl TrainsApp {
                     self.preview_ore_mine(pointer, &painter, &paint_transform);
                 }
             }
-            ClickMode::AddSmelter | ClickMode::AddSplitter | ClickMode::AddMerger => {
+            ClickMode::AddSmelter
+            | ClickMode::AddSplitter
+            | ClickMode::AddMerger
+            | ClickMode::AddWaterPump => {
                 if let Some(pointer) = response.hover_pos() {
                     let ty = match self.click_mode {
                         ClickMode::AddSmelter => StructureType::Smelter,
                         ClickMode::AddSplitter => StructureType::Splitter,
                         ClickMode::AddMerger => StructureType::Merger,
+                        ClickMode::AddWaterPump => StructureType::WaterPump,
                         _ => unreachable!(),
                     };
                     if let Some(pos) = self.building_structure {
@@ -551,6 +561,7 @@ impl TrainsApp {
                 | ClickMode::AddSmelter
                 | ClickMode::AddSplitter
                 | ClickMode::AddMerger
+                | ClickMode::AddWaterPump
         ) {
             self.building_structure = None;
         }
@@ -758,6 +769,11 @@ impl TrainsApp {
             ui.radio_value(&mut self.click_mode, ClickMode::AddUnloader, "Add Unloader");
             ui.radio_value(&mut self.click_mode, ClickMode::AddSplitter, "Add Splitter");
             ui.radio_value(&mut self.click_mode, ClickMode::AddMerger, "Add Merger");
+            ui.radio_value(
+                &mut self.click_mode,
+                ClickMode::AddWaterPump,
+                "Add Water Pump",
+            );
             ui.radio_value(&mut self.click_mode, ClickMode::ConnectBelt, "Connect Belt");
             ui.radio_value(
                 &mut self.click_mode,
