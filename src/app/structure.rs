@@ -12,8 +12,8 @@ use crate::{
     app::{COAL_URL, INGOT_URL, ORE_URL},
     structure::{
         BELT_MAX_SLOPE, BELT_SPEED, Belt, BeltConnection, EntityId, FluidType, ITEM_INTERVAL, Item,
-        MAX_BELT_LENGTH, MAX_FLUID_AMOUNT, ORE_MINE_CAPACITY, Pipe, PipeConnection, Structure,
-        StructureType,
+        MAX_BELT_LENGTH, MAX_FLUID_AMOUNT, MAX_WIRE_REACH, ORE_MINE_CAPACITY, Pipe, PipeConnection,
+        PowerWire, Structure, StructureId, StructureType,
     },
     transform::PaintTransform,
     vec2::Vec2,
@@ -408,6 +408,11 @@ impl TrainsApp {
             .find_pipe_con(pos, SELECT_THRESHOLD / self.transform.scale() as f64)
     }
 
+    pub(super) fn find_structure(&self, pos: Vec2) -> Option<StructureId> {
+        self.structures
+            .find_structure(pos, SELECT_THRESHOLD / self.transform.scale() as f64)
+    }
+
     pub(super) fn preview_delete_structure(
         &self,
         pointer: Pos2,
@@ -717,6 +722,58 @@ impl TrainsApp {
                 Color32::from_rgb(255, 127, 191),
             );
         }
+    }
+
+    pub(super) fn render_wires(&mut self, painter: &Painter, paint_transform: &PaintTransform) {
+        let color = Color32::from_rgb(255, 255, 63);
+        for wire in &self.structures.power_wires {
+            if let Some((start_st, end_st)) = self
+                .structures
+                .structures
+                .get(&wire.0)
+                .zip(self.structures.structures.get(&wire.1))
+            {
+                painter.line_segment(
+                    [
+                        paint_transform.to_pos2(start_st.pos),
+                        paint_transform.to_pos2(end_st.pos),
+                    ],
+                    (2., color),
+                );
+            }
+        }
+    }
+
+    pub(super) fn preview_wire(
+        &mut self,
+        hover_pos: Option<Pos2>,
+        painter: &Painter,
+        paint_transform: &PaintTransform,
+    ) {
+        let Some(pointer) = hover_pos else {
+            return;
+        };
+        let Some((start_pos, start_id)) = self.wire_start else {
+            return;
+        };
+        let end_pos = paint_transform.from_pos2(pointer);
+        let end_id = self.find_structure(end_pos);
+        if matches!(end_id, Some(end_id) if end_id != start_id) {
+            painter.rect_filled(
+                Rect::from_center_size(pointer, vec2(STRUCTURE_ICON_SIZE, STRUCTURE_ICON_SIZE)),
+                0.,
+                Color32::from_rgb(255, 127, 191),
+            );
+        }
+        let color = if (end_pos - start_pos).length2() < MAX_WIRE_REACH.powi(2)
+            && !intersects_water(start_pos, end_pos, &self.heightmap)
+            && !exceeds_slope(start_pos, end_pos, &self.heightmap)
+        {
+            Color32::from_rgba_premultiplied(255, 255, 63, 192)
+        } else {
+            Color32::RED
+        };
+        painter.line_segment([paint_transform.to_pos2(start_pos), pointer], (2., color));
     }
 }
 

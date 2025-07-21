@@ -16,8 +16,8 @@ use self::heightmap::{CONTOURS_GRID_STEPE, HeightMapKey, HeightMapParams};
 use crate::{
     bg_image::BgImage,
     structure::{
-        BeltConnection, OreType, OreVein, PipeConnection, PowerStats, Structure, StructureType,
-        Structures,
+        BeltConnection, OreType, OreVein, PipeConnection, PowerStats, Structure, StructureId,
+        StructureType, Structures,
     },
     train::Train,
     train_tracks::{SelectedPathNode, Station, TrainTracks},
@@ -61,6 +61,7 @@ enum ClickMode {
     AddSteamEngine,
     ConnectBelt,
     ConnectPipe,
+    ConnectWire,
     DeleteStructure,
 }
 
@@ -79,6 +80,7 @@ pub(crate) struct TrainsApp {
     belt_connection: Option<(BeltConnection, Vec2<f64>)>,
     pipe_connection: Option<(PipeConnection, Vec2<f64>)>,
     building_structure: Option<Vec2>,
+    wire_start: Option<(Vec2, StructureId)>,
     tracks: TrainTracks,
     train: Train,
     selected_station: Option<usize>,
@@ -133,6 +135,7 @@ impl TrainsApp {
             belt_connection: None,
             pipe_connection: None,
             building_structure: None,
+            wire_start: None,
             tracks,
             train,
             selected_station: None,
@@ -404,6 +407,17 @@ impl TrainsApp {
                             self.error_msg = Some((e, 10.));
                         }
                     }
+                    ClickMode::ConnectWire => {
+                        let clicked_pos = paint_transform.from_pos2(pointer);
+                        if let Some((wire_start, start_st)) = self.wire_start
+                            && let Some(end_st) = self.find_structure(clicked_pos)
+                        {
+                            self.structures.add_wire(start_st, end_st);
+                            self.wire_start = None;
+                        } else if let Some(start_st) = self.find_structure(clicked_pos) {
+                            self.wire_start = Some((clicked_pos, start_st));
+                        }
+                    }
                     ClickMode::DeleteStructure => {
                         const SELECT_THRESHOLD: f64 = 10.;
                         let pos = paint_transform.from_pos2(pointer);
@@ -452,6 +466,8 @@ impl TrainsApp {
         self.render_belts(&painter, &paint_transform);
 
         self.render_pipes(&painter, &paint_transform);
+
+        self.render_wires(&painter, &paint_transform);
 
         self.cursor = if let Some(pos) = response.hover_pos() {
             Some(paint_transform.from_pos2(pos))
@@ -589,6 +605,9 @@ impl TrainsApp {
                     let pos = paint_transform.from_pos2(pointer);
                     self.preview_pipe(pos, &painter, &paint_transform);
                 }
+            }
+            ClickMode::ConnectWire => {
+                self.preview_wire(response.hover_pos(), &painter, &paint_transform);
             }
             ClickMode::DeleteStructure => {
                 if let Some(pointer) = response.hover_pos() {
@@ -827,6 +846,7 @@ impl TrainsApp {
             );
             ui.radio_value(&mut self.click_mode, ClickMode::ConnectBelt, "Connect Belt");
             ui.radio_value(&mut self.click_mode, ClickMode::ConnectPipe, "Connect Pipe");
+            ui.radio_value(&mut self.click_mode, ClickMode::ConnectWire, "Connect Wire");
             ui.radio_value(
                 &mut self.click_mode,
                 ClickMode::DeleteStructure,

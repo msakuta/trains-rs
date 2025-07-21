@@ -1,5 +1,6 @@
 mod belts;
 mod pipes;
+mod power_network;
 
 use std::collections::HashMap;
 
@@ -11,13 +12,17 @@ use crate::{
     vec2::Vec2,
 };
 
-use self::pipes::{PIPE_FLOW_RATE, WATER_PUMP_RATE};
+use self::{
+    pipes::{PIPE_FLOW_RATE, WATER_PUMP_RATE},
+    power_network::{PowerNetwork, build_power_networks},
+};
 
 pub(crate) use self::{
     belts::{
         BELT_MAX_SLOPE, BELT_SPEED, Belt, BeltConnection, BeltId, ITEM_INTERVAL, MAX_BELT_LENGTH,
     },
     pipes::{FluidBox, FluidType, MAX_FLUID_AMOUNT, Pipe, PipeConnection, PipeId},
+    power_network::{MAX_WIRE_REACH, PowerWire},
 };
 
 use std::f64::consts::PI;
@@ -59,6 +64,7 @@ pub(crate) struct Structure {
     pub ore_type: Option<OreType>,
     pub input_fluid: Option<FluidBox>,
     pub output_fluid: Option<FluidBox>,
+    pub power_network: PowerNetwork,
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
@@ -208,6 +214,35 @@ impl Structure {
                     0.
                 }
             }
+        }
+    }
+
+    fn power_sink(&self) -> bool {
+        match self.ty {
+            StructureType::OreMine | StructureType::Smelter => true,
+            StructureType::Sink
+            | StructureType::Loader
+            | StructureType::Unloader
+            | StructureType::Splitter
+            | StructureType::Merger
+            | StructureType::Boiler
+            | StructureType::WaterPump
+            | StructureType::SteamEngine => false,
+        }
+    }
+
+    fn power_source(&self) -> bool {
+        match self.ty {
+            StructureType::SteamEngine => true,
+            StructureType::OreMine
+            | StructureType::Smelter
+            | StructureType::Sink
+            | StructureType::Loader
+            | StructureType::Unloader
+            | StructureType::Splitter
+            | StructureType::Merger
+            | StructureType::Boiler
+            | StructureType::WaterPump => false,
         }
     }
 
@@ -567,7 +602,7 @@ impl StructureUpdateResult {
 }
 
 /// A reference type that can indicate either a structure, a belt or a train car parked on a station.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) enum EntityId {
     Structure(StructureId),
     Belt(BeltId),
@@ -587,6 +622,8 @@ pub(crate) struct Structures {
     pub belt_id_gen: BeltId,
     pub pipes: HashMap<PipeId, Pipe>,
     pub pipe_id_gen: PipeId,
+    pub power_wires: Vec<PowerWire>,
+    power_networks: Vec<PowerNetwork>,
 }
 
 impl Structures {
@@ -599,7 +636,13 @@ impl Structures {
             belt_id_gen: 0,
             pipes: HashMap::new(),
             pipe_id_gen: 0,
+            power_wires: vec![],
+            power_networks: vec![],
         }
+    }
+
+    pub fn update_power_network(&mut self) {
+        self.power_networks = build_power_networks(self, &self.power_wires);
     }
 
     /// Find the structure or belt connection point that is close to the given position.
@@ -666,6 +709,13 @@ impl Structures {
         (PipeConnection::Pos, pos)
     }
 
+    pub fn find_structure(&self, pos: Vec2, search_radius: f64) -> Option<StructureId> {
+        self.structures
+            .iter()
+            .find(|(_, s)| (s.pos - pos).length2() < search_radius.powi(2))
+            .map(|(id, _)| *id)
+    }
+
     pub fn find_by_id(&self, id: StructureId) -> Option<&Structure> {
         self.structures
             .iter()
@@ -709,6 +759,17 @@ impl Structures {
         );
         self.pipe_id_gen += 1;
         ret
+    }
+
+    pub fn add_wire(&mut self, start: StructureId, end: StructureId) {
+        if !self
+            .power_wires
+            .iter()
+            .any(|wire| wire.0 == start && wire.1 == end)
+        {
+            self.power_wires.push(PowerWire(start, end));
+            self.update_power_network();
+        }
     }
 
     /// Give opportunities to all entities for updates.
