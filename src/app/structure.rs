@@ -58,9 +58,15 @@ impl TrainsApp {
                     color = Color32::from_rgb(255, 255, 0);
                     y_pos = base_pos.y + BAR_OFFSET;
                 }
-                StructureType::WaterPump | StructureType::Boiler | StructureType::SteamEngine => {
+                StructureType::WaterPump | StructureType::Boiler => {
                     fullness =
                         st.output_fluid.map_or(0., |fb| fb.amount) as f32 / MAX_FLUID_AMOUNT as f32;
+                    color = Color32::from_rgb(0, 255, 255);
+                    y_pos = base_pos.y + BAR_OFFSET;
+                }
+                StructureType::SteamEngine => {
+                    fullness =
+                        st.input_fluid.map_or(0., |fb| fb.amount) as f32 / MAX_FLUID_AMOUNT as f32;
                     color = Color32::from_rgb(0, 255, 255);
                     y_pos = base_pos.y + BAR_OFFSET;
                 }

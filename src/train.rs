@@ -15,7 +15,7 @@ use crate::{
 };
 
 pub(crate) const CAR_LENGTH: f64 = 1.;
-pub(crate) const CAR_CAPACITY: u32 = 100;
+pub(crate) const CAR_CAPACITY: i32 = 100;
 const TRAIN_ACCEL: f64 = 0.001;
 const MAX_SPEED: f64 = 1.;
 const THRUST_ACCEL: f64 = 0.001;

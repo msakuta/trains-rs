@@ -16,7 +16,8 @@ use self::heightmap::{CONTOURS_GRID_STEPE, HeightMapKey, HeightMapParams};
 use crate::{
     bg_image::BgImage,
     structure::{
-        BeltConnection, OreType, OreVein, PipeConnection, Structure, StructureType, Structures,
+        BeltConnection, OreType, OreVein, PipeConnection, PowerStats, Structure, StructureType,
+        Structures,
     },
     train::Train,
     train_tracks::{SelectedPathNode, Station, TrainTracks},
@@ -84,6 +85,7 @@ pub(crate) struct TrainsApp {
     new_station: String,
     ore_veins: Vec<OreVein>,
     structures: Structures,
+    power_stats: PowerStats,
     credits: u32,
     time: u32,
     error_msg: Option<(String, f64)>,
@@ -137,6 +139,7 @@ impl TrainsApp {
             new_station: "New Station".to_string(),
             ore_veins: vec![],
             structures,
+            power_stats: PowerStats::default(),
             credits,
             time: 0,
             error_msg: None,
@@ -905,6 +908,15 @@ impl TrainsApp {
                 "Total transported items: {}",
                 self.train.total_transported
             ));
+        });
+        ui.group(|ui| {
+            ui.label("Global stats");
+            ui.label(format!("Power demand: {:.1} kW", self.power_stats.demand));
+            ui.label(format!("Power supply: {:.1} kW", self.power_stats.supply));
+            ui.label(format!(
+                "Power sufficiency: {:.3} %",
+                self.power_stats.sufficiency * 100.
+            ));
             ui.label(format!("Credits: {}", self.credits));
         });
     }
@@ -989,7 +1001,7 @@ impl eframe::App for TrainsApp {
 
         self.train.update(thrust, &self.heightmap, &self.tracks);
 
-        self.structures.update(&mut self.credits, &mut self.train);
+        self.power_stats = self.structures.update(&mut self.credits, &mut self.train);
     }
 }
 
