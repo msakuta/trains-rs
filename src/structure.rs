@@ -342,8 +342,8 @@ impl Structure {
                     } else if 0 < self.inventory.coal {
                         ret.insert_items.push((EntityId::Belt(belt_id), Item::Coal));
                     }
-                    self.next_output = (self.next_output + 1) % self.output_belts.len() as u32;
                 } else {
+                    // Rotate when the belt is not connected
                     self.next_output = (self.next_output + 1) % self.output_belts.len() as u32;
                 }
             }
@@ -494,6 +494,14 @@ impl Structure {
         self.inventory.iron = self.inventory.iron.saturating_sub(remove_inventory.iron);
         self.inventory.ingot = self.inventory.ingot.saturating_sub(remove_inventory.ingot);
         self.inventory.coal = self.inventory.coal.saturating_sub(remove_inventory.coal);
+
+        if matches!(self.ty, StructureType::Splitter) {
+            // Only rotate the output belt when it sends in attempt to make it as even as possible
+            for _ in 0..remove_inventory.sum() {
+                self.next_output = (self.next_output + 1) % self.output_belts.len() as u32;
+            }
+        }
+
         for fluid in remove_fluids {
             if let Some(output) = &mut self.output_fluid
                 && output.ty == fluid.ty
