@@ -58,7 +58,7 @@ impl TrainsApp {
                     color = Color32::from_rgb(255, 255, 0);
                     y_pos = base_pos.y + BAR_OFFSET;
                 }
-                StructureType::WaterPump | StructureType::Boiler => {
+                StructureType::WaterPump | StructureType::Boiler | StructureType::SteamEngine => {
                     fullness =
                         st.output_fluid.map_or(0., |fb| fb.amount) as f32 / MAX_FLUID_AMOUNT as f32;
                     color = Color32::from_rgb(0, 255, 255);
@@ -305,6 +305,7 @@ impl TrainsApp {
                 StructureType::Merger => Color32::from_rgb(191, 95, 0),
                 StructureType::WaterPump => Color32::from_rgb(63, 127, 191),
                 StructureType::Boiler => Color32::from_rgb(255, 191, 127),
+                StructureType::SteamEngine => Color32::from_rgb(255, 127, 127),
             }
         };
         let line_color = Color32::from_rgb(0, 63, 31);
@@ -340,6 +341,7 @@ impl TrainsApp {
                         [[-4., -1.], [4., -1.], [4., 1.], [-4., 1.]]
                     }
                     StructureType::Sink => [[-4., -4.], [4., -4.], [4., 4.], [-4., 4.]],
+                    StructureType::SteamEngine => [[-1., -2.], [1., -2.], [1., 2.], [-1., 2.]],
                     _ => [[-1., -1.], [1., -1.], [1., 1.], [-1., 1.]],
                 }
                 .into_iter()
@@ -449,7 +451,7 @@ impl TrainsApp {
         };
         if ore_vein
             .occupied_miner
-            .is_some_and(|id| self.structures.find_by_id(dbg!(id)).is_some())
+            .is_some_and(|id| self.structures.find_by_id(id).is_some())
         {
             return Err("ore vein already occupied".to_string());
         }
@@ -510,7 +512,11 @@ impl TrainsApp {
         Ok(())
     }
 
-    pub(super) fn add_boiler(&mut self, pointer_pos: Vec2) -> Result<(), String> {
+    pub(super) fn add_hydrophoric_structure(
+        &mut self,
+        pointer_pos: Vec2,
+        ty: StructureType,
+    ) -> Result<(), String> {
         let Some(pos) = self.building_structure else {
             if self.heightmap.is_water(&pointer_pos) {
                 return Err("Cannot build in water".to_string());
@@ -520,7 +526,7 @@ impl TrainsApp {
         };
         let delta = pos - pointer_pos;
         let orient = delta.y.atan2(delta.x) - std::f64::consts::PI * 0.5;
-        let boiler = Structure::new_structure(StructureType::Boiler, pos, orient);
+        let boiler = Structure::new_structure(ty, pos, orient);
         let _ = self.structures.add_structure(boiler);
         self.building_structure = None;
         Ok(())

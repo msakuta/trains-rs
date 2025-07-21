@@ -57,6 +57,7 @@ enum ClickMode {
     AddMerger,
     AddWaterPump,
     AddBoiler,
+    AddSteamEngine,
     ConnectBelt,
     ConnectPipe,
     DeleteStructure,
@@ -375,7 +376,18 @@ impl TrainsApp {
                         }
                     }
                     ClickMode::AddBoiler => {
-                        if let Err(e) = self.add_boiler(paint_transform.from_pos2(pointer)) {
+                        if let Err(e) = self.add_hydrophoric_structure(
+                            paint_transform.from_pos2(pointer),
+                            StructureType::Boiler,
+                        ) {
+                            self.error_msg = Some((e, 10.));
+                        }
+                    }
+                    ClickMode::AddSteamEngine => {
+                        if let Err(e) = self.add_hydrophoric_structure(
+                            paint_transform.from_pos2(pointer),
+                            StructureType::SteamEngine,
+                        ) {
                             self.error_msg = Some((e, 10.));
                         }
                     }
@@ -515,7 +527,8 @@ impl TrainsApp {
             | ClickMode::AddSplitter
             | ClickMode::AddMerger
             | ClickMode::AddWaterPump
-            | ClickMode::AddBoiler => {
+            | ClickMode::AddBoiler
+            | ClickMode::AddSteamEngine => {
                 if let Some(pointer) = response.hover_pos() {
                     let ty = match self.click_mode {
                         ClickMode::AddSmelter => StructureType::Smelter,
@@ -523,6 +536,7 @@ impl TrainsApp {
                         ClickMode::AddMerger => StructureType::Merger,
                         ClickMode::AddWaterPump => StructureType::WaterPump,
                         ClickMode::AddBoiler => StructureType::Boiler,
+                        ClickMode::AddSteamEngine => StructureType::SteamEngine,
                         _ => unreachable!(),
                     };
                     if let Some(pos) = self.building_structure {
@@ -589,6 +603,7 @@ impl TrainsApp {
                 | ClickMode::AddMerger
                 | ClickMode::AddWaterPump
                 | ClickMode::AddBoiler
+                | ClickMode::AddSteamEngine
         ) {
             self.building_structure = None;
         }
@@ -802,6 +817,11 @@ impl TrainsApp {
                 "Add Water Pump",
             );
             ui.radio_value(&mut self.click_mode, ClickMode::AddBoiler, "Add Boiler");
+            ui.radio_value(
+                &mut self.click_mode,
+                ClickMode::AddSteamEngine,
+                "Add Steam Engine",
+            );
             ui.radio_value(&mut self.click_mode, ClickMode::ConnectBelt, "Connect Belt");
             ui.radio_value(&mut self.click_mode, ClickMode::ConnectPipe, "Connect Pipe");
             ui.radio_value(

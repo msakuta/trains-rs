@@ -69,6 +69,7 @@ pub(crate) enum StructureType {
     Merger,
     WaterPump,
     Boiler,
+    SteamEngine,
 }
 
 impl StructureType {
@@ -87,7 +88,7 @@ impl StructureType {
             }
             Self::Merger => &STRUCTURE_INPUT_POS[..],
             Self::Sink => SINK,
-            Self::Unloader | Self::WaterPump => &[],
+            Self::Unloader | Self::WaterPump | Self::SteamEngine => &[],
             Self::Boiler => BOILER,
         }
     }
@@ -98,7 +99,7 @@ impl StructureType {
                 &STRUCTURE_OUTPUT_POS[0..1]
             }
             Self::Splitter => &STRUCTURE_OUTPUT_POS[..],
-            Self::Loader | Self::Sink | Self::WaterPump | Self::Boiler => &[],
+            Self::Loader | Self::Sink | Self::WaterPump | Self::Boiler | Self::SteamEngine => &[],
         }
     }
 
@@ -108,9 +109,11 @@ impl StructureType {
             (Vec2::new(-1., 0.), -PI / 2.),
             (Vec2::new(0., -1.), PI),
         ];
+        const STEAM_ENGINE: &[(Vec2, f64)] = &[(Vec2::new(0., 2.), 0.)];
         match self {
             Self::WaterPump => &STRUCTURE_OUTPUT_POS[0..1],
             Self::Boiler => BOILER,
+            Self::SteamEngine => STEAM_ENGINE,
             _ => &[],
         }
     }
@@ -178,6 +181,7 @@ impl Structure {
             insert_items: vec![],
             remove_items: vec![],
             fluids: vec![],
+            gen_power: 0.,
         };
         match self.ty {
             StructureType::OreMine => {
@@ -333,7 +337,6 @@ impl Structure {
                 {
                     self.inventory.coal -= 1;
                     input.amount -= 1.;
-                    dbg!(input.amount);
                     if let Some(output) = &mut self.output_fluid {
                         output.amount += STEAM_GEN;
                     } else {
@@ -352,6 +355,14 @@ impl Structure {
                             amount: fluid_box.amount.min(PIPE_FLOW_RATE),
                         },
                     ))
+                }
+            }
+            StructureType::SteamEngine => {
+                if let Some(input) = &mut self.input_fluid
+                    && input.ty == FluidType::Steam
+                {
+                    let after = (input.amount - 1.).max(0.);
+                    ret.gen_power += after - input.amount;
                 }
             }
         }
@@ -407,8 +418,15 @@ impl Structure {
                     amount: flow,
                 });
             }
-        } else if incoming_fluid.ty == FluidType::Water {
+        } else if matches!(self.ty, StructureType::Boiler) && incoming_fluid.ty == FluidType::Water
+        {
             // Accepts only water
+            self.input_fluid = Some(incoming_fluid);
+            return Some(incoming_fluid);
+        } else if matches!(self.ty, StructureType::SteamEngine)
+            && incoming_fluid.ty == FluidType::Steam
+        {
+            // Accepts only steam
             self.input_fluid = Some(incoming_fluid);
             return Some(incoming_fluid);
         }
@@ -470,6 +488,7 @@ pub(crate) struct StructureUpdateResult {
     pub insert_items: Vec<(EntityId, Item)>,
     pub remove_items: Vec<(EntityId, Item)>,
     pub fluids: Vec<(EntityId, FluidBox)>,
+    pub gen_power: f64,
 }
 
 impl StructureUpdateResult {
@@ -478,6 +497,7 @@ impl StructureUpdateResult {
             insert_items: vec![],
             remove_items: vec![],
             fluids: vec![],
+            gen_power: 0.,
         }
     }
 }
