@@ -108,14 +108,15 @@ impl StructureType {
     }
 
     pub fn pipes(&self) -> &'static [(Vec2, f64)] {
+        const WATER_PUMP: &[(Vec2, f64)] = &[(Vec2::new(0., -1.), PI)];
         const BOILER: &[(Vec2, f64)] = &[
-            (Vec2::new(1., 0.), PI / 2.),
-            (Vec2::new(-1., 0.), -PI / 2.),
+            (Vec2::new(1., 0.), -PI / 2.),
+            (Vec2::new(-1., 0.), PI / 2.),
             (Vec2::new(0., -1.), PI),
         ];
         const STEAM_ENGINE: &[(Vec2, f64)] = &[(Vec2::new(0., 2.), 0.)];
         match self {
-            Self::WaterPump => &STRUCTURE_OUTPUT_POS[0..1],
+            Self::WaterPump => WATER_PUMP,
             Self::Boiler => BOILER,
             Self::SteamEngine => STEAM_ENGINE,
             _ => &[],

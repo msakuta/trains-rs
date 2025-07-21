@@ -3,7 +3,7 @@ use std::{
     ops::{Add, AddAssign, Div, Mul, Neg, Sub, SubAssign},
 };
 
-use cgmath::Zero;
+use cgmath::{Vector2, Zero};
 use serde::{Deserialize, Serialize};
 
 /// A generic custom 2D vector type that can take f64 or TapeTerm as a type argument.
@@ -132,6 +132,12 @@ impl<T: Clone + Copy + Zero> Vec2<T> {
 impl<T> From<[T; 2]> for Vec2<T> {
     fn from([x, y]: [T; 2]) -> Self {
         Vec2 { x, y }
+    }
+}
+
+impl<T> From<Vector2<T>> for Vec2<T> {
+    fn from(v: Vector2<T>) -> Self {
+        Vec2 { x: v.x, y: v.y }
     }
 }
 

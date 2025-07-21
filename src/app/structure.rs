@@ -374,6 +374,20 @@ impl TrainsApp {
                         * Matrix3::from_translation(-0.5 * Vector2::unit_y()),
                 );
             }
+
+            let scale = paint_transform.scale();
+            for (local_pos, local_orient) in ty.pipes() {
+                let pos = pos
+                    + paint_transform.to_vec2(
+                        (Matrix3::from_angle_z(Rad(orient))
+                            * Matrix3::from_translation(local_pos.to_vector2())
+                            * Matrix3::from_angle_z(Rad(*local_orient))
+                            * (0.5 * Vector2::<f64>::unit_y()).extend(1.))
+                        .truncate()
+                        .into(),
+                    );
+                painter.circle(pos, 0.2 * scale, color, (1., line_color));
+            }
         } else {
             // render icon that does not shink if zoomed out
             painter.rect_filled(
