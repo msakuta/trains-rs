@@ -343,21 +343,25 @@ impl TrainsApp {
                 pos + paint_transform.to_vec2(Vec2::new(x, y))
             };
 
-            painter.add(PathShape::convex_polygon(
-                match ty {
-                    StructureType::Loader | StructureType::Unloader => {
-                        [[-4., -1.], [4., -1.], [4., 1.], [-4., 1.]]
+            if matches!(ty, StructureType::ElectricPole) {
+                painter.circle(pos, 0.2 * paint_transform.scale(), color, (1., line_color));
+            } else {
+                painter.add(PathShape::convex_polygon(
+                    match ty {
+                        StructureType::Loader | StructureType::Unloader => {
+                            [[-4., -1.], [4., -1.], [4., 1.], [-4., 1.]]
+                        }
+                        StructureType::Sink => [[-4., -4.], [4., -4.], [4., 4.], [-4., 4.]],
+                        StructureType::SteamEngine => [[-1., -2.], [1., -2.], [1., 2.], [-1., 2.]],
+                        _ => [[-1., -1.], [1., -1.], [1., 1.], [-1., 1.]],
                     }
-                    StructureType::Sink => [[-4., -4.], [4., -4.], [4., 4.], [-4., 4.]],
-                    StructureType::SteamEngine => [[-1., -2.], [1., -2.], [1., 2.], [-1., 2.]],
-                    _ => [[-1., -1.], [1., -1.], [1., 1.], [-1., 1.]],
-                }
-                .into_iter()
-                .map(rotate)
-                .collect(),
-                color,
-                (1., line_color),
-            ));
+                    .into_iter()
+                    .map(rotate)
+                    .collect(),
+                    color,
+                    (1., line_color),
+                ));
+            }
 
             for (pos, local_orient) in ty.input_ports() {
                 render_triangle(
@@ -727,7 +731,7 @@ impl TrainsApp {
     }
 
     pub(super) fn render_wires(&mut self, painter: &Painter, paint_transform: &PaintTransform) {
-        let color = Color32::from_rgb(255, 255, 63);
+        let color = Color32::from_rgb(255, 127, 63);
         for wire in &self.structures.power_wires {
             if let Some((start_st, end_st)) = self
                 .structures

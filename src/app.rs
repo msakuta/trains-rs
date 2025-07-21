@@ -399,12 +399,12 @@ impl TrainsApp {
                         }
                     }
                     ClickMode::AddElectricPole => {
-                        if let Err(e) = self.add_hydrophoric_structure(
-                            paint_transform.from_pos2(pointer),
+                        let pos = paint_transform.from_pos2(pointer);
+                        self.structures.add_structure(Structure::new_structure(
                             StructureType::ElectricPole,
-                        ) {
-                            self.error_msg = Some((e, 10.));
-                        }
+                            pos,
+                            0.,
+                        ));
                     }
                     ClickMode::ConnectBelt => {
                         if let Err(e) = self.add_belt(paint_transform.from_pos2(pointer)) {
@@ -854,6 +854,11 @@ impl TrainsApp {
                 &mut self.click_mode,
                 ClickMode::AddSteamEngine,
                 "Add Steam Engine",
+            );
+            ui.radio_value(
+                &mut self.click_mode,
+                ClickMode::AddElectricPole,
+                "Add Electric Pole",
             );
             ui.radio_value(&mut self.click_mode, ClickMode::ConnectBelt, "Connect Belt");
             ui.radio_value(&mut self.click_mode, ClickMode::ConnectPipe, "Connect Pipe");
