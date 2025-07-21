@@ -59,6 +59,7 @@ enum ClickMode {
     AddWaterPump,
     AddBoiler,
     AddSteamEngine,
+    AddElectricPole,
     ConnectBelt,
     ConnectPipe,
     ConnectWire,
@@ -397,6 +398,14 @@ impl TrainsApp {
                             self.error_msg = Some((e, 10.));
                         }
                     }
+                    ClickMode::AddElectricPole => {
+                        if let Err(e) = self.add_hydrophoric_structure(
+                            paint_transform.from_pos2(pointer),
+                            StructureType::ElectricPole,
+                        ) {
+                            self.error_msg = Some((e, 10.));
+                        }
+                    }
                     ClickMode::ConnectBelt => {
                         if let Err(e) = self.add_belt(paint_transform.from_pos2(pointer)) {
                             self.error_msg = Some((e, 10.));
@@ -547,7 +556,8 @@ impl TrainsApp {
             | ClickMode::AddMerger
             | ClickMode::AddWaterPump
             | ClickMode::AddBoiler
-            | ClickMode::AddSteamEngine => {
+            | ClickMode::AddSteamEngine
+            | ClickMode::AddElectricPole => {
                 if let Some(pointer) = response.hover_pos() {
                     let ty = match self.click_mode {
                         ClickMode::AddSmelter => StructureType::Smelter,
@@ -556,6 +566,7 @@ impl TrainsApp {
                         ClickMode::AddWaterPump => StructureType::WaterPump,
                         ClickMode::AddBoiler => StructureType::Boiler,
                         ClickMode::AddSteamEngine => StructureType::SteamEngine,
+                        ClickMode::AddElectricPole => StructureType::ElectricPole,
                         _ => unreachable!(),
                     };
                     if let Some(pos) = self.building_structure {

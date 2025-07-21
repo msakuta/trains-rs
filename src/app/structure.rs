@@ -70,6 +70,7 @@ impl TrainsApp {
                     color = Color32::from_rgb(0, 255, 255);
                     y_pos = base_pos.y + BAR_OFFSET;
                 }
+                StructureType::ElectricPole => return Some(()),
             }
 
             painter.rect_filled(
@@ -312,6 +313,7 @@ impl TrainsApp {
                 StructureType::WaterPump => Color32::from_rgb(63, 127, 191),
                 StructureType::Boiler => Color32::from_rgb(255, 191, 127),
                 StructureType::SteamEngine => Color32::from_rgb(255, 127, 127),
+                StructureType::ElectricPole => Color32::from_rgb(255, 255, 63),
             }
         };
         let line_color = Color32::from_rgb(0, 63, 31);

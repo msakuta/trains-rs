@@ -80,6 +80,7 @@ pub(crate) enum StructureType {
     WaterPump,
     Boiler,
     SteamEngine,
+    ElectricPole,
 }
 
 impl StructureType {
@@ -98,7 +99,7 @@ impl StructureType {
             }
             Self::Merger => &STRUCTURE_INPUT_POS[..],
             Self::Sink => SINK,
-            Self::Unloader | Self::WaterPump | Self::SteamEngine => &[],
+            Self::Unloader | Self::WaterPump | Self::SteamEngine | Self::ElectricPole => &[],
             Self::Boiler => BOILER,
         }
     }
@@ -109,7 +110,12 @@ impl StructureType {
                 &STRUCTURE_OUTPUT_POS[0..1]
             }
             Self::Splitter => &STRUCTURE_OUTPUT_POS[..],
-            Self::Loader | Self::Sink | Self::WaterPump | Self::Boiler | Self::SteamEngine => &[],
+            Self::Loader
+            | Self::Sink
+            | Self::WaterPump
+            | Self::Boiler
+            | Self::SteamEngine
+            | Self::ElectricPole => &[],
         }
     }
 
@@ -202,7 +208,8 @@ impl Structure {
             | StructureType::Unloader
             | StructureType::Splitter
             | StructureType::Merger
-            | StructureType::Boiler => 0.,
+            | StructureType::Boiler
+            | StructureType::ElectricPole => 0.,
             StructureType::WaterPump => 0.5,
             StructureType::SteamEngine => {
                 if let Some(input) = &self.input_fluid
@@ -227,7 +234,8 @@ impl Structure {
             | StructureType::Merger
             | StructureType::Boiler
             | StructureType::WaterPump
-            | StructureType::SteamEngine => false,
+            | StructureType::SteamEngine
+            | StructureType::ElectricPole => false,
         }
     }
 
@@ -242,7 +250,8 @@ impl Structure {
             | StructureType::Splitter
             | StructureType::Merger
             | StructureType::Boiler
-            | StructureType::WaterPump => false,
+            | StructureType::WaterPump
+            | StructureType::ElectricPole => false,
         }
     }
 
@@ -455,6 +464,7 @@ impl Structure {
                     input.amount = after;
                 }
             }
+            StructureType::ElectricPole => {}
         }
         ret
     }
