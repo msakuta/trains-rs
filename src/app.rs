@@ -15,7 +15,10 @@ use self::heightmap::{CONTOURS_GRID_STEPE, HeightMapKey, HeightMapParams};
 
 use crate::{
     bg_image::BgImage,
-    structure::{BeltConnection, Structure, StructureId, StructureType, Structures},
+    structure::{
+        BeltConnection, OreType, OreVein, PipeConnection, PowerStats, Structure, StructureType,
+        Structures,
+    },
     train::Train,
     train_tracks::{SelectedPathNode, Station, TrainTracks},
     transform::{PaintTransform, Transform, half_rect},
@@ -36,6 +39,7 @@ const STRUCTURES_KEY: &str = "structures";
 const CREDITS_KEY: &str = "credits";
 const ORE_URL: &str = "bytes://ore.png";
 const INGOT_URL: &str = "bytes://metal.png";
+const COAL_URL: &str = "bytes://coal.png";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ClickMode {
@@ -52,7 +56,11 @@ enum ClickMode {
     AddUnloader,
     AddSplitter,
     AddMerger,
+    AddWaterPump,
+    AddBoiler,
+    AddSteamEngine,
     ConnectBelt,
+    ConnectPipe,
     DeleteStructure,
 }
 
@@ -69,6 +77,7 @@ pub(crate) struct TrainsApp {
     click_mode: ClickMode,
     cursor: Option<Vec2>,
     belt_connection: Option<(BeltConnection, Vec2<f64>)>,
+    pipe_connection: Option<(PipeConnection, Vec2<f64>)>,
     building_structure: Option<Vec2>,
     tracks: TrainTracks,
     train: Train,
@@ -76,6 +85,7 @@ pub(crate) struct TrainsApp {
     new_station: String,
     ore_veins: Vec<OreVein>,
     structures: Structures,
+    power_stats: PowerStats,
     credits: u32,
     time: u32,
     error_msg: Option<(String, f64)>,
@@ -121,6 +131,7 @@ impl TrainsApp {
             click_mode: ClickMode::None,
             cursor: None,
             belt_connection: None,
+            pipe_connection: None,
             building_structure: None,
             tracks,
             train,
@@ -128,6 +139,7 @@ impl TrainsApp {
             new_station: "New Station".to_string(),
             ore_veins: vec![],
             structures,
+            power_stats: PowerStats::default(),
             credits,
             time: 0,
             error_msg: None,
@@ -361,8 +373,34 @@ impl TrainsApp {
                             self.error_msg = Some(("Cannot build in water".to_string(), 10.));
                         }
                     }
+                    ClickMode::AddWaterPump => {
+                        if let Err(e) = self.add_water_pump(paint_transform.from_pos2(pointer)) {
+                            self.error_msg = Some((e, 10.));
+                        }
+                    }
+                    ClickMode::AddBoiler => {
+                        if let Err(e) = self.add_hydrophoric_structure(
+                            paint_transform.from_pos2(pointer),
+                            StructureType::Boiler,
+                        ) {
+                            self.error_msg = Some((e, 10.));
+                        }
+                    }
+                    ClickMode::AddSteamEngine => {
+                        if let Err(e) = self.add_hydrophoric_structure(
+                            paint_transform.from_pos2(pointer),
+                            StructureType::SteamEngine,
+                        ) {
+                            self.error_msg = Some((e, 10.));
+                        }
+                    }
                     ClickMode::ConnectBelt => {
                         if let Err(e) = self.add_belt(paint_transform.from_pos2(pointer)) {
+                            self.error_msg = Some((e, 10.));
+                        }
+                    }
+                    ClickMode::ConnectPipe => {
+                        if let Err(e) = self.add_pipe(paint_transform.from_pos2(pointer)) {
                             self.error_msg = Some((e, 10.));
                         }
                     }
@@ -398,7 +436,10 @@ impl TrainsApp {
                 painter.circle(
                     paint_transform.to_pos2(ore_vein.pos),
                     7.5,
-                    Color32::from_rgb(127, 127, 0),
+                    match ore_vein.ty {
+                        OreType::Iron => Color32::from_rgb(127, 127, 191),
+                        OreType::Coal => Color32::from_rgb(127, 127, 63),
+                    },
                     (2., Color32::BLACK),
                 );
             }
@@ -409,6 +450,8 @@ impl TrainsApp {
         self.render_structures(&painter, &paint_transform);
 
         self.render_belts(&painter, &paint_transform);
+
+        self.render_pipes(&painter, &paint_transform);
 
         self.cursor = if let Some(pos) = response.hover_pos() {
             Some(paint_transform.from_pos2(pos))
@@ -483,12 +526,20 @@ impl TrainsApp {
                     self.preview_ore_mine(pointer, &painter, &paint_transform);
                 }
             }
-            ClickMode::AddSmelter | ClickMode::AddSplitter | ClickMode::AddMerger => {
+            ClickMode::AddSmelter
+            | ClickMode::AddSplitter
+            | ClickMode::AddMerger
+            | ClickMode::AddWaterPump
+            | ClickMode::AddBoiler
+            | ClickMode::AddSteamEngine => {
                 if let Some(pointer) = response.hover_pos() {
                     let ty = match self.click_mode {
                         ClickMode::AddSmelter => StructureType::Smelter,
                         ClickMode::AddSplitter => StructureType::Splitter,
                         ClickMode::AddMerger => StructureType::Merger,
+                        ClickMode::AddWaterPump => StructureType::WaterPump,
+                        ClickMode::AddBoiler => StructureType::Boiler,
+                        ClickMode::AddSteamEngine => StructureType::SteamEngine,
                         _ => unreachable!(),
                     };
                     if let Some(pos) = self.building_structure {
@@ -533,6 +584,12 @@ impl TrainsApp {
                     self.preview_belt(pos, &painter, &paint_transform);
                 }
             }
+            ClickMode::ConnectPipe => {
+                if let Some(pointer) = response.hover_pos() {
+                    let pos = paint_transform.from_pos2(pointer);
+                    self.preview_pipe(pos, &painter, &paint_transform);
+                }
+            }
             ClickMode::DeleteStructure => {
                 if let Some(pointer) = response.hover_pos() {
                     self.preview_delete_structure(pointer, &painter, &paint_transform);
@@ -547,6 +604,9 @@ impl TrainsApp {
                 | ClickMode::AddSmelter
                 | ClickMode::AddSplitter
                 | ClickMode::AddMerger
+                | ClickMode::AddWaterPump
+                | ClickMode::AddBoiler
+                | ClickMode::AddSteamEngine
         ) {
             self.building_structure = None;
         }
@@ -754,7 +814,19 @@ impl TrainsApp {
             ui.radio_value(&mut self.click_mode, ClickMode::AddUnloader, "Add Unloader");
             ui.radio_value(&mut self.click_mode, ClickMode::AddSplitter, "Add Splitter");
             ui.radio_value(&mut self.click_mode, ClickMode::AddMerger, "Add Merger");
+            ui.radio_value(
+                &mut self.click_mode,
+                ClickMode::AddWaterPump,
+                "Add Water Pump",
+            );
+            ui.radio_value(&mut self.click_mode, ClickMode::AddBoiler, "Add Boiler");
+            ui.radio_value(
+                &mut self.click_mode,
+                ClickMode::AddSteamEngine,
+                "Add Steam Engine",
+            );
             ui.radio_value(&mut self.click_mode, ClickMode::ConnectBelt, "Connect Belt");
+            ui.radio_value(&mut self.click_mode, ClickMode::ConnectPipe, "Connect Pipe");
             ui.radio_value(
                 &mut self.click_mode,
                 ClickMode::DeleteStructure,
@@ -769,6 +841,10 @@ impl TrainsApp {
                 // ui.radio_value().changed() can detect changes by clicking the option, but cannot detect when
                 // the option is passively deselected by clicking another.
                 self.bg.clear();
+            }
+            let is_pipe_mode = matches!(self.click_mode, ClickMode::ConnectPipe);
+            if !is_pipe_mode {
+                self.pipe_connection = None;
             }
         });
         ui.group(|ui| {
@@ -832,6 +908,15 @@ impl TrainsApp {
                 "Total transported items: {}",
                 self.train.total_transported
             ));
+        });
+        ui.group(|ui| {
+            ui.label("Global stats");
+            ui.label(format!("Power demand: {:.1} kW", self.power_stats.demand));
+            ui.label(format!("Power supply: {:.1} kW", self.power_stats.supply));
+            ui.label(format!(
+                "Power sufficiency: {:.3} %",
+                self.power_stats.sufficiency * 100.
+            ));
             ui.label(format!("Credits: {}", self.credits));
         });
     }
@@ -843,6 +928,7 @@ impl eframe::App for TrainsApp {
 
         ctx.include_bytes(ORE_URL, include_bytes!("../img/ore.png"));
         ctx.include_bytes(INGOT_URL, include_bytes!("../img/metal.png"));
+        ctx.include_bytes(COAL_URL, include_bytes!("../img/coal-ore.png"));
 
         ctx.request_repaint();
 
@@ -851,15 +937,17 @@ impl eframe::App for TrainsApp {
             Ok(tiles_to_update) => {
                 for pos in tiles_to_update {
                     if let Some(tile) = self.heightmap.tiles.get(&HeightMapKey { pos, level: 0 }) {
-                        for ov in self.heightmap.gen_ore_veins(pos, &tile) {
-                            let occupied_miner =
-                                self.structures.structures.iter().find_map(|(id, st)| {
-                                    if st.pos == ov { Some(*id) } else { None }
+                        for mut ov in self.heightmap.gen_ore_veins(pos, &tile) {
+                            ov.occupied_miner =
+                                self.structures.structures.iter_mut().find_map(|(id, st)| {
+                                    if st.pos == ov.pos {
+                                        st.ore_type = Some(ov.ty);
+                                        Some(*id)
+                                    } else {
+                                        None
+                                    }
                                 });
-                            self.ore_veins.push(OreVein {
-                                pos: ov,
-                                occupied_miner,
-                            });
+                            self.ore_veins.push(ov);
                         }
                     }
                 }
@@ -913,7 +1001,7 @@ impl eframe::App for TrainsApp {
 
         self.train.update(thrust, &self.heightmap, &self.tracks);
 
-        self.structures.update(&mut self.credits, &mut self.train);
+        self.power_stats = self.structures.update(&mut self.credits, &mut self.train);
     }
 }
 
@@ -946,10 +1034,4 @@ impl std::ops::Drop for TrainsApp {
             &map,
         );
     }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct OreVein {
-    pos: Vec2,
-    occupied_miner: Option<StructureId>,
 }

@@ -14,7 +14,7 @@ use crate::{
         Idx, Shape, border_pixel, cell_border_interpolated, pick_bits, pick_values,
     },
     perlin_noise::Xorshift64Star,
-    structure::BELT_MAX_SLOPE,
+    structure::{BELT_MAX_SLOPE, OreType, OreVein},
     transform::PaintTransform,
     vec2::Vec2,
 };
@@ -255,7 +255,7 @@ impl HeightMap {
 
     /// Generate ore veins on a specified tile. Since the map is procedurally generated and has infinite size, we need
     /// to delay the ore generation until the tile is generated.
-    pub(super) fn gen_ore_veins(&self, tile_pos: [i32; 2], tile: &HeightMapTile) -> Vec<Vec2> {
+    pub(super) fn gen_ore_veins(&self, tile_pos: [i32; 2], tile: &HeightMapTile) -> Vec<OreVein> {
         let mut rng = Xorshift64Star::new(
             (tile_pos[0] as u64)
                 .wrapping_add((tile_pos[1] as u64).wrapping_mul(209123))
@@ -274,9 +274,16 @@ impl HeightMap {
                 if is_water {
                     None
                 } else {
-                    Some(Vec2::new(
-                        pos.x + tile_pos[0] as f64 * TILE_SIZE as f64,
-                        pos.y + tile_pos[1] as f64 * TILE_SIZE as f64,
+                    Some(OreVein::new(
+                        Vec2::new(
+                            pos.x + tile_pos[0] as f64 * TILE_SIZE as f64,
+                            pos.y + tile_pos[1] as f64 * TILE_SIZE as f64,
+                        ),
+                        if rng.next() < 0.5 {
+                            OreType::Iron
+                        } else {
+                            OreType::Coal
+                        },
                     ))
                 }
             })

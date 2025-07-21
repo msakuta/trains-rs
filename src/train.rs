@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     app::HeightMap,
     path_utils::{interpolate_path, interpolate_path_heading, interpolate_path_tangent},
-    structure::Item,
+    structure::{Inventory, Item},
     train_tracks::{
         ConnectPoint, PathBundle, PathConnection, Paths, SegmentDirection, StationId, TrainTask,
         TrainTracks,
@@ -15,7 +15,7 @@ use crate::{
 };
 
 pub(crate) const CAR_LENGTH: f64 = 1.;
-pub(crate) const CAR_CAPACITY: u32 = 100;
+pub(crate) const CAR_CAPACITY: i32 = 100;
 const TRAIN_ACCEL: f64 = 0.001;
 const MAX_SPEED: f64 = 1.;
 const THRUST_ACCEL: f64 = 0.001;
@@ -52,8 +52,7 @@ impl Train {
                 } else {
                     CarType::Freight
                 },
-                iron: 0,
-                ingot: 0,
+                inventory: Inventory::default(),
             })
             .collect();
         Self {
@@ -266,8 +265,7 @@ pub(crate) struct TrainCar {
     pub speed: f64,
     pub direction: SegmentDirection,
     pub ty: CarType,
-    pub iron: u32,
-    pub ingot: u32,
+    pub inventory: Inventory,
 }
 
 impl TrainCar {
@@ -380,19 +378,19 @@ impl TrainCar {
     }
 
     pub fn try_insert(&mut self, item: Item) -> bool {
-        match item {
-            Item::IronOre => {
-                if self.iron + self.ingot < CAR_CAPACITY {
-                    self.iron += 1;
-                    return true;
+        if self.inventory.sum() < CAR_CAPACITY {
+            match item {
+                Item::IronOre => {
+                    self.inventory.iron += 1;
+                }
+                Item::Ingot => {
+                    self.inventory.ingot += 1;
+                }
+                Item::Coal => {
+                    self.inventory.ingot += 1;
                 }
             }
-            Item::Ingot => {
-                if self.iron + self.ingot < CAR_CAPACITY {
-                    self.ingot += 1;
-                    return true;
-                }
-            }
+            return true;
         }
         false
     }
@@ -400,14 +398,20 @@ impl TrainCar {
     pub fn remove_item(&mut self, item: Item) -> bool {
         match item {
             Item::IronOre => {
-                if 0 < self.iron {
-                    self.iron -= 1;
+                if 0 < self.inventory.iron {
+                    self.inventory.iron -= 1;
                     return true;
                 }
             }
             Item::Ingot => {
-                if 0 < self.ingot {
-                    self.ingot -= 1;
+                if 0 < self.inventory.ingot {
+                    self.inventory.ingot -= 1;
+                    return true;
+                }
+            }
+            Item::Coal => {
+                if 0 < self.inventory.coal {
+                    self.inventory.coal -= 1;
                     return true;
                 }
             }
