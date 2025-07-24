@@ -761,6 +761,16 @@ impl TrainsApp {
             return;
         };
         let Some((start_pos, start_id)) = self.wire_start else {
+            if let Some(start_st) = self.find_structure(paint_transform.from_pos2(pointer))
+                && let Some(st) = self.structures.find_by_id(start_st)
+            {
+                let st_pos = paint_transform.to_pos2(st.pos);
+                painter.rect_filled(
+                    Rect::from_center_size(st_pos, vec2(STRUCTURE_ICON_SIZE, STRUCTURE_ICON_SIZE)),
+                    0.,
+                    Color32::from_rgb(255, 127, 191),
+                );
+            }
             return;
         };
         let end_pos = paint_transform.from_pos2(pointer);
@@ -781,6 +791,33 @@ impl TrainsApp {
             Color32::RED
         };
         painter.line_segment([paint_transform.to_pos2(start_pos), pointer], (2., color));
+    }
+
+    pub(super) fn try_add_wire(
+        &mut self,
+        pointer: Pos2,
+        paint_transform: &PaintTransform,
+    ) -> Result<(), String> {
+        let clicked_pos = paint_transform.from_pos2(pointer);
+        let Some((wire_start, start_st)) = self.wire_start else {
+            if let Some(start_st) = self.find_structure(clicked_pos)
+                && let Some(st) = self.structures.find_by_id(start_st)
+            {
+                self.wire_start = Some((st.pos, start_st));
+            } else {
+                return Err("Select a structure to start the wire from".to_string());
+            }
+            return Ok(());
+        };
+        if MAX_WIRE_REACH.powi(2) < (wire_start - clicked_pos).length2() {
+            return Err("Wire is too long!".to_string());
+        }
+        let Some(end_st) = self.find_structure(clicked_pos) else {
+            return Err("Select a structure to connect the wire".to_string());
+        };
+        self.structures.add_wire(start_st, end_st);
+        self.wire_start = None;
+        Ok(())
     }
 }
 

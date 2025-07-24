@@ -16,8 +16,8 @@ use self::heightmap::{CONTOURS_GRID_STEPE, HeightMapKey, HeightMapParams};
 use crate::{
     bg_image::BgImage,
     structure::{
-        BeltConnection, OreType, OreVein, PipeConnection, PowerStats, Structure, StructureId,
-        StructureType, Structures,
+        BeltConnection, MAX_WIRE_REACH, OreType, OreVein, PipeConnection, PowerStats, Structure,
+        StructureId, StructureType, Structures,
     },
     train::Train,
     train_tracks::{SelectedPathNode, Station, TrainTracks},
@@ -427,14 +427,8 @@ impl TrainsApp {
                         }
                     }
                     ClickMode::ConnectWire => {
-                        let clicked_pos = paint_transform.from_pos2(pointer);
-                        if let Some((wire_start, start_st)) = self.wire_start
-                            && let Some(end_st) = self.find_structure(clicked_pos)
-                        {
-                            self.structures.add_wire(start_st, end_st);
-                            self.wire_start = None;
-                        } else if let Some(start_st) = self.find_structure(clicked_pos) {
-                            self.wire_start = Some((clicked_pos, start_st));
+                        if let Err(e) = self.try_add_wire(pointer, &paint_transform) {
+                            self.error_msg = Some((e, 10.));
                         }
                     }
                     ClickMode::DeleteStructure => {
