@@ -110,6 +110,16 @@ impl TrainsApp {
 
                 let mut structures = Structures::new(HashMap::new());
                 structures.add_structure(Structure::new_sink(Vec2::new(0., 0.), 0.));
+                structures.add_structure(Structure::new_structure(
+                    StructureType::AtomicBattery,
+                    Vec2::new(15., 0.),
+                    0.,
+                ));
+                structures.add_structure(Structure::new_structure(
+                    StructureType::AtomicBattery,
+                    Vec2::new(-15., 0.),
+                    0.,
+                ));
 
                 (
                     Train::new(),

@@ -64,7 +64,6 @@ pub(crate) struct Structure {
     pub ore_type: Option<OreType>,
     pub input_fluid: Option<FluidBox>,
     pub output_fluid: Option<FluidBox>,
-    pub power_network: PowerNetwork,
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
@@ -81,10 +80,12 @@ pub(crate) enum StructureType {
     Boiler,
     SteamEngine,
     ElectricPole,
+    AtomicBattery,
 }
 
 impl StructureType {
     pub fn input_ports(&self) -> &'static [(Vec2, f64)] {
+        use StructureType::*;
         const SINK: &[(Vec2, f64)] = &[
             (Vec2::new(0., 4.), 0.),
             (Vec2::new(-1., 4.), 0.),
@@ -94,28 +95,20 @@ impl StructureType {
         ];
         const BOILER: &[(Vec2, f64)] = &[(Vec2::new(0., 1.), 0.)];
         match self {
-            Self::OreMine | Self::Smelter | Self::Loader | Self::Splitter => {
-                &STRUCTURE_INPUT_POS[0..1]
-            }
-            Self::Merger => &STRUCTURE_INPUT_POS[..],
-            Self::Sink => SINK,
-            Self::Unloader | Self::WaterPump | Self::SteamEngine | Self::ElectricPole => &[],
-            Self::Boiler => BOILER,
+            OreMine | Smelter | Loader | Splitter => &STRUCTURE_INPUT_POS[0..1],
+            Merger => &STRUCTURE_INPUT_POS[..],
+            Sink => SINK,
+            Unloader | WaterPump | SteamEngine | ElectricPole | AtomicBattery => &[],
+            Boiler => BOILER,
         }
     }
 
     pub fn output_ports(&self) -> &'static [(Vec2, f64)] {
+        use StructureType::*;
         match self {
-            Self::OreMine | Self::Smelter | Self::Unloader | Self::Merger => {
-                &STRUCTURE_OUTPUT_POS[0..1]
-            }
-            Self::Splitter => &STRUCTURE_OUTPUT_POS[..],
-            Self::Loader
-            | Self::Sink
-            | Self::WaterPump
-            | Self::Boiler
-            | Self::SteamEngine
-            | Self::ElectricPole => &[],
+            OreMine | Smelter | Unloader | Merger => &STRUCTURE_OUTPUT_POS[0..1],
+            Splitter => &STRUCTURE_OUTPUT_POS[..],
+            Loader | Sink | WaterPump | Boiler | SteamEngine | ElectricPole | AtomicBattery => &[],
         }
     }
 
@@ -195,23 +188,18 @@ impl Structure {
 
     /// Returns the electricity that would be consumed. Positive means demand and negative means supply.
     pub fn power_demand_supply(&self) -> f64 {
+        use StructureType::*;
         match self.ty {
-            StructureType::OreMine | StructureType::Smelter => {
+            OreMine | Smelter => {
                 if matches!(self.process, StructureProcess::Produce(_, _)) {
                     1.
                 } else {
                     0.
                 }
             }
-            StructureType::Sink
-            | StructureType::Loader
-            | StructureType::Unloader
-            | StructureType::Splitter
-            | StructureType::Merger
-            | StructureType::Boiler
-            | StructureType::ElectricPole => 0.,
-            StructureType::WaterPump => 0.5,
-            StructureType::SteamEngine => {
+            Sink | Loader | Unloader | Splitter | Merger | Boiler | ElectricPole => 0.,
+            WaterPump => 0.5,
+            SteamEngine => {
                 if let Some(input) = &self.input_fluid
                     && input.ty == FluidType::Steam
                 {
@@ -221,41 +209,42 @@ impl Structure {
                     0.
                 }
             }
+            // Atomic batteries provides perpetual power source without consumption. We may add half-life decay,
+            // but it is thought to have very long half-life that we can assume it's a constant.
+            AtomicBattery => 1.,
         }
     }
 
+    /// Whether this structure can demand power. If true, it can be connected to power poles and be a part of
+    /// a power network.
     fn power_sink(&self) -> bool {
+        use StructureType::*;
         match self.ty {
-            StructureType::OreMine | StructureType::Smelter => true,
-            StructureType::Sink
-            | StructureType::Loader
-            | StructureType::Unloader
-            | StructureType::Splitter
-            | StructureType::Merger
-            | StructureType::Boiler
-            | StructureType::WaterPump
-            | StructureType::SteamEngine
-            | StructureType::ElectricPole => false,
+            OreMine | Smelter => true,
+            Sink | Loader | Unloader | Splitter | Merger | Boiler | WaterPump | SteamEngine
+            | ElectricPole | AtomicBattery => false,
         }
     }
 
+    /// Whether this structure can supply power. If true, it can be connected to power poles and be a part of
+    /// a power network.
     fn power_source(&self) -> bool {
+        use StructureType::*;
         match self.ty {
-            StructureType::SteamEngine => true,
-            StructureType::OreMine
-            | StructureType::Smelter
-            | StructureType::Sink
-            | StructureType::Loader
-            | StructureType::Unloader
-            | StructureType::Splitter
-            | StructureType::Merger
-            | StructureType::Boiler
-            | StructureType::WaterPump
-            | StructureType::ElectricPole => false,
+            SteamEngine => true,
+            OreMine | Smelter | Sink | Loader | Unloader | Splitter | Merger | Boiler
+            | WaterPump | ElectricPole => false,
+            AtomicBattery => true,
         }
     }
 
-    pub fn update(&mut self, score: &mut u32, power_stats: &PowerStats) -> StructureUpdateResult {
+    /// Update this entity for one tick. It may try to send items to another by returning such a result.
+    /// It takes `power_stats` argument, which is the statistics of local power network connected to this entity.
+    pub fn update(
+        &mut self,
+        score: &mut u32,
+        power_stats: Option<&PowerStats>,
+    ) -> StructureUpdateResult {
         let mut ret = StructureUpdateResult {
             insert_items: vec![],
             remove_items: vec![],
@@ -275,7 +264,9 @@ impl Structure {
                         Some(item) => StructureProcess::Produce(item, ORE_MINE_FREQUENCY as f64),
                         None => StructureProcess::None,
                     };
-                } else if let StructureProcess::Produce(item, ref mut time) = self.process {
+                } else if let StructureProcess::Produce(item, ref mut time) = self.process
+                    && let Some(power_stats) = power_stats
+                {
                     if *time < power_stats.sufficiency {
                         match item {
                             Item::IronOre => self.inventory.iron += 1,
@@ -311,7 +302,9 @@ impl Structure {
                     self.inventory.iron -= 1;
                     self.process =
                         StructureProcess::Produce(Item::Ingot, ORE_MINE_FREQUENCY as f64);
-                } else if let StructureProcess::Produce(_, ref mut work) = self.process {
+                } else if let StructureProcess::Produce(_, ref mut work) = self.process
+                    && let Some(power_stats) = power_stats
+                {
                     if *work < power_stats.sufficiency && self.inventory.sum() < ORE_MINE_CAPACITY {
                         self.inventory.ingot += 1;
                         self.process = StructureProcess::None;
@@ -458,6 +451,7 @@ impl Structure {
             StructureType::SteamEngine => {
                 if let Some(input) = &mut self.input_fluid
                     && input.ty == FluidType::Steam
+                    && let Some(power_stats) = power_stats
                 {
                     let after = (input.amount - power_stats.load).max(0.);
                     ret.gen_power += (after - input.amount) * POWER_PER_STEAM;
@@ -465,6 +459,9 @@ impl Structure {
                 }
             }
             StructureType::ElectricPole => {}
+            StructureType::AtomicBattery => {
+                ret.gen_power += 1.;
+            }
         }
         ret
     }
@@ -736,6 +733,7 @@ impl Structures {
         let ret = self.structure_id_gen;
         self.structures.insert(self.structure_id_gen, st);
         self.structure_id_gen += 1;
+        self.update_power_network();
         ret
     }
 
@@ -786,21 +784,26 @@ impl Structures {
     /// Entities include structures, belts and pipes.
     /// Returns power sufficiency stats for printing.
     pub fn update(&mut self, credits: &mut u32, train: &mut Train) -> PowerStats {
-        let (power_demand, power_supply) = self
-            .structures
-            .values()
-            // For debugging, supply with a little power by default
-            .fold((0., 1.), |(mut demand, mut supply), cur| {
-                let val = cur.power_demand_supply();
-                if val < 0. {
-                    supply += -val;
-                } else {
-                    demand += val;
-                }
-                (demand, supply)
-            });
-
-        let power_stats = PowerStats::new(power_demand, power_supply);
+        let power_network_stats: Vec<_> = self
+            .power_networks
+            .iter()
+            .map(|pn| {
+                let (power_demand, power_supply) = self
+                    .structures
+                    .values()
+                    // For debugging, supply with a little power by default
+                    .fold((0., 1.), |(mut demand, mut supply), cur| {
+                        let val = cur.power_demand_supply();
+                        if val < 0. {
+                            supply += -val;
+                        } else {
+                            demand += val;
+                        }
+                        (demand, supply)
+                    });
+                PowerStats::new(power_demand, power_supply)
+            })
+            .collect();
 
         // Update structures
         let st_ids = self.structures.keys().copied().collect::<Vec<_>>();
@@ -808,7 +811,13 @@ impl Structures {
             let Some(st) = self.structures.get_mut(&id) else {
                 continue;
             };
-            let result = st.update(credits, &power_stats);
+            let power_stats = self
+                .power_networks
+                .iter()
+                .enumerate()
+                .find(|(_, pn)| pn.sinks.contains(&id) || pn.sources.contains(&id))
+                .and_then(|(i, _)| power_network_stats.get(i));
+            let result = st.update(credits, power_stats);
 
             let mut moved_iron_ores = 0;
             let mut moved_ingots = 0;
@@ -924,7 +933,11 @@ impl Structures {
         }
         self.update_belts();
         self.update_pipes();
-        power_stats
+        power_network_stats
+            .iter()
+            .fold(PowerStats::default(), |acc, cur| {
+                PowerStats::new(acc.demand + cur.demand, acc.supply + cur.supply)
+            })
     }
 
     pub(crate) fn preview_delete(&self, pos: Vec2, search_radius: f64) -> Option<EntityId> {
@@ -976,6 +989,7 @@ impl Structures {
         match found {
             EntityId::Structure(id) => {
                 self.structures.remove(&id);
+                self.update_power_network();
             }
             EntityId::Belt(id) => {
                 self.belts.remove(&id);

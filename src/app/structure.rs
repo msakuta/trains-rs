@@ -13,7 +13,7 @@ use crate::{
     structure::{
         BELT_MAX_SLOPE, BELT_SPEED, Belt, BeltConnection, EntityId, FluidType, ITEM_INTERVAL, Item,
         MAX_BELT_LENGTH, MAX_FLUID_AMOUNT, MAX_WIRE_REACH, ORE_MINE_CAPACITY, Pipe, PipeConnection,
-        PowerWire, Structure, StructureId, StructureType,
+        Structure, StructureId, StructureType,
     },
     transform::PaintTransform,
     vec2::Vec2,
@@ -70,7 +70,7 @@ impl TrainsApp {
                     color = Color32::from_rgb(0, 255, 255);
                     y_pos = base_pos.y + BAR_OFFSET;
                 }
-                StructureType::ElectricPole => return Some(()),
+                StructureType::ElectricPole | StructureType::AtomicBattery => return Some(()),
             }
 
             painter.rect_filled(
@@ -314,6 +314,7 @@ impl TrainsApp {
                 StructureType::Boiler => Color32::from_rgb(255, 191, 127),
                 StructureType::SteamEngine => Color32::from_rgb(255, 127, 127),
                 StructureType::ElectricPole => Color32::from_rgb(255, 255, 63),
+                StructureType::AtomicBattery => Color32::from_rgb(63, 255, 63),
             }
         };
         let line_color = Color32::from_rgb(0, 63, 31);
