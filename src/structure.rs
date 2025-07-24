@@ -127,6 +127,29 @@ impl StructureType {
             _ => &[],
         }
     }
+
+    /// Whether this structure can demand power. If true, it can be connected to power poles and be a part of
+    /// a power network.
+    pub(crate) fn power_sink(&self) -> bool {
+        use StructureType::*;
+        match self {
+            OreMine | Smelter => true,
+            Sink | Loader | Unloader | Splitter | Merger | Boiler | WaterPump | SteamEngine
+            | ElectricPole | AtomicBattery => false,
+        }
+    }
+
+    /// Whether this structure can supply power. If true, it can be connected to power poles and be a part of
+    /// a power network.
+    pub(crate) fn power_source(&self) -> bool {
+        use StructureType::*;
+        match self {
+            SteamEngine => true,
+            OreMine | Smelter | Sink | Loader | Unloader | Splitter | Merger | Boiler
+            | WaterPump | ElectricPole => false,
+            AtomicBattery => true,
+        }
+    }
 }
 
 impl Structure {
@@ -218,24 +241,13 @@ impl Structure {
     /// Whether this structure can demand power. If true, it can be connected to power poles and be a part of
     /// a power network.
     fn power_sink(&self) -> bool {
-        use StructureType::*;
-        match self.ty {
-            OreMine | Smelter => true,
-            Sink | Loader | Unloader | Splitter | Merger | Boiler | WaterPump | SteamEngine
-            | ElectricPole | AtomicBattery => false,
-        }
+        self.ty.power_sink()
     }
 
     /// Whether this structure can supply power. If true, it can be connected to power poles and be a part of
     /// a power network.
     fn power_source(&self) -> bool {
-        use StructureType::*;
-        match self.ty {
-            SteamEngine => true,
-            OreMine | Smelter | Sink | Loader | Unloader | Splitter | Merger | Boiler
-            | WaterPump | ElectricPole => false,
-            AtomicBattery => true,
-        }
+        self.ty.power_source()
     }
 
     /// Update this entity for one tick. It may try to send items to another by returning such a result.

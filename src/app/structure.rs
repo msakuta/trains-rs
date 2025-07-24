@@ -334,8 +334,10 @@ impl TrainsApp {
             ));
         };
 
+        let scale = paint_transform.scale();
+
         // Render the real size with enough zoom
-        if 2. < paint_transform.scale() {
+        if 2. < scale {
             let s = orient.sin();
             let c = orient.cos();
             let rotate = |ofs: [f64; 2]| {
@@ -382,7 +384,6 @@ impl TrainsApp {
                 );
             }
 
-            let scale = paint_transform.scale();
             for (local_pos, local_orient) in ty.pipes() {
                 let pos = pos
                     + paint_transform.to_vec2(
@@ -401,6 +402,16 @@ impl TrainsApp {
                 Rect::from_center_size(pos, vec2(STRUCTURE_ICON_SIZE, STRUCTURE_ICON_SIZE)),
                 0.,
                 color,
+            );
+        }
+
+        if preview
+            && (matches!(ty, StructureType::ElectricPole) || ty.power_sink() || ty.power_source())
+        {
+            painter.circle_stroke(
+                pos,
+                MAX_WIRE_REACH as f32 * scale,
+                (2., Color32::from_rgb(255, 127, 0)),
             );
         }
     }
@@ -791,11 +802,17 @@ impl TrainsApp {
             }
             return;
         };
-        let end_pos = paint_transform.from_pos2(pointer);
+        let mut end_pos = paint_transform.from_pos2(pointer);
+        let mut end_pos2 = pointer;
         let end_id = self.find_structure(end_pos);
-        if matches!(end_id, Some(end_id) if end_id != start_id) {
+        if let Some(end_id) = end_id
+            && end_id != start_id
+            && let Some(st) = self.structures.find_by_id(end_id)
+        {
+            end_pos = st.pos;
+            end_pos2 = paint_transform.to_pos2(st.pos);
             painter.rect_filled(
-                Rect::from_center_size(pointer, vec2(STRUCTURE_ICON_SIZE, STRUCTURE_ICON_SIZE)),
+                Rect::from_center_size(end_pos2, vec2(STRUCTURE_ICON_SIZE, STRUCTURE_ICON_SIZE)),
                 0.,
                 Color32::from_rgb(255, 127, 191),
             );
@@ -808,7 +825,7 @@ impl TrainsApp {
         } else {
             Color32::RED
         };
-        painter.line_segment([paint_transform.to_pos2(start_pos), pointer], (2., color));
+        painter.line_segment([paint_transform.to_pos2(start_pos), end_pos2], (2., color));
     }
 
     pub(super) fn try_add_wire(
