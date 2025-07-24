@@ -645,6 +645,10 @@ impl TrainsApp {
             self.building_structure = None;
         }
 
+        if !matches!(self.click_mode, ClickMode::ConnectWire) {
+            self.wire_start = None;
+        }
+
         if let Some(pointer) = response.hover_pos() {
             let pos = paint_transform.from_pos2(pointer);
             if let Some((id, node_pos)) = self

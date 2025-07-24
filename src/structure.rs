@@ -615,6 +615,7 @@ pub(crate) enum EntityId {
     Belt(BeltId),
     Pipe(PipeId),
     Station(StationId, i32),
+    Wire(StructureId, StructureId),
 }
 
 /// A collection of structures and belts.
@@ -790,10 +791,13 @@ impl Structures {
             .map(|pn| {
                 let (power_demand, power_supply) = self
                     .structures
-                    .values()
+                    .iter()
                     // For debugging, supply with a little power by default
                     .fold((0., 1.), |(mut demand, mut supply), cur| {
-                        let val = cur.power_demand_supply();
+                        if !pn.sources.contains(cur.0) && pn.sinks.contains(cur.0) {
+                            return (demand, supply);
+                        }
+                        let val = cur.1.power_demand_supply();
                         if val < 0. {
                             supply += -val;
                         } else {
@@ -859,6 +863,9 @@ impl Structures {
                             }
                         }
                     }
+                    EntityId::Wire(_, _) => {
+                        // Items cannot be added to wires
+                    }
                 }
             }
 
@@ -898,6 +905,9 @@ impl Structures {
                                 record_moved(item, -1);
                             }
                         }
+                    }
+                    EntityId::Wire(_, _) => {
+                        // Items cannot be removed from wires
                     }
                 }
             }
@@ -979,6 +989,18 @@ impl Structures {
             return Some(EntityId::Pipe(*id));
         }
 
+        if let Some(wire) = self.power_wires.iter().find(|wire| {
+            let Some(start) = self.structures.get(&wire.0) else {
+                return false;
+            };
+            let Some(end) = self.structures.get(&wire.1) else {
+                return false;
+            };
+            find_close_edge(start.pos, end.pos)
+        }) {
+            return Some(EntityId::Wire(wire.0, wire.1));
+        }
+
         None
     }
 
@@ -996,6 +1018,13 @@ impl Structures {
             }
             EntityId::Pipe(id) => {
                 self.pipes.remove(&id);
+            }
+            EntityId::Wire(from, to) => {
+                let from_and_to = [from, to];
+                self.power_wires.retain(|wire| {
+                    !from_and_to.contains(&wire.0) || !from_and_to.contains(&wire.1)
+                });
+                self.update_power_network();
             }
             _ => {}
         }

@@ -463,6 +463,14 @@ impl TrainsApp {
                         );
                     }
                 }
+                EntityId::Wire(from, to) => {
+                    self.render_wire(
+                        (from, to),
+                        Color32::from_rgb(255, 0, 255),
+                        painter,
+                        paint_transform,
+                    );
+                }
                 _ => {}
             }
         }
@@ -731,23 +739,33 @@ impl TrainsApp {
         }
     }
 
+    fn render_wire(
+        &self,
+        wire: (StructureId, StructureId),
+        color: Color32,
+        painter: &Painter,
+        paint_transform: &PaintTransform,
+    ) {
+        if let Some((start_st, end_st)) = self
+            .structures
+            .structures
+            .get(&wire.0)
+            .zip(self.structures.structures.get(&wire.1))
+        {
+            painter.line_segment(
+                [
+                    paint_transform.to_pos2(start_st.pos),
+                    paint_transform.to_pos2(end_st.pos),
+                ],
+                (2., color),
+            );
+        }
+    }
+
     pub(super) fn render_wires(&mut self, painter: &Painter, paint_transform: &PaintTransform) {
         let color = Color32::from_rgb(255, 127, 63);
         for wire in &self.structures.power_wires {
-            if let Some((start_st, end_st)) = self
-                .structures
-                .structures
-                .get(&wire.0)
-                .zip(self.structures.structures.get(&wire.1))
-            {
-                painter.line_segment(
-                    [
-                        paint_transform.to_pos2(start_st.pos),
-                        paint_transform.to_pos2(end_st.pos),
-                    ],
-                    (2., color),
-                );
-            }
+            self.render_wire((wire.0, wire.1), color, painter, paint_transform);
         }
     }
 
