@@ -16,8 +16,8 @@ use self::heightmap::{CONTOURS_GRID_STEPE, HeightMapKey, HeightMapParams};
 use crate::{
     bg_image::BgImage,
     structure::{
-        BeltConnection, OreType, OreVein, PipeConnection, PowerStats, Structure, StructureType,
-        Structures,
+        BeltConnection, MAX_WIRE_REACH, OreType, OreVein, PipeConnection, PowerStats, Structure,
+        StructureId, StructureType, Structures,
     },
     train::Train,
     train_tracks::{SelectedPathNode, Station, TrainTracks},
@@ -59,8 +59,10 @@ enum ClickMode {
     AddWaterPump,
     AddBoiler,
     AddSteamEngine,
+    AddElectricPole,
     ConnectBelt,
     ConnectPipe,
+    ConnectWire,
     DeleteStructure,
 }
 
@@ -79,6 +81,7 @@ pub(crate) struct TrainsApp {
     belt_connection: Option<(BeltConnection, Vec2<f64>)>,
     pipe_connection: Option<(PipeConnection, Vec2<f64>)>,
     building_structure: Option<Vec2>,
+    wire_start: Option<(Vec2, StructureId)>,
     tracks: TrainTracks,
     train: Train,
     selected_station: Option<usize>,
@@ -107,6 +110,16 @@ impl TrainsApp {
 
                 let mut structures = Structures::new(HashMap::new());
                 structures.add_structure(Structure::new_sink(Vec2::new(0., 0.), 0.));
+                structures.add_structure(Structure::new_structure(
+                    StructureType::AtomicBattery,
+                    Vec2::new(15., 0.),
+                    0.,
+                ));
+                structures.add_structure(Structure::new_structure(
+                    StructureType::AtomicBattery,
+                    Vec2::new(-15., 0.),
+                    0.,
+                ));
 
                 (
                     Train::new(),
@@ -133,6 +146,7 @@ impl TrainsApp {
             belt_connection: None,
             pipe_connection: None,
             building_structure: None,
+            wire_start: None,
             tracks,
             train,
             selected_station: None,
@@ -394,6 +408,14 @@ impl TrainsApp {
                             self.error_msg = Some((e, 10.));
                         }
                     }
+                    ClickMode::AddElectricPole => {
+                        let pos = paint_transform.from_pos2(pointer);
+                        self.structures.add_structure(Structure::new_structure(
+                            StructureType::ElectricPole,
+                            pos,
+                            0.,
+                        ));
+                    }
                     ClickMode::ConnectBelt => {
                         if let Err(e) = self.add_belt(paint_transform.from_pos2(pointer)) {
                             self.error_msg = Some((e, 10.));
@@ -401,6 +423,11 @@ impl TrainsApp {
                     }
                     ClickMode::ConnectPipe => {
                         if let Err(e) = self.add_pipe(paint_transform.from_pos2(pointer)) {
+                            self.error_msg = Some((e, 10.));
+                        }
+                    }
+                    ClickMode::ConnectWire => {
+                        if let Err(e) = self.try_add_wire(pointer, &paint_transform) {
                             self.error_msg = Some((e, 10.));
                         }
                     }
@@ -452,6 +479,8 @@ impl TrainsApp {
         self.render_belts(&painter, &paint_transform);
 
         self.render_pipes(&painter, &paint_transform);
+
+        self.render_wires(&painter, &paint_transform);
 
         self.cursor = if let Some(pos) = response.hover_pos() {
             Some(paint_transform.from_pos2(pos))
@@ -531,7 +560,8 @@ impl TrainsApp {
             | ClickMode::AddMerger
             | ClickMode::AddWaterPump
             | ClickMode::AddBoiler
-            | ClickMode::AddSteamEngine => {
+            | ClickMode::AddSteamEngine
+            | ClickMode::AddElectricPole => {
                 if let Some(pointer) = response.hover_pos() {
                     let ty = match self.click_mode {
                         ClickMode::AddSmelter => StructureType::Smelter,
@@ -540,6 +570,7 @@ impl TrainsApp {
                         ClickMode::AddWaterPump => StructureType::WaterPump,
                         ClickMode::AddBoiler => StructureType::Boiler,
                         ClickMode::AddSteamEngine => StructureType::SteamEngine,
+                        ClickMode::AddElectricPole => StructureType::ElectricPole,
                         _ => unreachable!(),
                     };
                     if let Some(pos) = self.building_structure {
@@ -590,6 +621,9 @@ impl TrainsApp {
                     self.preview_pipe(pos, &painter, &paint_transform);
                 }
             }
+            ClickMode::ConnectWire => {
+                self.preview_wire(response.hover_pos(), &painter, &paint_transform);
+            }
             ClickMode::DeleteStructure => {
                 if let Some(pointer) = response.hover_pos() {
                     self.preview_delete_structure(pointer, &painter, &paint_transform);
@@ -609,6 +643,10 @@ impl TrainsApp {
                 | ClickMode::AddSteamEngine
         ) {
             self.building_structure = None;
+        }
+
+        if !matches!(self.click_mode, ClickMode::ConnectWire) {
+            self.wire_start = None;
         }
 
         if let Some(pointer) = response.hover_pos() {
@@ -825,8 +863,14 @@ impl TrainsApp {
                 ClickMode::AddSteamEngine,
                 "Add Steam Engine",
             );
+            ui.radio_value(
+                &mut self.click_mode,
+                ClickMode::AddElectricPole,
+                "Add Electric Pole",
+            );
             ui.radio_value(&mut self.click_mode, ClickMode::ConnectBelt, "Connect Belt");
             ui.radio_value(&mut self.click_mode, ClickMode::ConnectPipe, "Connect Pipe");
+            ui.radio_value(&mut self.click_mode, ClickMode::ConnectWire, "Connect Wire");
             ui.radio_value(
                 &mut self.click_mode,
                 ClickMode::DeleteStructure,

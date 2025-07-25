@@ -12,8 +12,8 @@ use crate::{
     app::{COAL_URL, INGOT_URL, ORE_URL},
     structure::{
         BELT_MAX_SLOPE, BELT_SPEED, Belt, BeltConnection, EntityId, FluidType, ITEM_INTERVAL, Item,
-        MAX_BELT_LENGTH, MAX_FLUID_AMOUNT, ORE_MINE_CAPACITY, Pipe, PipeConnection, Structure,
-        StructureType,
+        MAX_BELT_LENGTH, MAX_FLUID_AMOUNT, MAX_WIRE_REACH, ORE_MINE_CAPACITY, Pipe, PipeConnection,
+        Structure, StructureId, StructureType,
     },
     transform::PaintTransform,
     vec2::Vec2,
@@ -70,6 +70,7 @@ impl TrainsApp {
                     color = Color32::from_rgb(0, 255, 255);
                     y_pos = base_pos.y + BAR_OFFSET;
                 }
+                StructureType::ElectricPole | StructureType::AtomicBattery => return Some(()),
             }
 
             painter.rect_filled(
@@ -312,6 +313,8 @@ impl TrainsApp {
                 StructureType::WaterPump => Color32::from_rgb(63, 127, 191),
                 StructureType::Boiler => Color32::from_rgb(255, 191, 127),
                 StructureType::SteamEngine => Color32::from_rgb(255, 127, 127),
+                StructureType::ElectricPole => Color32::from_rgb(255, 255, 63),
+                StructureType::AtomicBattery => Color32::from_rgb(63, 255, 63),
             }
         };
         let line_color = Color32::from_rgb(0, 63, 31);
@@ -331,8 +334,10 @@ impl TrainsApp {
             ));
         };
 
+        let scale = paint_transform.scale();
+
         // Render the real size with enough zoom
-        if 2. < paint_transform.scale() {
+        if 2. < scale {
             let s = orient.sin();
             let c = orient.cos();
             let rotate = |ofs: [f64; 2]| {
@@ -341,21 +346,25 @@ impl TrainsApp {
                 pos + paint_transform.to_vec2(Vec2::new(x, y))
             };
 
-            painter.add(PathShape::convex_polygon(
-                match ty {
-                    StructureType::Loader | StructureType::Unloader => {
-                        [[-4., -1.], [4., -1.], [4., 1.], [-4., 1.]]
+            if matches!(ty, StructureType::ElectricPole) {
+                painter.circle(pos, 0.2 * paint_transform.scale(), color, (1., line_color));
+            } else {
+                painter.add(PathShape::convex_polygon(
+                    match ty {
+                        StructureType::Loader | StructureType::Unloader => {
+                            [[-4., -1.], [4., -1.], [4., 1.], [-4., 1.]]
+                        }
+                        StructureType::Sink => [[-4., -4.], [4., -4.], [4., 4.], [-4., 4.]],
+                        StructureType::SteamEngine => [[-1., -2.], [1., -2.], [1., 2.], [-1., 2.]],
+                        _ => [[-1., -1.], [1., -1.], [1., 1.], [-1., 1.]],
                     }
-                    StructureType::Sink => [[-4., -4.], [4., -4.], [4., 4.], [-4., 4.]],
-                    StructureType::SteamEngine => [[-1., -2.], [1., -2.], [1., 2.], [-1., 2.]],
-                    _ => [[-1., -1.], [1., -1.], [1., 1.], [-1., 1.]],
-                }
-                .into_iter()
-                .map(rotate)
-                .collect(),
-                color,
-                (1., line_color),
-            ));
+                    .into_iter()
+                    .map(rotate)
+                    .collect(),
+                    color,
+                    (1., line_color),
+                ));
+            }
 
             for (pos, local_orient) in ty.input_ports() {
                 render_triangle(
@@ -375,7 +384,6 @@ impl TrainsApp {
                 );
             }
 
-            let scale = paint_transform.scale();
             for (local_pos, local_orient) in ty.pipes() {
                 let pos = pos
                     + paint_transform.to_vec2(
@@ -396,6 +404,16 @@ impl TrainsApp {
                 color,
             );
         }
+
+        if preview
+            && (matches!(ty, StructureType::ElectricPole) || ty.power_sink() || ty.power_source())
+        {
+            painter.circle_stroke(
+                pos,
+                MAX_WIRE_REACH as f32 * scale,
+                (2., Color32::from_rgb(255, 127, 0)),
+            );
+        }
     }
 
     pub(super) fn find_belt_con(&self, pos: Vec2, input: bool) -> (BeltConnection, Vec2) {
@@ -406,6 +424,11 @@ impl TrainsApp {
     pub(super) fn find_pipe_con(&self, pos: Vec2) -> (PipeConnection, Vec2) {
         self.structures
             .find_pipe_con(pos, SELECT_THRESHOLD / self.transform.scale() as f64)
+    }
+
+    pub(super) fn find_structure(&self, pos: Vec2) -> Option<StructureId> {
+        self.structures
+            .find_structure(pos, SELECT_THRESHOLD / self.transform.scale() as f64)
     }
 
     pub(super) fn preview_delete_structure(
@@ -450,6 +473,14 @@ impl TrainsApp {
                             Color32::from_rgb(255, 0, 255),
                         );
                     }
+                }
+                EntityId::Wire(from, to) => {
+                    self.render_wire(
+                        (from, to),
+                        Color32::from_rgb(255, 0, 255),
+                        painter,
+                        paint_transform,
+                    );
                 }
                 _ => {}
             }
@@ -717,6 +748,111 @@ impl TrainsApp {
                 Color32::from_rgb(255, 127, 191),
             );
         }
+    }
+
+    fn render_wire(
+        &self,
+        wire: (StructureId, StructureId),
+        color: Color32,
+        painter: &Painter,
+        paint_transform: &PaintTransform,
+    ) {
+        if let Some((start_st, end_st)) = self
+            .structures
+            .structures
+            .get(&wire.0)
+            .zip(self.structures.structures.get(&wire.1))
+        {
+            painter.line_segment(
+                [
+                    paint_transform.to_pos2(start_st.pos),
+                    paint_transform.to_pos2(end_st.pos),
+                ],
+                (2., color),
+            );
+        }
+    }
+
+    pub(super) fn render_wires(&mut self, painter: &Painter, paint_transform: &PaintTransform) {
+        let color = Color32::from_rgb(255, 127, 63);
+        for wire in &self.structures.power_wires {
+            self.render_wire((wire.0, wire.1), color, painter, paint_transform);
+        }
+    }
+
+    pub(super) fn preview_wire(
+        &mut self,
+        hover_pos: Option<Pos2>,
+        painter: &Painter,
+        paint_transform: &PaintTransform,
+    ) {
+        let Some(pointer) = hover_pos else {
+            return;
+        };
+        let Some((start_pos, start_id)) = self.wire_start else {
+            if let Some(start_st) = self.find_structure(paint_transform.from_pos2(pointer))
+                && let Some(st) = self.structures.find_by_id(start_st)
+            {
+                let st_pos = paint_transform.to_pos2(st.pos);
+                painter.rect_filled(
+                    Rect::from_center_size(st_pos, vec2(STRUCTURE_ICON_SIZE, STRUCTURE_ICON_SIZE)),
+                    0.,
+                    Color32::from_rgb(255, 127, 191),
+                );
+            }
+            return;
+        };
+        let mut end_pos = paint_transform.from_pos2(pointer);
+        let mut end_pos2 = pointer;
+        let end_id = self.find_structure(end_pos);
+        if let Some(end_id) = end_id
+            && end_id != start_id
+            && let Some(st) = self.structures.find_by_id(end_id)
+        {
+            end_pos = st.pos;
+            end_pos2 = paint_transform.to_pos2(st.pos);
+            painter.rect_filled(
+                Rect::from_center_size(end_pos2, vec2(STRUCTURE_ICON_SIZE, STRUCTURE_ICON_SIZE)),
+                0.,
+                Color32::from_rgb(255, 127, 191),
+            );
+        }
+        let color = if (end_pos - start_pos).length2() < MAX_WIRE_REACH.powi(2)
+            && !intersects_water(start_pos, end_pos, &self.heightmap)
+            && !exceeds_slope(start_pos, end_pos, &self.heightmap)
+        {
+            Color32::from_rgba_premultiplied(255, 255, 63, 192)
+        } else {
+            Color32::RED
+        };
+        painter.line_segment([paint_transform.to_pos2(start_pos), end_pos2], (2., color));
+    }
+
+    pub(super) fn try_add_wire(
+        &mut self,
+        pointer: Pos2,
+        paint_transform: &PaintTransform,
+    ) -> Result<(), String> {
+        let clicked_pos = paint_transform.from_pos2(pointer);
+        let Some((wire_start, start_st)) = self.wire_start else {
+            if let Some(start_st) = self.find_structure(clicked_pos)
+                && let Some(st) = self.structures.find_by_id(start_st)
+            {
+                self.wire_start = Some((st.pos, start_st));
+            } else {
+                return Err("Select a structure to start the wire from".to_string());
+            }
+            return Ok(());
+        };
+        if MAX_WIRE_REACH.powi(2) < (wire_start - clicked_pos).length2() {
+            return Err("Wire is too long!".to_string());
+        }
+        let Some(end_st) = self.find_structure(clicked_pos) else {
+            return Err("Select a structure to connect the wire".to_string());
+        };
+        self.structures.add_wire(start_st, end_st);
+        self.wire_start = None;
+        Ok(())
     }
 }
 
