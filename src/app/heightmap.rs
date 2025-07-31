@@ -213,11 +213,11 @@ impl HeightMap {
 
         let map: Vec<_> = (0..TILE_WITH_MARGIN_SIZE.pow(2))
             .map(|i| {
-                let ix = ((i % TILE_WITH_MARGIN_SIZE) as i32
-                    + key.pos[0] * TILE_WITH_MARGIN_SIZE as i32) as f64
+                let ix = ((i % TILE_WITH_MARGIN_SIZE) as i32 + key.pos[0] * TILE_SIZE as i32)
+                    as f64
                     * HEIGHTMAP_LEVEL_SCALE.powi(key.level as i32);
-                let iy = ((i / TILE_WITH_MARGIN_SIZE) as i32
-                    + key.pos[1] * TILE_WITH_MARGIN_SIZE as i32) as f64
+                let iy = ((i / TILE_WITH_MARGIN_SIZE) as i32 + key.pos[1] * TILE_SIZE as i32)
+                    as f64
                     * HEIGHTMAP_LEVEL_SCALE.powi(key.level as i32);
                 let pos = crate::vec2::Vec2::new(ix as f64, iy as f64);
                 let Value::Scalar(eval_res) = run(&ast, &pos)? else {
