@@ -260,11 +260,32 @@ fn eval_fn(name: &str, args: &[Value], fn_ctx: Option<&FnContext>) -> Result<Val
                 return Err("softclamp only supports 2 scalar arguments".to_string());
             }
         }
+        "abs" => {
+            if let Some(Value::Scalar(val)) = args.get(0) {
+                Value::Scalar(val.abs())
+            } else {
+                return Err("abs only supports 2 scalar arguments".to_string());
+            }
+        }
         "softabs" => {
             if let Some([Value::Scalar(val), Value::Scalar(rounding)]) = args.get(..2) {
                 Value::Scalar(softabs(*val, *rounding))
             } else {
                 return Err("softabs only supports 2 scalar arguments".to_string());
+            }
+        }
+        "min" => {
+            if let Some([Value::Scalar(lhs), Value::Scalar(rhs)]) = args.get(..2) {
+                Value::Scalar(lhs.min(*rhs))
+            } else {
+                return Err("min only supports 2 scalar arguments".to_string());
+            }
+        }
+        "max" => {
+            if let Some([Value::Scalar(lhs), Value::Scalar(rhs)]) = args.get(..2) {
+                Value::Scalar(lhs.max(*rhs))
+            } else {
+                return Err("max only supports 2 scalar arguments".to_string());
             }
         }
         "softmax" => {
