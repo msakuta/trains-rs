@@ -723,9 +723,13 @@ fn render_grid(
 
 /// A function that converges to max(a, b) when the ratio of a and b are great,
 /// but acts as a smooth interpolation between them when they are similar.
+/// If either input is negative, it works as max.
 /// No, it doesn't help to avoid sharp edges, but it helps to blend 2 heightmaps without clear gaps.
 fn softmax(a: f64, b: f64) -> f64 {
-    let denom = a + b;
+    if a <= 0. || b <= 0. {
+        return a.max(b);
+    }
+    let denom = (a + b).max(1e-3);
     (a * a + b * b) / denom
 }
 
