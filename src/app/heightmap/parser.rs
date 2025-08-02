@@ -291,3 +291,39 @@ fn test_primary_variable() {
         ),)]
     );
 }
+
+#[test]
+fn test_add() {
+    let src = "a + b * 10";
+    let ast = parse(src).unwrap();
+    assert_eq!(
+        ast,
+        vec![Stmt::Expr(Expr::Add(
+            Box::new(Expr::Variable("a".to_string())),
+            Box::new(Expr::Mul(
+                Box::new(Expr::Variable("b".to_string())),
+                Box::new(Expr::Literal(10.))
+            ))
+        ),)]
+    );
+}
+
+#[test]
+fn test_fn_add() {
+    let src = "softmax(a,10) + b * 10";
+    let ast = parse(src).unwrap();
+    assert_eq!(
+        ast,
+        vec![Stmt::Expr(Expr::Add(
+            Box::new(Expr::FnInvoke(
+                "softmax".to_string(),
+                vec![Expr::Variable("a".to_string()), Expr::Literal(10.)],
+                FnContext::new()
+            ),),
+            Box::new(Expr::Mul(
+                Box::new(Expr::Variable("b".to_string())),
+                Box::new(Expr::Literal(10.))
+            ))
+        ),)]
+    );
+}

@@ -29,7 +29,7 @@ pub(super) enum Stmt {
 
 pub(super) type Ast = Vec<Stmt>;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(super) enum Value {
     Scalar(f64),
     Vec2(Vec2<f64>),
@@ -143,13 +143,9 @@ fn precompute_bin_op(
     rng: &mut Xorshift64Star,
     process: impl Fn(Value, Value) -> Result<Value, String>,
 ) -> Result<Option<Value>, String> {
-    let Some(lhs) = precompute_expr(lhs, constants, rng)? else {
-        return Ok(None);
-    };
-    let Some(rhs) = precompute_expr(rhs, constants, rng)? else {
-        return Ok(None);
-    };
-    Ok(Some(process(lhs, rhs)?))
+    let lhs = precompute_expr(lhs, constants, rng)?;
+    let rhs = precompute_expr(rhs, constants, rng)?;
+    lhs.zip(rhs).map(|(lhs, rhs)| process(lhs, rhs)).transpose()
 }
 
 pub(super) fn run(ast: &Ast, x: &Vec2<f64>) -> Result<Value, String> {
